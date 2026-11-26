@@ -63,10 +63,11 @@ provider "azurerm" {
 
 locals {
   gcp_pilot_nodes = {
-    "gcp-us-west1-oregon"        = { region = "us-west1", zone = "us-west1-b", cidr = "10.210.1.0/24", machine = "n2d-standard-2", lat = 45.5946, lon = -121.1787, city = "The Dalles, OR, USA" }
-    "gcp-us-east4-ashburn"       = { region = "us-east4", zone = "us-east4-a", cidr = "10.210.2.0/24", machine = "n2d-standard-2", lat = 39.0438, lon = -77.4874, city = "Ashburn, VA, USA" }
-    "gcp-europe-west3-frankfurt" = { region = "europe-west3", zone = "europe-west3-a", cidr = "10.210.3.0/24", machine = "n2d-standard-2", lat = 50.1109, lon = 8.6821, city = "Frankfurt, Germany" }
-    "gcp-asia-northeast1-tokyo"  = { region = "asia-northeast1", zone = "asia-northeast1-a", cidr = "10.210.4.0/24", machine = "n2d-standard-2", lat = 35.6762, lon = 139.6503, city = "Tokyo, Japan" }
+    "gcp-us-west1-oregon"           = { region = "us-west1", zone = "us-west1-a", cidr = "10.210.1.0/24", machine = "c3-standard-4", tee = "TDX", min_cpu = null, lat = 45.5946, lon = -121.1787, city = "The Dalles, OR, USA" }
+    "gcp-us-central1-iowa"          = { region = "us-central1", zone = "us-central1-a", cidr = "10.210.5.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 41.2619, lon = -95.8608, city = "Council Bluffs, IA, USA" }
+    "gcp-us-east4-ashburn"          = { region = "us-east4", zone = "us-east4-a", cidr = "10.210.2.0/24", machine = "c3-standard-4", tee = "TDX", min_cpu = null, lat = 39.0438, lon = -77.4874, city = "Ashburn, VA, USA" }
+    "gcp-europe-west3-frankfurt"    = { region = "europe-west3", zone = "europe-west3-a", cidr = "10.210.3.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 50.1109, lon = 8.6821, city = "Frankfurt, Germany" }
+    "gcp-asia-southeast1-singapore" = { region = "asia-southeast1", zone = "asia-southeast1-a", cidr = "10.210.6.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 1.3521, lon = 103.8198, city = "Jurong West, Singapore" }
   }
 }
 
@@ -110,7 +111,7 @@ resource "google_compute_instance" "gcp_nodes" {
   for_each         = local.gcp_pilot_nodes
   name             = each.key
   machine_type     = each.value.machine
-  min_cpu_platform = "AMD Milan"
+  min_cpu_platform = each.value.min_cpu
   zone             = each.value.zone
   tags             = ["pog-pilot", each.key]
 
@@ -120,7 +121,7 @@ resource "google_compute_instance" "gcp_nodes" {
   }
 
   confidential_instance_config {
-    confidential_instance_type = "SEV_SNP"
+    confidential_instance_type = each.value.tee
   }
 
   scheduling {
@@ -152,6 +153,7 @@ resource "google_compute_instance" "gcp_nodes" {
       cloud_provider      = "gcp"
       release_tarball_url = var.release_tarball_url
       ssh_public_key      = var.ssh_public_key
+      extra_flags         = "--allow-dev-prover"
     })
   }
 }
@@ -257,6 +259,7 @@ resource "azurerm_linux_virtual_machine" "azure_node" {
     cloud_provider      = "azure"
     release_tarball_url = var.release_tarball_url
     ssh_public_key      = var.ssh_public_key
+    extra_flags         = "--allow-dev-prover"
   }))
 
   admin_ssh_key {

@@ -110,21 +110,18 @@ resource "aws_instance" "anchor" {
   associate_public_ip_address = true
   key_name                    = aws_key_pair.pilot.key_name
 
-  cpu_options {
-    amd_sev_snp = "enabled"
-  }
-
   user_data = templatefile("${path.module}/../cloud-init-pilot.yaml", {
     anchor_id           = var.anchor_id
     cloud_provider      = "aws"
     release_tarball_url = var.release_tarball_url
     ssh_public_key      = var.ssh_public_key
+    extra_flags         = "--allow-dev-tee --allow-dev-prover"
   })
 
   tags = {
     Name    = var.anchor_id
     Project = "proof-of-geography-pilot"
-    TeeMode = "amd-sev-snp"
+    TeeMode = "aws-isolated-pilot"
   }
 }
 

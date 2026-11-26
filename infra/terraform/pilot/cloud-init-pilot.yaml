@@ -23,7 +23,7 @@ write_files:
 
       [Service]
       Type=simple
-      ExecStart=/usr/local/bin/pog-anchor --anchor-id ${anchor_id} --cloud-provider ${cloud_provider} --tcp-listen 0.0.0.0:7443 --udp-bind 0.0.0.0:7444 --http-info-listen 0.0.0.0:7445 --allow-dev-prover
+      ExecStart=/usr/local/bin/pog-anchor --anchor-id ${anchor_id} --cloud-provider ${cloud_provider} --tcp-listen 0.0.0.0:7443 --udp-bind 0.0.0.0:7444 --http-info-listen 0.0.0.0:7445 ${extra_flags}
       Restart=always
       RestartSec=2
       CPUSchedulingPolicy=fifo
