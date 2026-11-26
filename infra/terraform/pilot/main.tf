@@ -24,7 +24,13 @@ variable "gcp_project_id" {
 
 variable "release_tarball_url" {
   type    = string
-  default = "https://github.com/jperla/proof-of-geography/releases/download/v0.1.1/pog-linux-x86_64.tar.gz"
+  default = "https://github.com/jperla/proof-of-geography/releases/download/v0.1.2/pog-linux-x86_64.tar.gz"
+}
+
+variable "allow_ssh" {
+  type        = bool
+  default     = false
+  description = "Keep false in public mode (zero public SSH attack surface!)"
 }
 
 variable "ssh_public_key" {
@@ -85,19 +91,61 @@ resource "google_compute_subnetwork" "pog_subnets" {
 }
 
 resource "google_compute_firewall" "pog_ingress" {
-  name    = "pog-isolated-ingress"
-  network = google_compute_network.pog_isolated_vpc.id
+  name      = "pog-isolated-ingress"
+  network   = google_compute_network.pog_isolated_vpc.id
+  direction = "INGRESS"
 
   allow {
     protocol = "tcp"
-    ports    = ["22", "7443", "7445"]
+    ports    = var.allow_ssh ? ["22", "7443", "7445"] : ["7443", "7445"]
   }
+  allow {
+    protocol = "udp"
+    ports    = ["40000-40999"]
+  }
+  source_ranges = ["0.0.0.0/0"]
+  target_tags   = ["pog-pilot"]
+}
+
+# Strict egress lockdown: Anchors NEVER need to reach cloud metadata or initiate outbound TCP scans.
+resource "google_compute_firewall" "pog_egress_deny_private" {
+  name               = "pog-isolated-egress-deny-private"
+  network            = google_compute_network.pog_isolated_vpc.id
+  direction          = "EGRESS"
+  priority           = 900
+  destination_ranges = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16"]
+  target_tags        = ["pog-pilot"]
+
+  deny {
+    protocol = "all"
+  }
+}
+
+resource "google_compute_firewall" "pog_egress_allow_udp" {
+  name               = "pog-isolated-egress-allow-udp"
+  network            = google_compute_network.pog_isolated_vpc.id
+  direction          = "EGRESS"
+  priority           = 1000
+  destination_ranges = ["0.0.0.0/0"]
+  target_tags        = ["pog-pilot"]
+
   allow {
     protocol = "udp"
     ports    = ["1024-65535"]
   }
-  source_ranges = ["0.0.0.0/0"]
-  target_tags   = ["pog-pilot"]
+}
+
+resource "google_compute_firewall" "pog_egress_deny_all" {
+  name               = "pog-isolated-egress-deny-all"
+  network            = google_compute_network.pog_isolated_vpc.id
+  direction          = "EGRESS"
+  priority           = 65500
+  destination_ranges = ["0.0.0.0/0"]
+  target_tags        = ["pog-pilot"]
+
+  deny {
+    protocol = "all"
+  }
 }
 
 resource "google_compute_address" "gcp_ips" {
@@ -108,12 +156,24 @@ resource "google_compute_address" "gcp_ips" {
 }
 
 resource "google_compute_instance" "gcp_nodes" {
-  for_each         = local.gcp_pilot_nodes
-  name             = each.key
-  machine_type     = each.value.machine
-  min_cpu_platform = each.value.min_cpu
-  zone             = each.value.zone
-  tags             = ["pog-pilot", each.key]
+  for_each                  = local.gcp_pilot_nodes
+  name                      = each.key
+  machine_type              = each.value.machine
+  min_cpu_platform          = each.value.min_cpu
+  zone                      = each.value.zone
+  tags                      = ["pog-pilot", each.key]
+  allow_stopping_for_update = true
+
+  # Zero IAM service account attached -> IMDS cannot yield any GCP credentials even if compromised!
+  service_account {
+    scopes = []
+  }
+
+  shielded_instance_config {
+    enable_secure_boot          = true
+    enable_vtpm                 = true
+    enable_integrity_monitoring = true
+  }
 
   labels = {
     project = "proof-of-geography-pilot"

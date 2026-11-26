@@ -9,6 +9,10 @@ terraform {
 variable "anchor_id" { type = string }
 variable "ssh_public_key" { type = string }
 variable "release_tarball_url" { type = string }
+variable "allow_ssh" {
+  type    = bool
+  default = false
+}
 
 data "aws_ami" "ubuntu_2404" {
   most_recent = true
@@ -60,14 +64,17 @@ resource "aws_route_table_association" "rta" {
 
 resource "aws_security_group" "sg" {
   name        = "pog-isolated-sg-${var.anchor_id}"
-  description = "Isolated Proof of Geography Anchor SG"
+  description = "Locked-down Isolated Proof of Geography Anchor SG"
   vpc_id      = aws_vpc.isolated.id
 
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  dynamic "ingress" {
+    for_each = var.allow_ssh ? [1] : []
+    content {
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
   ingress {
     from_port   = 7443
@@ -82,15 +89,16 @@ resource "aws_security_group" "sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
   ingress {
-    from_port   = 1024
-    to_port     = 65535
+    from_port   = 40000
+    to_port     = 40999
     protocol    = "udp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+  # Stateful SG automatically allows return TCP replies on 7443/7445; block all outbound TCP scans!
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    from_port   = 1024
+    to_port     = 65535
+    protocol    = "udp"
     cidr_blocks = ["0.0.0.0/0"]
   }
   tags = { Project = "proof-of-geography-pilot" }
@@ -109,6 +117,13 @@ resource "aws_instance" "anchor" {
   vpc_security_group_ids      = [aws_security_group.sg.id]
   associate_public_ip_address = true
   key_name                    = aws_key_pair.pilot.key_name
+
+  # Completely disable EC2 Instance Metadata Service (IMDS) -> zero metadata attack surface!
+  metadata_options {
+    http_endpoint               = "disabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+  }
 
   user_data = templatefile("${path.module}/../cloud-init-pilot.yaml", {
     anchor_id           = var.anchor_id

@@ -7,27 +7,53 @@ users:
       - ${ssh_public_key}
 
 write_files:
-  - path: /etc/sysctl.d/99-pog-lowlatency.conf
+  - path: /etc/sysctl.d/99-pog-hardened.conf
     content: |
+      # Low-latency UDP tuning
       net.core.busy_poll = 50
       net.core.busy_read = 50
       net.core.rmem_max = 16777216
       net.core.wmem_max = 16777216
+      # Anti-DDoS & kernel network hardening
+      net.ipv4.tcp_syncookies = 1
+      net.ipv4.tcp_max_syn_backlog = 4096
+      net.ipv4.conf.all.rp_filter = 1
+      net.ipv4.conf.default.rp_filter = 1
+      net.ipv4.conf.all.accept_redirects = 0
+      net.ipv4.conf.all.send_redirects = 0
+      net.ipv4.conf.all.accept_source_route = 0
+      net.ipv4.icmp_echo_ignore_broadcasts = 1
+      kernel.kptr_restrict = 2
+      kernel.dmesg_restrict = 1
 
   - path: /etc/systemd/system/pog-anchor.service
     content: |
       [Unit]
-      Description=Proof of Geography Anchor TEE Daemon (${anchor_id})
+      Description=Hardened Proof of Geography Anchor TEE Daemon (${anchor_id})
       After=network-online.target
       Wants=network-online.target
 
       [Service]
       Type=simple
-      ExecStart=/usr/local/bin/pog-anchor --anchor-id ${anchor_id} --cloud-provider ${cloud_provider} --tcp-listen 0.0.0.0:7443 --udp-bind 0.0.0.0:7444 --http-info-listen 0.0.0.0:7445 ${extra_flags}
+      ExecStart=/usr/local/bin/pog-anchor --anchor-id ${anchor_id} --cloud-provider ${cloud_provider} --tcp-listen 0.0.0.0:7443 --udp-bind 0.0.0.0:7444 --udp-port-min 40000 --udp-port-max 40999 --http-info-listen 0.0.0.0:7445 --max-concurrent 64 --max-per-ip-per-min 12 --max-global-per-min 600 ${extra_flags}
       Restart=always
       RestartSec=2
-      CPUSchedulingPolicy=fifo
-      CPUSchedulingPriority=50
+      # Strict systemd sandboxing (defense-in-depth)
+      NoNewPrivileges=yes
+      ProtectSystem=strict
+      ProtectHome=yes
+      PrivateTmp=yes
+      ProtectKernelTunables=yes
+      ProtectKernelModules=yes
+      ProtectControlGroups=yes
+      RestrictNamespaces=yes
+      LockPersonality=yes
+      MemoryDenyWriteExecute=yes
+      RestrictAddressFamilies=AF_INET AF_INET6
+      ReadWritePaths=-/dev/sev-guest -/sys/kernel/config/tsm/report
+      MemoryMax=256M
+      LimitNOFILE=4096
+      TasksMax=256
 
       [Install]
       WantedBy=multi-user.target
@@ -37,5 +63,13 @@ runcmd:
   - curl -fsSL "${release_tarball_url}" -o /tmp/pog-linux-x86_64.tar.gz
   - tar -xzf /tmp/pog-linux-x86_64.tar.gz -C /usr/local/bin/
   - chmod +x /usr/local/bin/pog-anchor /usr/local/bin/pog-prover /usr/local/bin/pog-cli
+  - rm -f /tmp/pog-linux-x86_64.tar.gz
+  - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+  - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - systemctl reload ssh || true
+  - iptables -A OUTPUT -d 169.254.169.254/32 -j DROP || true
+  - iptables -A OUTPUT -d 10.0.0.0/8 -m state --state NEW -j DROP || true
+  - iptables -A OUTPUT -d 172.16.0.0/12 -m state --state NEW -j DROP || true
+  - iptables -A OUTPUT -d 192.168.0.0/16 -m state --state NEW -j DROP || true
   - systemctl daemon-reload
   - systemctl enable --now pog-anchor.service

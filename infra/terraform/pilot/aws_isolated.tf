@@ -26,6 +26,7 @@ module "aws_isolated_us_west_1" {
   anchor_id           = "aws-us-west-1-sanjose"
   ssh_public_key      = var.ssh_public_key
   release_tarball_url = var.release_tarball_url
+  allow_ssh           = var.allow_ssh
 }
 
 module "aws_isolated_us_east_1" {
@@ -34,6 +35,7 @@ module "aws_isolated_us_east_1" {
   anchor_id           = "aws-us-east-1-nvirginia"
   ssh_public_key      = var.ssh_public_key
   release_tarball_url = var.release_tarball_url
+  allow_ssh           = var.allow_ssh
 }
 
 module "aws_isolated_eu_central_1" {
@@ -42,6 +44,7 @@ module "aws_isolated_eu_central_1" {
   anchor_id           = "aws-eu-central-1-frankfurt"
   ssh_public_key      = var.ssh_public_key
   release_tarball_url = var.release_tarball_url
+  allow_ssh           = var.allow_ssh
 }
 
 module "aws_isolated_ap_northeast_1" {
@@ -50,6 +53,7 @@ module "aws_isolated_ap_northeast_1" {
   anchor_id           = "aws-ap-northeast-1-tokyo"
   ssh_public_key      = var.ssh_public_key
   release_tarball_url = var.release_tarball_url
+  allow_ssh           = var.allow_ssh
 }
 
 locals {
