@@ -24,7 +24,7 @@ variable "gcp_project_id" {
 
 variable "release_tarball_url" {
   type    = string
-  default = "https://github.com/jperla/proof-of-geography/releases/download/v0.1.0/pog-linux-x86_64.tar.gz"
+  default = "https://github.com/jperla/proof-of-geography/releases/download/v0.1.1/pog-linux-x86_64.tar.gz"
 }
 
 variable "ssh_public_key" {
@@ -107,11 +107,12 @@ resource "google_compute_address" "gcp_ips" {
 }
 
 resource "google_compute_instance" "gcp_nodes" {
-  for_each     = local.gcp_pilot_nodes
-  name         = each.key
-  machine_type = each.value.machine
-  zone         = each.value.zone
-  tags         = ["pog-pilot", each.key]
+  for_each         = local.gcp_pilot_nodes
+  name             = each.key
+  machine_type     = each.value.machine
+  min_cpu_platform = "AMD Milan"
+  zone             = each.value.zone
+  tags             = ["pog-pilot", each.key]
 
   labels = {
     project = "proof-of-geography-pilot"
