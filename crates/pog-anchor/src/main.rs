@@ -1,4 +1,5 @@
 use anyhow::Result;
+use axum::{extract::State as AxumState, routing::get, Json, Router};
 use chrono::Utc;
 use clap::Parser;
 use ed25519_dalek::SigningKey;
@@ -31,6 +32,9 @@ struct Args {
     tcp_listen: SocketAddr,
     #[arg(long, default_value = "0.0.0.0:7444")]
     udp_bind: SocketAddr,
+    /// Public HTTP metadata endpoint (/info, /health) used to collect hardware-attested Anchor keys at deploy time.
+    #[arg(long, default_value = "0.0.0.0:7445")]
+    http_info_listen: SocketAddr,
     #[arg(long, default_value_t = false)]
     allow_dev_tee: bool,
     /// Optional hex seed (32 bytes) for deterministic test keypairs; random OS entropy in production.
@@ -97,6 +101,20 @@ async fn main() -> Result<()> {
         tee_provider,
         tee_policy,
         udp_bind: args.udp_bind,
+    });
+
+    // Spawn lightweight HTTP /info & /health endpoint for automated 24-node registry bootstrapping.
+    let info_state = Arc::clone(&state);
+    let info_listen = args.http_info_listen;
+    tokio::spawn(async move {
+        let app = Router::new()
+            .route("/health", get(|| async { Json(serde_json::json!({ "status": "ok" })) }))
+            .route("/info", get(anchor_info_handler))
+            .with_state(info_state);
+        if let Ok(listener) = TcpListener::bind(info_listen).await {
+            info!(http_info = %info_listen, "Anchor HTTP /info endpoint ready");
+            let _ = axum::serve(listener, app).await;
+        }
     });
 
     let listener = TcpListener::bind(args.tcp_listen).await?;
@@ -236,4 +254,23 @@ async fn handle_prover_session(
         "Issued signed AnchorReceipt"
     );
     Ok(())
+}
+
+async fn anchor_info_handler(
+    AxumState(state): AxumState<Arc<AnchorState>>,
+) -> Json<serde_json::Value> {
+    let pk_bytes = state.signing_key.verifying_key().to_bytes();
+    let nonce = format!("anchor-bootstrap-{}", Utc::now().timestamp() / 60);
+    let quote = state
+        .tee_provider
+        .attest(&pk_bytes, nonce.as_bytes(), None)
+        .ok();
+    Json(serde_json::json!({
+        "anchor_id": state.anchor_id,
+        "cloud_provider": state.cloud_provider,
+        "tee_vendor": state.tee_provider.vendor(),
+        "public_key_hex": hex::encode(pk_bytes),
+        "bootstrap_nonce": nonce,
+        "tee_quote": quote,
+    }))
 }

@@ -9,7 +9,11 @@ variable "tee_mode" {
   default     = "sev_snp"
   description = "sev_snp (direct ENA NIC, ~30us) or nitro (all AWS regions, ~300us vsock)"
 }
-variable "ami_id" { type = string }
+variable "ami_id" {
+  type        = string
+  default     = ""
+  description = "Optional custom AMI; defaults to latest Canonical Ubuntu 24.04 LTS x86_64"
+}
 variable "tcp_port" {
   type    = number
   default = 7443
@@ -18,7 +22,25 @@ variable "udp_port" {
   type    = number
   default = 7444
 }
+variable "info_port" {
+  type    = number
+  default = 7445
+}
 variable "user_data" { type = string }
+
+data "aws_ami" "ubuntu_2404" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
+  }
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
 
 resource "aws_security_group" "anchor_sg" {
   name        = "${var.anchor_id}-sg"
@@ -27,6 +49,12 @@ resource "aws_security_group" "anchor_sg" {
   ingress {
     from_port   = var.tcp_port
     to_port     = var.tcp_port
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = var.info_port
+    to_port     = var.info_port
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -45,7 +73,7 @@ resource "aws_security_group" "anchor_sg" {
 }
 
 resource "aws_instance" "anchor" {
-  ami                         = var.ami_id
+  ami                         = var.ami_id != "" ? var.ami_id : data.aws_ami.ubuntu_2404.id
   instance_type               = var.instance_type
   vpc_security_group_ids      = [aws_security_group.anchor_sg.id]
   associate_public_ip_address = true

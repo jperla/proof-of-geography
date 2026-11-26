@@ -2,7 +2,8 @@ use crate::committee::AnchorGrid;
 use crate::wire::{AnchorReceipt, ProtoError};
 use base64::Engine;
 use pog_geo::{
-    verify_byzantine_core, BoundTier, ByzantineCoreResult, DiskConstraint, LatLon,
+    estimate_probabilistic_location, verify_byzantine_core, BoundTier, ByzantineCoreResult,
+    DiskConstraint, LatLon, ProbabilisticGeoEstimate,
 };
 use pog_tee::{verify_quote, AttestationPolicy, TeeAttestationQuote, VerifiedTeeIdentity};
 use serde::{Deserialize, Serialize};
@@ -102,6 +103,8 @@ pub struct ProofVerificationReport {
     pub tier1a_vacuum: ByzantineCoreResult,
     pub tier1b_fiber: ByzantineCoreResult,
     pub tier2_calibrated: ByzantineCoreResult,
+    /// IPinfo / Spotter-style probabilistic MLE + 68%/95% confidence radii over calibrated internet.
+    pub probabilistic_estimate: ProbabilisticGeoEstimate,
 }
 
 /// Fully verify a `GeoProofBundle` offline against a trusted `AnchorGrid` and `VerificationPolicy`.
@@ -140,8 +143,10 @@ pub fn verify_proof_bundle(
     let mut fiber_disks = Vec::new();
     let mut cal_disks = Vec::new();
 
-    let cal_tier = BoundTier::Calibrated {
-        effective_km_per_s: bundle.calibrated_velocity_km_per_s.unwrap_or(145_000.0),
+    let cal_v = bundle.calibrated_velocity_km_per_s.unwrap_or(162_000.0);
+    let cal_tier = BoundTier::CalibratedLinear {
+        effective_km_per_s: cal_v,
+        fixed_overhead_us: 600,
     };
 
     for r in &bundle.receipts {
@@ -250,7 +255,9 @@ pub fn verify_proof_bundle(
     let enforced_ok = match policy.enforce_tier {
         BoundTier::Vacuum => tier1a_vacuum.contained_within_target,
         BoundTier::Fiber => tier1b_fiber.contained_within_target,
-        BoundTier::Calibrated { .. } => tier2_calibrated.contained_within_target,
+        BoundTier::Calibrated { .. } | BoundTier::CalibratedLinear { .. } => {
+            tier2_calibrated.contained_within_target
+        }
     };
 
     if !enforced_ok {
@@ -260,11 +267,20 @@ pub fn verify_proof_bundle(
             match policy.enforce_tier {
                 BoundTier::Vacuum => tier1a_vacuum.proven_max_radius_km,
                 BoundTier::Fiber => tier1b_fiber.proven_max_radius_km,
-                BoundTier::Calibrated { .. } => tier2_calibrated.proven_max_radius_km,
+                BoundTier::Calibrated { .. } | BoundTier::CalibratedLinear { .. } => {
+                    tier2_calibrated.proven_max_radius_km
+                }
             },
             bundle.required_radius_km
         ));
     }
+
+    let probabilistic_estimate = estimate_probabilistic_location(
+        &fiber_disks,
+        tier2_calibrated.witness_centroid,
+        154_000.0, // typical calibrated regional internet mean (~1.32x fiber stretch)
+        800,
+    );
 
     Ok(ProofVerificationReport {
         overall_valid: failure_reasons.is_empty(),
@@ -275,5 +291,6 @@ pub fn verify_proof_bundle(
         tier1a_vacuum,
         tier1b_fiber,
         tier2_calibrated,
+        probabilistic_estimate,
     })
 }

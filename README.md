@@ -123,29 +123,62 @@ Defined in [config/global_grid_24.json](config/global_grid_24.json) and provisio
 
 ---
 
-## Quickstart
+## Client Verifier SDKs (Zero External Dependencies)
+
+Inference clients, API gateways, and compliance auditors can verify `X-PoG-Proof` handshake headers offline in **Rust, TypeScript, Python, or Go** with zero third-party packages:
+
+* **TypeScript / Node 20+** ([sdks/typescript](sdks/typescript/src/index.ts)): uses native `node:crypto` (`sha256` + `ed25519`)
+  ```ts
+  import { verifyProof } from "./sdks/typescript/src/index.ts";
+  const report = verifyProof(res.headers.get("X-PoG-Proof")!, anchorGrid);
+  if (!report.overallValid) throw new Error(report.failureReasons.join("; "));
+  ```
+* **Python 3.10+** ([sdks/python](sdks/python/pog_verifier/verifier.py)): pure-Python RFC 8032 Ed25519 fallback (auto-accelerates if `cryptography` is installed)
+  ```python
+  from pog_verifier import verify_proof
+  report = verify_proof(response.headers["X-PoG-Proof"], anchor_grid)
+  assert report.overall_valid
+  ```
+* **Go 1.22+** ([sdks/go](sdks/go/verifier.go)): 100% Go standard library (`crypto/ed25519`, `crypto/sha256`)
+
+---
+
+## Precision: Getting Down to 25–150 Miles
+
+| Location Type | Tier 1A Hard Vacuum ($f=1$, Starlink-safe) | Tier 1B Hard Fiber ($f=1$) | Tier 2 Calibrated Linear Bestline | IPinfo-Style 68% Confidence (MLE) |
+| :--- | :---: | :---: | :---: | :---: |
+| **Major Metro Hubs** *(Tokyo, Ashburn, Frankfurt, Singapore, Oregon, London — 2+ local cross-cloud Anchors)* | **~100 mi** (162 km) | **~69 mi** (111 km) | **~26–55 mi** (41–90 km) | **~45 mi** (75 km) |
+| **Non-Hub Cities on 24-Node Grid** *(e.g. Chicago — nearest Anchors 435–595 mi away)* | ~600–850 mi | ~518 mi (24h converged) | ~350–640 mi ($f=1$) / ~150–250 mi ($f=0$) | **~90–150 mi** (150–240 km) |
+| **Densified 48–60 Node Regional Grid** *(~300–450 mi spacing across NA/EU/East Asia)* | ~250–350 mi | ~150–220 mi | **~80–150 mi** | **~35–90 mi** |
+
+---
+
+## Quickstart & Public Deployment
 
 ```bash
-# 1. Run full unit + live local UDP integration test suite
+# 1. Run full Rust + TypeScript + Go + Python test suites
 cargo test --workspace
+cargo run --release --bin pog-cli -- export-sdk-fixture
+(cd sdks/typescript && node --test ./test.ts)
+(cd sdks/go && go test -v ./...)
+(cd sdks/python && PYTHONPATH=. python3 -m unittest discover -v tests)
 
 # 2. Run the 6-scenario red-team & physics simulation suite
 cargo run --release --bin pog-cli -- simulate
 
-# 3. Run empirical crypto/verifier throughput & capacity benchmarks
-cargo run --release --bin pog-cli -- bench --verify-iters 5000
+# 3. Try the live local 4-Anchor network + interactive Web Playground (http://127.0.0.1:8090)
+./scripts/live_smoke_test.sh
 
-# 4. Export Tokyo Anchor circles & Byzantine (K-f)-core polygon to GeoJSON (view on geojson.io)
-cargo run --release --bin pog-cli -- export-geojson --lat 35.6762 --lon 139.6503 --out tokyo.geojson
-
-# 5. Start the DNS/CT-style transparency log server locally
-cargo run --release --bin pog-cli -- serve-log --listen 127.0.0.1:8090 --allow-dev-tee
+# 4. Deploy the real 24-node global grid on GCP + AWS + Azure (+ OVH/ByteDance/Tencent)
+#    See docs/DEPLOY_24_NODES.md for step-by-step cloud deployment
+./scripts/deploy_24_grid.sh <YOUR_GCP_PROJECT> <YOUR_AZURE_SUBSCRIPTION_ID>
 ```
 
 ---
 
 ## Further Reading
 
+* [docs/DEPLOY_24_NODES.md](docs/DEPLOY_24_NODES.md) — Step-by-step guide to launching the live 24-node grid & public web playground.
 * [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Protocol sequence, Starlink ISL crossover physics, and exact $O(K^3)$ Byzantine $(K-f)$-core proof.
 * [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) — 11 adversarial attack vectors (including proxies, split-TEEs, Starlink, mobile boats/aircraft, clock skew, and colluding clouds) and residual risks.
 * [docs/CAPACITY_AND_ECONOMICS.md](docs/CAPACITY_AND_ECONOMICS.md) — Detailed trillions-of-requests throughput math and 24-node multi-cloud operating costs.

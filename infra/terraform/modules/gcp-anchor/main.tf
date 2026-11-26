@@ -23,7 +23,7 @@ resource "google_compute_firewall" "anchor_fw" {
 
   allow {
     protocol = "tcp"
-    ports    = [tostring(var.tcp_port)]
+    ports    = [tostring(var.tcp_port), "7445"]
   }
   allow {
     protocol = "udp"

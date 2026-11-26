@@ -79,6 +79,13 @@ enum Commands {
         #[arg(long, default_value = "pog_tokyo.geojson")]
         out: PathBuf,
     },
+    /// Export cross-language SDK verification test vectors (real Ed25519-signed X-PoG-Proof headers).
+    ExportSdkFixture {
+        #[arg(long, default_value = "config/global_grid_24.json")]
+        grid: PathBuf,
+        #[arg(long, default_value = "sdks/testdata/fixture.json")]
+        out: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -104,6 +111,7 @@ async fn main() -> Result<()> {
             lon,
             out,
         } => run_export_geojson(&grid, LatLon::new(lat, lon), &out),
+        Commands::ExportSdkFixture { grid, out } => run_export_sdk_fixture(&grid, &out),
     }
 }
 
@@ -258,7 +266,8 @@ fn run_simulations(grid_path: &PathBuf) -> Result<()> {
     println!("    Anchors: {:?}", b1.receipts.iter().map(|r| format!("{} ({:.2}ms)", r.anchor_id, r.rtt_min_us as f64 / 1000.0)).collect::<Vec<_>>());
     println!("    Tier 1A (Vacuum / Starlink-safe): max radius = {:.1} km ({:.1} mi)", rep1.tier1a_vacuum.proven_max_radius_km, rep1.tier1a_vacuum.proven_max_radius_km * 0.621371);
     println!("    Tier 1B (Silica Fiber):           max radius = {:.1} km ({:.1} mi)", rep1.tier1b_fiber.proven_max_radius_km, rep1.tier1b_fiber.proven_max_radius_km * 0.621371);
-    println!("    Tier 2  (Calibrated Empirical):   max radius = {:.1} km ({:.1} mi)", rep1.tier2_calibrated.proven_max_radius_km, rep1.tier2_calibrated.proven_max_radius_km * 0.621371);
+    println!("    Tier 2  (Calibrated Bestline):    max radius = {:.1} km ({:.1} mi)", rep1.tier2_calibrated.proven_max_radius_km, rep1.tier2_calibrated.proven_max_radius_km * 0.621371);
+    println!("    IPinfo-Style Probabilistic 68%:   radius = {:.1} km ({:.1} mi) [MLE error {:.1} km]", rep1.probabilistic_estimate.confidence_68_radius_km, rep1.probabilistic_estimate.confidence_68_radius_km * 0.621371, rep1.probabilistic_estimate.mle_location.distance_km(tokyo));
     println!("    X-PoG-Proof handshake header size: {} bytes | Valid: {}\n", hdr_bytes, rep1.overall_valid);
 
     // -----------------------------------------------------------------------
@@ -471,10 +480,22 @@ fn run_simulations(grid_path: &PathBuf) -> Result<()> {
         .movement_report
         .converged_multi_hour_radius_km
         .unwrap_or(worst_single);
+    let cal_24h = status
+        .movement_report
+        .converged_calibrated_bestline_km
+        .unwrap_or(converged);
+    let prob = status
+        .movement_report
+        .converged_probabilistic
+        .as_ref()
+        .unwrap_or(&status.latest_verification.probabilistic_estimate);
+    let mle_err = prob.mle_location.distance_km(chicago);
     println!("[6] 24-HOUR CONTINUOUS STATIONARY ORTHOGONAL CONVERGENCE (Chicago, IL — no local anchor!)");
     println!("    Chain length: {} hourly links | Stationary: {}", status.chain_length, status.movement_report.stationary_confirmed);
     println!("    Worst congested single-hour Tier 1B (Fiber) radius: {:.1} km ({:.1} mi)", worst_single, worst_single * 0.621371);
-    println!("    24h Multi-Hour Min-RTT Converged Radius:            {:.1} km ({:.1} mi) [Tightened by {:.1}%!]", converged, converged * 0.621371, (1.0 - converged / worst_single) * 100.0);
+    println!("    24h Multi-Hour Min-RTT Converged Tier 1B (f=1):     {:.1} km ({:.1} mi) [Tightened by {:.1}%!]", converged, converged * 0.621371, (1.0 - converged / worst_single) * 100.0);
+    println!("    24h Calibrated Linear Bestline (Tier 2B, f=0):      {:.1} km ({:.1} mi)", cal_24h, cal_24h * 0.621371);
+    println!("    24h Calibrated Internet 68% Confidence (MLE):       {:.1} km ({:.1} mi) [MLE error {:.1} km / {:.1} mi!]", prob.confidence_68_radius_km, prob.confidence_68_radius_km * 0.621371, mle_err, mle_err * 0.621371);
 
     Ok(())
 }
@@ -708,5 +729,64 @@ fn run_export_geojson(grid_path: &PathBuf, target: LatLon, out: &PathBuf) -> Res
     });
     std::fs::write(out, serde_json::to_string_pretty(&geojson)?)?;
     println!("Wrote GeoJSON with {} features to {}", features.len(), out.display());
+    Ok(())
+}
+
+fn run_export_sdk_fixture(grid_path: &PathBuf, out: &PathBuf) -> Result<()> {
+    let (grid, keys) = hydrate_grid_with_live_keys(grid_path)?;
+    let now = 1_764_000_000u64;
+    let tokyo = LatLon::new(35.6762, 139.6503);
+    let beijing = LatLon::new(39.9042, 116.4074);
+    let singapore = LatLon::new(1.3521, 103.8198);
+
+    let honest_kp = WorkloadKeypair::generate();
+    let honest_bundle = build_signed_bundle(
+        &grid,
+        &keys,
+        &honest_kp,
+        SimBundleSpec {
+            true_location: tokyo,
+            claimed_location: tokyo,
+            required_radius_km: 300.0,
+            epoch_label: "sdk-fixture-tokyo",
+            seq: 0,
+            prev_hash: None,
+            now_unix_s: now,
+            stretch: 1.32,
+            overhead_ms: 1.0,
+            colluding_anchor_override: None,
+        },
+    );
+
+    let spoof_kp = WorkloadKeypair::generate();
+    let spoof_bundle = build_signed_bundle(
+        &grid,
+        &keys,
+        &spoof_kp,
+        SimBundleSpec {
+            true_location: beijing,
+            claimed_location: singapore,
+            required_radius_km: 500.0,
+            epoch_label: "sdk-fixture-spoof",
+            seq: 0,
+            prev_hash: None,
+            now_unix_s: now,
+            stretch: 1.38,
+            overhead_ms: 1.5,
+            colluding_anchor_override: None,
+        },
+    );
+
+    let fixture = json!({
+        "now_unix_s": now,
+        "grid": grid,
+        "honest_tokyo_header": honest_bundle.to_header_value()?,
+        "spoofed_singapore_header": spoof_bundle.to_header_value()?
+    });
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(out, serde_json::to_string_pretty(&fixture)?)?;
+    println!("Wrote cross-language SDK test fixture to {}", out.display());
     Ok(())
 }

@@ -29,6 +29,14 @@ pub enum BoundTier {
     /// (similar to IPinfo ProbeNet / Witness Chain calibration curves). Used for tight city/metro
     /// confidence radii alongside Tier 1 hard physics proofs.
     Calibrated { effective_km_per_s: f64 },
+    /// Tier 2B: CBG / Witness Chain calibrated linear bestline (`RTT >= fixed_overhead + 2*d / v`).
+    /// Subtracts the conservative minimum router/serialization floor (`fixed_overhead_us`, e.g. 500-800 us)
+    /// learned from the Anchor calibration mesh, dramatically tightening regional bounds (100-200 mi)
+    /// when no co-located metro Anchor exists.
+    CalibratedLinear {
+        effective_km_per_s: f64,
+        fixed_overhead_us: u64,
+    },
 }
 
 impl BoundTier {
@@ -36,9 +44,10 @@ impl BoundTier {
         match self {
             BoundTier::Vacuum => C_VACUUM_KM_PER_S,
             BoundTier::Fiber => C_FIBER_KM_PER_S,
-            BoundTier::Calibrated { effective_km_per_s } => {
-                effective_km_per_s.clamp(50_000.0, C_VACUUM_KM_PER_S)
-            }
+            BoundTier::Calibrated { effective_km_per_s }
+            | BoundTier::CalibratedLinear {
+                effective_km_per_s, ..
+            } => effective_km_per_s.clamp(50_000.0, C_VACUUM_KM_PER_S),
         }
     }
 
@@ -47,15 +56,22 @@ impl BoundTier {
             BoundTier::Vacuum => "tier1a_vacuum",
             BoundTier::Fiber => "tier1b_fiber",
             BoundTier::Calibrated { .. } => "tier2_calibrated",
+            BoundTier::CalibratedLinear { .. } => "tier2b_calibrated_linear",
         }
     }
 }
 
 /// Convert measured round-trip time (microseconds) to maximum physical radius (km).
-/// Always sets assumed processing delay to 0 for soundness: faster adversary hardware
-/// can never beat `c_eff * rtt / 2`.
+/// For Tier 1 (`Vacuum` / `Fiber`), assumed processing delay is strictly 0 for adversarial soundness.
+/// For `CalibratedLinear`, subtracts the calibrated lower-envelope fixed router floor.
 pub fn effective_radius_km(rtt_us: u64, tier: BoundTier) -> f64 {
-    let rtt_s = (rtt_us as f64) * 1e-6;
+    let adjusted_us = match tier {
+        BoundTier::CalibratedLinear {
+            fixed_overhead_us, ..
+        } => rtt_us.saturating_sub(fixed_overhead_us),
+        _ => rtt_us,
+    };
+    let rtt_s = (adjusted_us as f64) * 1e-6;
     0.5 * tier.velocity_km_per_s() * rtt_s
 }
 

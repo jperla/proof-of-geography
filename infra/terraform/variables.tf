@@ -15,6 +15,11 @@ variable "enable_gcp" {
   default = true
 }
 
+variable "enable_aws" {
+  type    = bool
+  default = true
+}
+
 variable "enable_azure" {
   type    = bool
   default = true

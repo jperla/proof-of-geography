@@ -229,9 +229,12 @@ pub struct AnchorReceipt {
 }
 
 impl AnchorReceipt {
-    /// Deterministic canonical signing digest of all receipt fields (excluding `anchor_signature_hex`).
+    /// Deterministic canonical SHA-256 signing digest of all receipt fields (excluding `anchor_signature_hex`).
+    /// Uses SHA-256 so every client SDK (TypeScript/Browser, Python, Go, Rust) verifies receipts
+    /// using standard built-in cryptography with zero third-party hash dependencies!
     pub fn signing_digest(&self) -> [u8; 32] {
-        let mut h = blake3::Hasher::new();
+        use sha2::{Digest, Sha256};
+        let mut h = Sha256::new();
         h.update(b"pog-anchor-receipt-v1");
         h.update(self.anchor_id.as_bytes());
         h.update(b"|");
@@ -245,14 +248,14 @@ impl AnchorReceipt {
         h.update(b"|");
         h.update(self.prover_observed_ip.as_bytes());
         h.update(b"|");
-        h.update(&self.rtt_min_us.to_le_bytes());
-        h.update(&self.rtt_p50_us.to_le_bytes());
-        h.update(&(self.rtt_samples_us.len() as u32).to_le_bytes());
+        h.update(self.rtt_min_us.to_le_bytes());
+        h.update(self.rtt_p50_us.to_le_bytes());
+        h.update((self.rtt_samples_us.len() as u32).to_le_bytes());
         for s in &self.rtt_samples_us {
-            h.update(&s.to_le_bytes());
+            h.update(s.to_le_bytes());
         }
-        h.update(&self.measured_at_unix_s.to_le_bytes());
-        *h.finalize().as_bytes()
+        h.update(self.measured_at_unix_s.to_le_bytes());
+        h.finalize().into()
     }
 
     pub fn sign(&mut self, anchor_key: &SigningKey) {

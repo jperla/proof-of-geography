@@ -13,3 +13,5 @@ crash.log
 *.pem
 *.key
 !tests/fixtures/*
+__pycache__/
+*.py[cod]

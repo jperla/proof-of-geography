@@ -765,6 +765,7 @@ name = "pog-anchor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "chrono",
  "clap",
  "ed25519-dalek",
@@ -850,6 +851,7 @@ dependencies = [
  "rand",
  "serde",
  "serde_json",
+ "sha2",
  "socket2 0.5.10",
  "thiserror",
  "x25519-dalek",

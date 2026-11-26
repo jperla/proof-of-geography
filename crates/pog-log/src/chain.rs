@@ -161,6 +161,8 @@ impl ContinuousGeoLog {
                 snapshots_analyzed: 0,
                 stationary_confirmed: false,
                 converged_multi_hour_radius_km: None,
+                converged_calibrated_bestline_km: None,
+                converged_probabilistic: None,
                 anomalies: Vec::new(),
             };
         };

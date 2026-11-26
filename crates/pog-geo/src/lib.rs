@@ -11,7 +11,7 @@ pub use byzantine::{
     verify_byzantine_core, ByzantineCoreResult, DiskConstraint, GeoError,
 };
 pub use calibration::{
-    AnchorPairMeasurement, CalibrationAnomaly, CalibrationMatrix, CalibrationModel,
-    MovementAnomaly, MovementReport, TimedGeoSnapshot,
+    estimate_probabilistic_location, AnchorPairMeasurement, CalibrationAnomaly, CalibrationMatrix,
+    CalibrationModel, MovementAnomaly, MovementReport, ProbabilisticGeoEstimate, TimedGeoSnapshot,
 };
 pub use sphere::{CompassQuadrant, LatLon, Vec3, EARTH_RADIUS_KM};
