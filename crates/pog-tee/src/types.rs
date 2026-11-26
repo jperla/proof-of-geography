@@ -279,7 +279,7 @@ pub fn verify_quote(
     match quote.vendor {
         TeeVendor::AmdSevSnp => crate::sev_snp::verify_raw_sev_snp_report(quote)?,
         TeeVendor::IntelTdx => crate::intel_tdx::verify_raw_tdx_quote(quote)?,
-        TeeVendor::AwsNitro => crate::aws_nitro::verify_raw_nitro_doc(quote)?,
+        TeeVendor::AwsNitro => crate::aws_nitro::verify_raw_nitro_doc(quote, now_unix_s)?,
         TeeVendor::SoftwareDev => crate::software_dev::verify_raw_dev_quote(quote)?,
     }
 

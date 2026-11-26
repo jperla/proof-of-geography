@@ -1175,6 +1175,24 @@ async fn live_probe_anchor(
         .map_err(|_| anyhow::anyhow!("Phase 1 read timeout"))??;
     let init_resp: Phase1InitResponse = serde_json::from_str(resp_line.trim())?;
     let anchor_tee_vendor = init_resp.anchor_quote.vendor.as_str().to_string();
+    if init_resp.anchor_quote.vendor == pog_tee::TeeVendor::AwsNitro {
+        let now = Utc::now().timestamp().max(0) as u64;
+        let anchor_policy = AttestationPolicy::production();
+        let verified_anchor = pog_tee::verify_quote(
+            &init_resp.anchor_quote,
+            epoch_bytes,
+            &anchor_policy,
+            now,
+        )?;
+        if verified_anchor.public_key_hex != anchor.public_key_hex {
+            anyhow::bail!(
+                "Anchor {} attested public key {} != registry {}",
+                anchor.anchor_id,
+                verified_anchor.public_key_hex,
+                anchor.public_key_hex
+            );
+        }
+    }
 
     let anchor_eph_raw = hex::decode(&init_resp.anchor_ephemeral_x25519_hex)?;
     let anchor_eph_arr: [u8; 32] = anchor_eph_raw
