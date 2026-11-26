@@ -72,9 +72,9 @@ pub fn recv_timestamped(sock: &UdpSocket) -> Result<TimestampedDatagram, ProtoEr
     msg.msg_name = &mut addr_storage as *mut _ as *mut libc::c_void;
     msg.msg_namelen = std::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
     msg.msg_iov = &mut iov;
-    msg.msg_iovlen = 1;
+    msg.msg_iovlen = 1 as _;
     msg.msg_control = cmsg_buf.as_mut_ptr() as *mut libc::c_void;
-    msg.msg_controllen = cmsg_buf.len();
+    msg.msg_controllen = cmsg_buf.len() as _;
 
     let n = unsafe { libc::recvmsg(sock.as_raw_fd(), &mut msg, 0) };
     let received_at = Instant::now();

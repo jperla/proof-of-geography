@@ -87,10 +87,32 @@ impl AmdSevSnpProvider {
             exitinfo2: 0,
         };
 
-        let rc = unsafe { libc::ioctl(file.as_raw_fd(), SNP_GET_REPORT, &mut ioctl_arg) };
+        let rc = unsafe {
+            libc::ioctl(
+                file.as_raw_fd(),
+                SNP_GET_REPORT as libc::Ioctl,
+                &mut ioctl_arg,
+            )
+        };
         let status = u32::from_le_bytes(resp.data[0..4].try_into().unwrap());
         let report_size = u32::from_le_bytes(resp.data[4..8].try_into().unwrap()) as usize;
         if rc != 0 || status != 0 || report_size < SEV_SNP_REPORT_LEN {
+            // Fallback: Linux ConfigFS TSM (/sys/kernel/config/tsm/report) works across RHEL/Rocky 9 & Linux 6.7+ kernels.
+            let tsm_root = std::path::Path::new("/sys/kernel/config/tsm/report");
+            if tsm_root.exists() {
+                let rdir = tsm_root.join(format!("pog_snp_{}", Utc::now().timestamp_nanos_opt().unwrap_or(0)));
+                if std::fs::create_dir_all(&rdir).is_ok()
+                    && std::fs::write(rdir.join("inblob"), report_data).is_ok()
+                {
+                    if let Ok(out) = std::fs::read(rdir.join("outblob")) {
+                        let _ = std::fs::remove_dir(&rdir);
+                        if out.len() >= SEV_SNP_REPORT_LEN {
+                            return Ok(out[..SEV_SNP_REPORT_LEN].to_vec());
+                        }
+                    }
+                    let _ = std::fs::remove_dir(&rdir);
+                }
+            }
             return Err(TeeError::GenerationFailed(format!(
                 "SNP_GET_REPORT failed (rc={rc}, errno={:?}, status={status}, size={report_size}, exitinfo2={:#x})",
                 std::io::Error::last_os_error(),

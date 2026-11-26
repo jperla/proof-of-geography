@@ -1,0 +1,33 @@
+#cloud-config
+users:
+  - name: pog
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+runcmd:
+  - systemctl disable --now firewalld 2>/dev/null || true
+  - dnf upgrade -y
+  - dnf install -y epel-release || true
+  - dnf install -y iptables-nft policycoreutils-python-utils tar gzip curl
+  - curl -fsSL "${release_tarball_url}" -o /tmp/pog-linux-x86_64.tar.gz
+  - tar -xzf /tmp/pog-linux-x86_64.tar.gz -C /usr/local/bin/
+  - chmod +x /usr/local/bin/pog-anchor /usr/local/bin/pog-prover /usr/local/bin/pog-cli
+  - curl -fsSL "https://caddyserver.com/api/download?os=linux&arch=amd64" -o /usr/local/bin/caddy
+  - chmod +x /usr/local/bin/caddy
+  - restorecon -v /usr/local/bin/pog-cli /usr/local/bin/caddy || true
+  - setsebool -P httpd_can_network_connect 1 || true
+  - rm -f /tmp/pog-linux-x86_64.tar.gz
+  - mkdir -p /var/www/pog/.well-known /etc/pog /etc/caddy /var/lib/caddy
+  - chown -R pog:pog /var/www/pog /etc/pog
+  - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+  - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - systemctl reload sshd || true
+
+power_state:
+  delay: now
+  mode: reboot
+  message: "Rebooting web host into latest patched Rocky Linux 9 kernel"
+  timeout: 300
+  condition: true

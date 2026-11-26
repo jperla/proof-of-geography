@@ -35,10 +35,11 @@ write_files:
 
       [Service]
       Type=simple
+      EnvironmentFile=-/etc/pog/anchor.env
       ExecStart=/usr/local/bin/pog-anchor --anchor-id ${anchor_id} --cloud-provider ${cloud_provider} --tcp-listen 0.0.0.0:7443 --udp-bind 0.0.0.0:7444 --udp-port-min 40000 --udp-port-max 40999 --http-info-listen 0.0.0.0:7445 --max-concurrent 64 --max-per-ip-per-min 12 --max-global-per-min 600 ${extra_flags}
       Restart=always
       RestartSec=2
-      # Strict systemd sandboxing (defense-in-depth)
+      # Strict systemd sandboxing (defense-in-depth alongside SELinux Enforcing)
       NoNewPrivileges=yes
       ProtectSystem=strict
       ProtectHome=yes
@@ -49,6 +50,7 @@ write_files:
       LockPersonality=yes
       MemoryDenyWriteExecute=yes
       RestrictAddressFamilies=AF_INET AF_INET6
+      ReadOnlyPaths=-/etc/pog
       ReadWritePaths=-/dev/sev-guest -/sys/kernel/config/tsm/report
       MemoryMax=256M
       LimitNOFILE=4096
@@ -58,17 +60,27 @@ write_files:
       WantedBy=multi-user.target
 
 runcmd:
+  - systemctl disable --now firewalld 2>/dev/null || true
   - sysctl --system
+  - dnf upgrade -y
+  - dnf install -y nginx iptables-nft policycoreutils-python-utils
+  - setsebool -P httpd_can_network_connect 1 || true
+  - mkdir -p /etc/pog /etc/nginx/ssl
+  - chmod 0755 /etc/pog
   - curl -fsSL "${release_tarball_url}" -o /tmp/pog-linux-x86_64.tar.gz
   - tar -xzf /tmp/pog-linux-x86_64.tar.gz -C /usr/local/bin/
   - chmod +x /usr/local/bin/pog-anchor /usr/local/bin/pog-prover /usr/local/bin/pog-cli
+  - restorecon -v /usr/local/bin/pog-anchor /usr/local/bin/pog-prover /usr/local/bin/pog-cli || true
   - rm -f /tmp/pog-linux-x86_64.tar.gz
   - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
   - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-  - systemctl reload ssh || true
-  - iptables -A OUTPUT -d 169.254.169.254/32 -j DROP || true
-  - iptables -A OUTPUT -d 10.0.0.0/8 -m state --state NEW -j DROP || true
-  - iptables -A OUTPUT -d 172.16.0.0/12 -m state --state NEW -j DROP || true
-  - iptables -A OUTPUT -d 192.168.0.0/16 -m state --state NEW -j DROP || true
+  - systemctl reload sshd || true
   - systemctl daemon-reload
-  - systemctl enable --now pog-anchor.service
+  - systemctl enable pog-anchor.service
+
+power_state:
+  delay: now
+  mode: reboot
+  message: "Rebooting into latest patched Rocky Linux 9 kernel"
+  timeout: 300
+  condition: true

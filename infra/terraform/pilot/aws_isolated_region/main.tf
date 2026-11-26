@@ -9,6 +9,10 @@ terraform {
 variable "anchor_id" { type = string }
 variable "ssh_public_key" { type = string }
 variable "release_tarball_url" { type = string }
+variable "instance_type" {
+  type    = string
+  default = "c6a.large"
+}
 variable "allow_ssh" {
   type    = bool
   default = false
@@ -18,13 +22,13 @@ variable "lockdown_egress" {
   default = true
 }
 
-data "aws_ami" "ubuntu_2404" {
+data "aws_ami" "rocky_9" {
   most_recent = true
-  owners      = ["099720109477"] # Canonical
+  owners      = ["792107900819"] # Rocky Enterprise Software Foundation (official RESF Rocky Linux 9)
 
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
+    values = ["Rocky-9-EC2-Base-9.*x86_64*"]
   }
   filter {
     name   = "virtualization-type"
@@ -104,7 +108,7 @@ resource "aws_security_group" "sg" {
     protocol    = "udp"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  # Stateful SG automatically allows return TCP replies on 443/7443/7445; block all outbound TCP scans in public mode!
+  # Stateful SG automatically allows return TCP replies on 443/7443/7445; block all outbound TCP in public mode!
   dynamic "egress" {
     for_each = var.lockdown_egress ? [1] : []
     content {
@@ -142,8 +146,8 @@ resource "aws_key_pair" "pilot" {
 }
 
 resource "aws_instance" "anchor" {
-  ami                         = data.aws_ami.ubuntu_2404.id
-  instance_type               = "c6a.large"
+  ami                         = data.aws_ami.rocky_9.id
+  instance_type               = var.instance_type
   subnet_id                   = aws_subnet.public.id
   vpc_security_group_ids      = [aws_security_group.sg.id]
   associate_public_ip_address = true
@@ -167,11 +171,12 @@ resource "aws_instance" "anchor" {
   tags = {
     Name    = var.anchor_id
     Project = "proof-of-geography-pilot"
+    OS      = "rocky-linux-9"
     TeeMode = "aws-isolated-pilot"
   }
 
   lifecycle {
-    ignore_changes = [user_data, ami]
+    ignore_changes = [user_data]
   }
 }
 

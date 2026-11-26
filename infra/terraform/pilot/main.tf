@@ -24,7 +24,7 @@ variable "gcp_project_id" {
 
 variable "release_tarball_url" {
   type    = string
-  default = "https://github.com/jperla/proof-of-geography/releases/download/v0.1.2/pog-linux-x86_64.tar.gz"
+  default = "https://github.com/jperla/proof-of-geography/releases/download/v0.1.4/pog-linux-x86_64.tar.gz"
 }
 
 variable "allow_ssh" {
@@ -41,22 +41,17 @@ variable "lockdown_egress" {
 
 variable "ssh_public_key" {
   type        = string
-  description = "Ephemeral SSH public key used solely to run cross-anchor mesh benchmarks"
+  description = "Ephemeral SSH public key used solely for initial provisioning & telemetry"
 }
 
 variable "enable_azure" {
   type    = bool
-  default = false
-}
-
-variable "azure_location" {
-  type    = string
-  default = "centralus"
+  default = true
 }
 
 variable "azure_subscription_id" {
   type    = string
-  default = ""
+  default = "2fc83893-ca6c-48e4-b090-8860fba33d33"
 }
 
 provider "google" {
@@ -69,17 +64,40 @@ provider "azurerm" {
 }
 
 # =============================================================================
-# 1. ISOLATED GCP NETWORK & 4 AMD SEV-SNP CONFIDENTIAL VMs
-#    Lives in its own brand-new GCP project + custom isolated VPC (zero shared VPC)
+# 1. ISOLATED GCP NETWORK & 22 HARDWARE TEE CONFIDENTIAL VMs (ROCKY LINUX 9)
+#    Lives in its own dedicated GCP project + custom isolated VPC (zero shared VPC)
+#    Zero IAM service accounts, Shielded VM Secure Boot + vTPM, SELinux Enforcing
 # =============================================================================
 
 locals {
   gcp_pilot_nodes = {
-    "gcp-us-west1-oregon"           = { region = "us-west1", zone = "us-west1-a", cidr = "10.210.1.0/24", machine = "c3-standard-4", tee = "TDX", min_cpu = null, lat = 45.5946, lon = -121.1787, city = "The Dalles, OR, USA" }
-    "gcp-us-central1-iowa"          = { region = "us-central1", zone = "us-central1-a", cidr = "10.210.5.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 41.2619, lon = -95.8608, city = "Council Bluffs, IA, USA" }
-    "gcp-us-east4-ashburn"          = { region = "us-east4", zone = "us-east4-a", cidr = "10.210.2.0/24", machine = "c3-standard-4", tee = "TDX", min_cpu = null, lat = 39.0438, lon = -77.4874, city = "Ashburn, VA, USA" }
-    "gcp-europe-west3-frankfurt"    = { region = "europe-west3", zone = "europe-west3-a", cidr = "10.210.3.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 50.1109, lon = 8.6821, city = "Frankfurt, Germany" }
-    "gcp-asia-southeast1-singapore" = { region = "asia-southeast1", zone = "asia-southeast1-a", cidr = "10.210.6.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 1.3521, lon = 103.8198, city = "Jurong West, Singapore" }
+    # --- North America (10 GCP Hardware TEEs) ---
+    "gcp-us-west1-oregon"                = { region = "us-west1", zone = "us-west1-a", cidr = "10.210.1.0/24", machine = "c3-standard-4", tee = "TDX", min_cpu = null, lat = 45.5946, lon = -121.1787, city = "The Dalles, OR, USA", slug = "pdx-gcp" }
+    "gcp-us-west2-losangeles"            = { region = "us-west2", zone = "us-west2-a", cidr = "10.210.11.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 34.0522, lon = -118.2437, city = "Los Angeles, CA, USA", slug = "lax-gcp" }
+    "gcp-us-west3-saltlakecity"          = { region = "us-west3", zone = "us-west3-a", cidr = "10.210.12.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 40.7608, lon = -111.8910, city = "Salt Lake City, UT, USA", slug = "slc-gcp" }
+    "gcp-us-west4-lasvegas"              = { region = "us-west4", zone = "us-west4-a", cidr = "10.210.13.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 36.1699, lon = -115.1398, city = "Las Vegas, NV, USA", slug = "las-gcp" }
+    "gcp-us-central1-iowa"               = { region = "us-central1", zone = "us-central1-a", cidr = "10.210.5.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 41.2619, lon = -95.8608, city = "Council Bluffs, IA, USA", slug = "dsm-gcp" }
+    "gcp-us-south1-dallas"               = { region = "us-south1", zone = "us-south1-a", cidr = "10.210.14.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 32.7767, lon = -96.7970, city = "Dallas, TX, USA", slug = "dfw-gcp" }
+    "gcp-us-east1-sc"                    = { region = "us-east1", zone = "us-east1-b", cidr = "10.210.15.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 33.1960, lon = -80.0131, city = "Moncks Corner, SC, USA", slug = "chs-gcp" }
+    "gcp-us-east4-ashburn"               = { region = "us-east4", zone = "us-east4-a", cidr = "10.210.2.0/24", machine = "c3-standard-4", tee = "TDX", min_cpu = null, lat = 39.0438, lon = -77.4874, city = "Ashburn, VA, USA", slug = "iad-gcp" }
+    "gcp-northamerica-northeast1-montreal" = { region = "northamerica-northeast1", zone = "northamerica-northeast1-a", cidr = "10.210.16.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 45.5017, lon = -73.5673, city = "Montreal, QC, Canada", slug = "yul-gcp" }
+    "gcp-northamerica-south1-queretaro"  = { region = "northamerica-south1", zone = "northamerica-south1-a", cidr = "10.210.17.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 20.5888, lon = -100.3899, city = "Querétaro, Mexico", slug = "qro-gcp" }
+
+    # --- Europe & Perimeter Rim (8 GCP Hardware TEEs) ---
+    "gcp-europe-west2-london"            = { region = "europe-west2", zone = "europe-west2-c", cidr = "10.210.18.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 51.5074, lon = -0.1278, city = "London, UK", slug = "lhr-gcp" }
+    "gcp-europe-west4-netherlands"       = { region = "europe-west4", zone = "europe-west4-a", cidr = "10.210.19.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 52.3676, lon = 4.9041, city = "Amsterdam, Netherlands", slug = "ams-gcp" }
+    "gcp-europe-west3-frankfurt"         = { region = "europe-west3", zone = "europe-west3-a", cidr = "10.210.3.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 50.1109, lon = 8.6821, city = "Frankfurt, Germany", slug = "fra-gcp" }
+    "gcp-europe-west6-zurich"            = { region = "europe-west6", zone = "europe-west6-a", cidr = "10.210.20.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 47.3769, lon = 8.5417, city = "Zurich, Switzerland", slug = "zrh-gcp" }
+    "gcp-europe-west9-paris"             = { region = "europe-west9", zone = "europe-west9-a", cidr = "10.210.21.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 48.8566, lon = 2.3522, city = "Paris, France", slug = "cdg-gcp" }
+    "gcp-europe-southwest1-madrid"       = { region = "europe-southwest1", zone = "europe-southwest1-a", cidr = "10.210.22.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 40.4168, lon = -3.7038, city = "Madrid, Spain", slug = "mad-gcp" }
+    "gcp-europe-north1-finland"          = { region = "europe-north1", zone = "europe-north1-a", cidr = "10.210.23.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 60.5693, lon = 27.1979, city = "Hamina, Finland", slug = "hel-gcp" }
+    "gcp-europe-central2-warsaw"         = { region = "europe-central2", zone = "europe-central2-a", cidr = "10.210.24.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 52.2297, lon = 21.0122, city = "Warsaw, Poland", slug = "waw-gcp" }
+
+    # --- Middle East & APAC (4 GCP Hardware TEEs) ---
+    "gcp-me-west1-telaviv"               = { region = "me-west1", zone = "me-west1-a", cidr = "10.210.25.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 32.0853, lon = 34.7818, city = "Tel Aviv, Israel", slug = "tlv-gcp" }
+    "gcp-me-central1-doha"               = { region = "me-central1", zone = "me-central1-a", cidr = "10.210.26.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 25.2854, lon = 51.5310, city = "Doha, Qatar", slug = "doh-gcp" }
+    "gcp-asia-southeast1-singapore"      = { region = "asia-southeast1", zone = "asia-southeast1-a", cidr = "10.210.6.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 1.3521, lon = 103.8198, city = "Jurong West, Singapore", slug = "sin-gcp" }
+    "gcp-asia-east1-taiwan"              = { region = "asia-east1", zone = "asia-east1-b", cidr = "10.210.27.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 24.0518, lon = 120.5161, city = "Changhua, Taiwan", slug = "tpe-gcp" }
   }
 }
 
@@ -159,7 +177,7 @@ resource "google_compute_firewall" "pog_egress_deny_all" {
 
 # =============================================================================
 # 1B. DEDICATED ISOLATED PUBLIC WEB VISUALIZER (proofofgeography.com)
-#     Tiny e2-micro (~$0.008/hr) strictly separated from the 9 TEE Anchors!
+#     Rocky Linux 9 SELinux Enforcing, strictly separated from TEE Anchors!
 # =============================================================================
 
 resource "google_compute_firewall" "pog_web_ingress" {
@@ -197,7 +215,7 @@ resource "google_compute_address" "pog_web_ip" {
 
 resource "google_compute_instance" "pog_web" {
   name                      = "pog-web-visualizer"
-  machine_type              = "e2-micro"
+  machine_type              = "e2-small"
   zone                      = "us-west1-a"
   tags                      = ["pog-web"]
   allow_stopping_for_update = true
@@ -215,12 +233,13 @@ resource "google_compute_instance" "pog_web" {
   labels = {
     project = "proof-of-geography-pilot"
     role    = "public-web"
+    os      = "rocky-linux-9"
   }
 
   boot_disk {
     initialize_params {
-      image = "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
-      size  = 15
+      image = "rocky-linux-cloud/rocky-linux-9-optimized-gcp"
+      size  = 20
       type  = "pd-balanced"
     }
   }
@@ -235,10 +254,10 @@ resource "google_compute_instance" "pog_web" {
 
   metadata = {
     ssh-keys = "pog:${var.ssh_public_key}"
-  }
-
-  lifecycle {
-    ignore_changes = [metadata]
+    user-data = templatefile("${path.module}/cloud-init-web.yaml", {
+      release_tarball_url = var.release_tarball_url
+      ssh_public_key      = var.ssh_public_key
+    })
   }
 }
 
@@ -272,6 +291,7 @@ resource "google_compute_instance" "gcp_nodes" {
   labels = {
     project = "proof-of-geography-pilot"
     role    = "anchor-tee"
+    os      = "rocky-linux-9"
   }
 
   confidential_instance_config {
@@ -285,7 +305,7 @@ resource "google_compute_instance" "gcp_nodes" {
 
   boot_disk {
     initialize_params {
-      image = "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
+      image = "rocky-linux-cloud/rocky-linux-9-optimized-gcp"
       size  = 20
       type  = "pd-balanced"
     }
@@ -312,132 +332,6 @@ resource "google_compute_instance" "gcp_nodes" {
   }
 }
 
-# =============================================================================
-# 2. OPTIONAL ISOLATED AZURE RESOURCE GROUP & AMD SEV-SNP CONFIDENTIAL VM
-# =============================================================================
-
-resource "azurerm_resource_group" "pog_rg" {
-  count    = var.enable_azure ? 1 : 0
-  name     = "rg-pog-pilot-isolated"
-  location = var.azure_location
-  tags     = { project = "proof-of-geography-pilot" }
-}
-
-resource "azurerm_virtual_network" "pog_vnet" {
-  count               = var.enable_azure ? 1 : 0
-  name                = "vnet-pog-isolated"
-  address_space       = ["10.220.0.0/16"]
-  location            = azurerm_resource_group.pog_rg[0].location
-  resource_group_name = azurerm_resource_group.pog_rg[0].name
-}
-
-resource "azurerm_subnet" "pog_snet" {
-  count                = var.enable_azure ? 1 : 0
-  name                 = "snet-pog-isolated"
-  resource_group_name  = azurerm_resource_group.pog_rg[0].name
-  virtual_network_name = azurerm_virtual_network.pog_vnet[0].name
-  address_prefixes     = ["10.220.1.0/24"]
-}
-
-resource "azurerm_public_ip" "pog_pip" {
-  count               = var.enable_azure ? 1 : 0
-  name                = "pip-pog-azure"
-  location            = azurerm_resource_group.pog_rg[0].location
-  resource_group_name = azurerm_resource_group.pog_rg[0].name
-  allocation_method   = "Static"
-  sku                 = "Standard"
-}
-
-resource "azurerm_network_security_group" "pog_nsg" {
-  count               = var.enable_azure ? 1 : 0
-  name                = "nsg-pog-isolated"
-  location            = azurerm_resource_group.pog_rg[0].location
-  resource_group_name = azurerm_resource_group.pog_rg[0].name
-
-  security_rule {
-    name                       = "AllowPogTcp"
-    priority                   = 100
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_ranges    = ["22", "7443", "7445"]
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
-  }
-  security_rule {
-    name                       = "AllowPogUdp"
-    priority                   = 110
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Udp"
-    source_port_range          = "*"
-    destination_port_range     = "1024-65535"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
-  }
-}
-
-resource "azurerm_network_interface" "pog_nic" {
-  count               = var.enable_azure ? 1 : 0
-  name                = "nic-pog-azure"
-  location            = azurerm_resource_group.pog_rg[0].location
-  resource_group_name = azurerm_resource_group.pog_rg[0].name
-
-  ip_configuration {
-    name                          = "internal"
-    subnet_id                     = azurerm_subnet.pog_snet[0].id
-    private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.pog_pip[0].id
-  }
-}
-
-resource "azurerm_network_interface_security_group_association" "pog_assoc" {
-  count                     = var.enable_azure ? 1 : 0
-  network_interface_id      = azurerm_network_interface.pog_nic[0].id
-  network_security_group_id = azurerm_network_security_group.pog_nsg[0].id
-}
-
-resource "azurerm_linux_virtual_machine" "azure_node" {
-  count               = var.enable_azure ? 1 : 0
-  name                = "azure-${var.azure_location}-pilot"
-  resource_group_name = azurerm_resource_group.pog_rg[0].name
-  location            = azurerm_resource_group.pog_rg[0].location
-  size                = "Standard_DC2as_v5"
-  admin_username      = "pog"
-  network_interface_ids = [
-    azurerm_network_interface.pog_nic[0].id,
-  ]
-  custom_data = base64encode(templatefile("${path.module}/cloud-init-pilot.yaml", {
-    anchor_id           = "azure-${var.azure_location}-pilot"
-    cloud_provider      = "azure"
-    release_tarball_url = var.release_tarball_url
-    ssh_public_key      = var.ssh_public_key
-    extra_flags         = "--allow-dev-prover"
-  }))
-
-  admin_ssh_key {
-    username   = "pog"
-    public_key = var.ssh_public_key
-  }
-
-  secure_boot_enabled = true
-  vtpm_enabled        = true
-
-  os_disk {
-    caching                  = "ReadWrite"
-    storage_account_type     = "StandardSSD_LRS"
-    security_encryption_type = "VMGuestStateOnly"
-  }
-
-  source_image_reference {
-    publisher = "Canonical"
-    offer     = "ubuntu-24_04-lts"
-    sku       = "cvm"
-    version   = "latest"
-  }
-}
-
 output "web_ip" {
   value = google_compute_address.pog_web_ip.address
 }
@@ -452,18 +346,10 @@ output "pilot_endpoints" {
         city           = v.city
         lat            = v.lat
         lon            = v.lon
+        slug           = v.slug
       }
     },
     local.aws_pilot_outputs,
-    var.enable_azure ? {
-      "azure-${var.azure_location}-pilot" = {
-        ip             = azurerm_public_ip.pog_pip[0].ip_address
-        cloud_provider = "azure"
-        region         = var.azure_location
-        city           = "Azure ${var.azure_location}"
-        lat            = 41.5868
-        lon            = -93.6250
-      }
-    } : {}
+    local.azure_pilot_outputs
   )
 }
