@@ -51,7 +51,7 @@ impl IntelTdxProvider {
                 report_dir.display()
             ))
         })?;
-        fs::write(report_dir.join("inblob"), &report_data)
+        fs::write(report_dir.join("inblob"), report_data)
             .map_err(|e| TeeError::GenerationFailed(format!("TSM inblob write failed: {e}")))?;
         let out = fs::read(report_dir.join("outblob"))
             .map_err(|e| TeeError::GenerationFailed(format!("TSM outblob read failed: {e}")))?;

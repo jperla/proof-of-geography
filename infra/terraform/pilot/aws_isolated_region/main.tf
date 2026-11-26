@@ -1,3 +1,11 @@
+terraform {
+  required_providers {
+    aws = {
+      source = "hashicorp/aws"
+    }
+  }
+}
+
 variable "anchor_id" { type = string }
 variable "ssh_public_key" { type = string }
 variable "release_tarball_url" { type = string }

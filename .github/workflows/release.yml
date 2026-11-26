@@ -33,7 +33,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          gh release create "$TAG" pog-linux-x86_64.tar.gz pog-linux-x86_64.tar.gz.sha256 \
-            --title "Proof of Geography $TAG" \
-            --notes "Reproducible Linux x86_64 (Ubuntu 24.04) binaries for AMD SEV-SNP / Intel TDX / AWS Nitro Confidential VMs." \
-            --clobber || gh release upload "$TAG" pog-linux-x86_64.tar.gz pog-linux-x86_64.tar.gz.sha256 --clobber
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" pog-linux-x86_64.tar.gz pog-linux-x86_64.tar.gz.sha256 --clobber
+          else
+            gh release create "$TAG" pog-linux-x86_64.tar.gz pog-linux-x86_64.tar.gz.sha256 \
+              --title "Proof of Geography $TAG" \
+              --notes "Reproducible Linux x86_64 (Ubuntu 24.04) binaries for AMD SEV-SNP / Intel TDX / AWS Nitro Confidential VMs."
+          fi
