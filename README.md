@@ -150,9 +150,10 @@ Defined in [config/global_grid_24.json](config/global_grid_24.json) and provisio
 * `crates/pog-telemetry` — IPinfo-inspired active telemetry fusion (RFC 8805 geofeed parser, traceroute IATA airport-code rDNS extractor, `LastHopProxyJump` detector, 68%/95% confidence radii).
 * `crates/pog-log` — DNS / Certificate Transparency–style append-only signed Merkle log (`RFC 6962` inclusion proofs + `SignedTreeHead`) with Axum HTTP API (`/.well-known/pog-registry`, `/v1/attestations`, `/v1/provers/:id/latest`, `/v1/sth`).
 * `crates/pog-anchor` — Production multi-cloud Anchor TEE daemon (TCP Phase 1 + pinned UDP Phase 2).
-* `crates/pog-prover` — Production Prover TEE sidecar (hourly hash-chain runner + `/v1/handshake-proof` `X-PoG-Proof` header injector).
-* `crates/pog-cli` — Verifier, red-team simulator, throughput benchmarker, transparency log runner, and GeoJSON map exporter.
-* `infra/terraform` & `infra/images` — Multi-cloud IaC modules across 6 clouds, reproducible measured NixOS TEE VM `flake.nix`, and AWS Nitro `.eif` build pipeline.
+* `crates/pog-prover` — Production Prover TEE sidecar (hourly hash-chain runner, automatic `--log-url` transparency log submission, `/v1/handshake-proof`, and `--upstream` drop-in HTTP reverse proxy injecting `X-PoG-Proof` on every response).
+* `crates/pog-cli` — Verifier, red-team simulator, throughput benchmarker, live multi-cloud prober (`probe-live`), calibration mesh auditor (`calibrate-mesh`), IPinfo telemetry fusion inspector (`inspect-telemetry`), transparency log server (`serve-log`), and GeoJSON exporter.
+* `web/` — Live interactive speed-of-light visualizer deployed at **[https://proofofgeography.com](https://proofofgeography.com)** (browser RTT probing, spoof/router-lie lab, 9×9 datacenter mesh, and cryptographic `X-PoG-Proof` verifier).
+* `infra/terraform`, `infra/images` & `infra/reproducible` — Multi-cloud IaC modules across 6 clouds, reproducible measured NixOS TEE VM `flake.nix`, deterministic SHA-256 Docker/host measurement builder, and AWS Nitro `.eif` pipeline.
 
 ---
 

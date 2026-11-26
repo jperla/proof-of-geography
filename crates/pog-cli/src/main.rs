@@ -4,8 +4,8 @@ use clap::{Parser, Subcommand};
 use ed25519_dalek::SigningKey;
 use pog_geo::bounds::starlink_vs_fiber_crossover_km;
 use pog_geo::{
-    effective_radius_km, starlink_min_rtt_ms, BoundTier, DiskConstraint, LatLon, StarlinkModel,
-    C_FIBER_KM_PER_S, EARTH_RADIUS_KM,
+    effective_radius_km, starlink_min_rtt_ms, AnchorPairMeasurement, BoundTier, CalibrationMatrix,
+    DiskConstraint, LatLon, StarlinkModel, C_FIBER_KM_PER_S, EARTH_RADIUS_KM,
 };
 use pog_log::{build_router, ContinuousGeoLog};
 use pog_proto::{
@@ -118,6 +118,36 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         print_header: bool,
     },
+    /// Analyze an all-pairs Anchor calibration mesh JSON: check speed-of-light consistency, detect rogue Anchors, and export per-corridor empirical speeds.
+    CalibrateMesh {
+        #[arg(long, default_value = "config/public_anchors.json")]
+        grid: PathBuf,
+        /// Path to live_mesh_summary.json or AnchorPairMeasurement[] JSON.
+        #[arg(long)]
+        mesh_json: PathBuf,
+        /// Optional path to write calibrated corridor speeds + anomaly report JSON.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Fuse a signed GeoProofBundle with IPinfo-style telemetry (RFC 8805 geofeed + traceroute rDNS airport hints) to flag router lies and last-hop proxy jumps.
+    InspectTelemetry {
+        #[arg(long, default_value = "config/public_anchors.json")]
+        grid: PathBuf,
+        /// Path to a GeoProofBundle JSON file (e.g. from `probe-live --out-bundle`).
+        #[arg(long)]
+        bundle_json: PathBuf,
+        /// Optional RFC 8805 geofeed CSV file to cross-check against hard physics disks.
+        #[arg(long)]
+        geofeed_csv: Option<PathBuf>,
+        /// Optional path to saved `traceroute` text output.
+        #[arg(long)]
+        traceroute_file: Option<PathBuf>,
+        /// Run live system `traceroute` against the bundle's observed IP when no traceroute file is supplied.
+        #[arg(long, default_value_t = false)]
+        run_traceroute: bool,
+        #[arg(long, default_value_t = false)]
+        allow_dev_tee: bool,
+    },
 }
 
 #[tokio::main]
@@ -167,6 +197,26 @@ async fn main() -> Result<()> {
             )
             .await
         }
+        Commands::CalibrateMesh {
+            grid,
+            mesh_json,
+            out,
+        } => run_calibrate_mesh(&grid, &mesh_json, out),
+        Commands::InspectTelemetry {
+            grid,
+            bundle_json,
+            geofeed_csv,
+            traceroute_file,
+            run_traceroute,
+            allow_dev_tee,
+        } => run_inspect_telemetry(
+            &grid,
+            &bundle_json,
+            geofeed_csv,
+            traceroute_file,
+            run_traceroute,
+            allow_dev_tee,
+        ),
     }
 }
 
@@ -1098,4 +1148,264 @@ async fn live_probe_anchor(
         .map_err(|_| anyhow::anyhow!("Receipt read timeout"))??;
     let receipt: AnchorReceipt = serde_json::from_str(resp_line.trim())?;
     Ok((receipt, anchor_tee_vendor))
+}
+
+/// Phase 2: Automated all-pairs Anchor calibration mesh analyzer & rogue-anchor speed-of-light auditor.
+fn run_calibrate_mesh(grid_path: &PathBuf, mesh_json_path: &PathBuf, out: Option<PathBuf>) -> Result<()> {
+    let grid = AnchorGrid::from_json_str(&std::fs::read_to_string(grid_path)?)?;
+    let anchor_map: HashMap<String, &AnchorDescriptor> = grid
+        .anchors
+        .iter()
+        .map(|a| (a.anchor_id.clone(), a))
+        .collect();
+
+    let raw_val: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(mesh_json_path)?)?;
+    let mut matrix = CalibrationMatrix::new();
+    let now = Utc::now().timestamp().max(0) as u64;
+
+    if let Some(arr) = raw_val.as_array() {
+        for item in arr {
+            let m: AnchorPairMeasurement = serde_json::from_value(item.clone())?;
+            matrix.record(m);
+        }
+    } else if let Some(provers) = raw_val.get("provers").and_then(|v| v.as_object()) {
+        for (from_id, pdata) in provers {
+            let Some(from_a) = anchor_map.get(from_id) else {
+                continue;
+            };
+            let Some(rtts) = pdata.get("rtts_ms").and_then(|v| v.as_object()) else {
+                continue;
+            };
+            for (to_id, rtt_v) in rtts {
+                if from_id == to_id {
+                    continue;
+                }
+                let Some(to_a) = anchor_map.get(to_id) else {
+                    continue;
+                };
+                if let Some(rtt_ms) = rtt_v.as_f64() {
+                    matrix.record(AnchorPairMeasurement {
+                        from_anchor: from_id.clone(),
+                        from_location: from_a.location,
+                        to_anchor: to_id.clone(),
+                        to_location: to_a.location,
+                        rtt_min_us: (rtt_ms * 1000.0).round().max(1.0) as u64,
+                        measured_at_unix_s: now,
+                    });
+                }
+            }
+        }
+    } else {
+        anyhow::bail!("Unsupported mesh JSON format (expected `provers` map or AnchorPairMeasurement array)");
+    }
+
+    let model = matrix.analyze();
+    let mut corridors = Vec::new();
+    for m in &matrix.measurements {
+        let dist_km = m.from_location.distance_km(m.to_location);
+        if dist_km < 5.0 || m.rtt_min_us == 0 {
+            continue;
+        }
+        let rtt_ms = (m.rtt_min_us as f64) / 1000.0;
+        let vel_km_s = (2.0 * dist_km) / (rtt_ms * 1e-3);
+        corridors.push(json!({
+            "from": m.from_anchor,
+            "to": m.to_anchor,
+            "geodesic_km": (dist_km * 10.0).round() / 10.0,
+            "rtt_ms": (rtt_ms * 100.0).round() / 100.0,
+            "empirical_velocity_km_per_s": vel_km_s.round(),
+        }));
+    }
+
+    println!("==========================================================================");
+    println!("  ANCHOR CALIBRATION MESH AUDIT ({} pairs analyzed)", model.sample_count);
+    println!("==========================================================================");
+    println!(
+        "  P80 Empirical Velocity:   {:.0} km/s ({:.1} mi/ms one-way)",
+        model.effective_velocity_km_per_s,
+        model.effective_velocity_km_per_s * 0.0005 * 0.621371
+    );
+    println!(
+        "  Median Fiber Stretch:     {:.2}x (vs 204,000 km/s silica fiber)",
+        model.median_stretch_factor
+    );
+    println!(
+        "  Physics Anomalies:        {} | Suspected Rogue Anchors: {}",
+        model.anomalies.len(),
+        if model.suspected_rogue_anchors.is_empty() {
+            "NONE (100% consistent)".to_string()
+        } else {
+            model.suspected_rogue_anchors.join(", ")
+        }
+    );
+
+    if let Some(out_path) = out {
+        let doc = json!({
+            "analyzed_at_unix_s": now,
+            "model": model,
+            "corridors": corridors,
+        });
+        std::fs::write(&out_path, serde_json::to_string_pretty(&doc)?)?;
+        println!("  Wrote calibration report -> {}", out_path.display());
+    }
+    Ok(())
+}
+
+/// Parse standard Unix/macOS `traceroute` lines into structured `TracerouteHop`s.
+fn parse_traceroute_output(text: &str) -> Vec<TracerouteHop> {
+    let mut hops = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        let Ok(ttl) = parts[0].parse::<u8>() else {
+            continue;
+        };
+        if parts[1] == "*" {
+            continue;
+        }
+        let mut rdns: Option<String> = None;
+        let mut ip = String::new();
+        let mut rtt_ms: Option<f64> = None;
+
+        for (i, tok) in parts.iter().enumerate().skip(1) {
+            if tok.starts_with('(') && tok.ends_with(')') && ip.is_empty() {
+                ip = tok.trim_matches(|c| c == '(' || c == ')').to_string();
+                if i > 1 && parts[i - 1] != "*" && parts[i - 1] != ip {
+                    rdns = Some(parts[i - 1].to_string());
+                }
+            } else if *tok == "ms" && i > 1 {
+                if let Ok(v) = parts[i - 1].parse::<f64>() {
+                    rtt_ms = Some(match rtt_ms {
+                        Some(prev) => prev.min(v),
+                        None => v,
+                    });
+                }
+            }
+        }
+        if ip.is_empty() && parts[1].chars().all(|c| c.is_ascii_digit() || c == '.') {
+            ip = parts[1].to_string();
+        }
+        if !ip.is_empty() {
+            if let Some(rtt) = rtt_ms {
+                hops.push(TracerouteHop {
+                    ttl,
+                    ip,
+                    rdns,
+                    rtt_ms: rtt,
+                });
+            }
+        }
+    }
+    hops
+}
+
+/// Phase 4: Fuse a signed GeoProofBundle with IPinfo-style geofeed + traceroute rDNS hints.
+fn run_inspect_telemetry(
+    grid_path: &PathBuf,
+    bundle_json_path: &PathBuf,
+    geofeed_csv: Option<PathBuf>,
+    traceroute_file: Option<PathBuf>,
+    run_traceroute: bool,
+    allow_dev_tee: bool,
+) -> Result<()> {
+    let grid = AnchorGrid::from_json_str(&std::fs::read_to_string(grid_path)?)?;
+    let bundle: GeoProofBundle = serde_json::from_str(&std::fs::read_to_string(bundle_json_path)?)?;
+
+    let policy = VerificationPolicy {
+        max_byzantine: 1,
+        min_cloud_providers: 2,
+        tee_policy: if allow_dev_tee {
+            AttestationPolicy::allow_dev_software()
+        } else {
+            AttestationPolicy::production()
+        },
+        ..VerificationPolicy::default()
+    };
+    let report = verify_proof_bundle(&bundle, &grid, &policy, bundle.created_at_unix_s + 1)?;
+
+    let anchor_map: HashMap<String, &AnchorDescriptor> = grid
+        .anchors
+        .iter()
+        .map(|a| (a.anchor_id.clone(), a))
+        .collect();
+    let hard_disks: Vec<DiskConstraint> = bundle
+        .receipts
+        .iter()
+        .filter_map(|r| {
+            let a = anchor_map.get(&r.anchor_id)?;
+            Some(DiskConstraint::from_rtt(
+                r.anchor_id.clone(),
+                a.location,
+                r.rtt_min_us,
+                BoundTier::Vacuum,
+                a.cloud_provider.clone(),
+            ))
+        })
+        .collect();
+
+    let geofeed_entry = if let Some(gf_path) = geofeed_csv {
+        let csv_text = std::fs::read_to_string(gf_path)?;
+        parse_rfc8805_geofeed(&csv_text).into_iter().next()
+    } else {
+        None
+    };
+
+    let hops = if let Some(tr_path) = traceroute_file {
+        parse_traceroute_output(&std::fs::read_to_string(tr_path)?)
+    } else if run_traceroute {
+        if let Some(ip) = bundle.receipts.first().map(|r| r.prover_observed_ip.as_str()) {
+            let out = std::process::Command::new("traceroute")
+                .args(["-m", "15", "-w", "1", "-q", "1", ip])
+                .output()?;
+            parse_traceroute_output(&String::from_utf8_lossy(&out.stdout))
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    let min_tee_rtt_ms = bundle
+        .receipts
+        .iter()
+        .map(|r| (r.rtt_min_us as f64) / 1000.0)
+        .fold(f64::INFINITY, f64::min);
+
+    let assessment = fuse_ipinfo_telemetry(
+        bundle.target_location,
+        &report.tier1a_vacuum,
+        &report.tier2_calibrated,
+        &hard_disks,
+        geofeed_entry.as_ref(),
+        &hops,
+        if min_tee_rtt_ms.is_finite() { min_tee_rtt_ms } else { 0.0 },
+    );
+
+    println!("{}", serde_json::to_string_pretty(&assessment)?);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_traceroute_output_extracts_hops_and_rdns() {
+        let sample = "\
+traceroute to 54.241.67.28 (54.241.67.28), 15 hops max, 60 byte packets
+ 1  192.168.1.1 (192.168.1.1)  1.120 ms
+ 2  * * *
+ 3  be-201-ar01.sjc.ca.isp.net (69.139.199.1)  8.450 ms  8.110 ms
+ 4  ec2-54-241-67-28.us-west-1.compute.amazonaws.com (54.241.67.28)  9.020 ms
+";
+        let hops = parse_traceroute_output(sample);
+        assert_eq!(hops.len(), 3);
+        assert_eq!(hops[1].ttl, 3);
+        assert_eq!(hops[1].ip, "69.139.199.1");
+        assert_eq!(hops[1].rdns.as_deref(), Some("be-201-ar01.sjc.ca.isp.net"));
+        assert!((hops[1].rtt_ms - 8.11).abs() < 1e-6);
+    }
 }

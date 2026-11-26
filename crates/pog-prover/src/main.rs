@@ -1,7 +1,9 @@
 use anyhow::Result;
 use axum::{
-    extract::{Query, State},
-    http::{HeaderMap, HeaderValue},
+    body::{to_bytes, Body},
+    extract::{Query, Request, State},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
+    response::Response,
     routing::get,
     Json, Router,
 };
@@ -20,15 +22,17 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tracing::{info, warn};
 use x25519_dalek::{EphemeralSecret, PublicKey as X25519PublicKey};
 
+const MAX_PROXY_BODY_BYTES: usize = 8 * 1024 * 1024; // 8 MiB max proxied HTTP payload
+
 #[derive(Parser, Debug)]
 #[command(
     name = "pog-prover",
-    about = "Proof of Geography Prover TEE Sidecar (Hourly Chain + Handshake Header Mode)"
+    about = "Proof of Geography Prover TEE Sidecar (Hourly Chain + Log Push + Drop-In Reverse Proxy)"
 )]
 struct Args {
     #[arg(long)]
@@ -46,6 +50,13 @@ struct Args {
     interval_secs: u64,
     #[arg(long, default_value = "127.0.0.1:8080")]
     http_listen: SocketAddr,
+    /// Optional transparency log endpoint (e.g. http://127.0.0.1:8090) to auto-publish each hourly chain link.
+    #[arg(long)]
+    log_url: Option<String>,
+    /// Optional local upstream workload (e.g. http://127.0.0.1:8000 for vLLM/SGLang/API):
+    /// proxies all non-/v1/* requests and automatically injects `X-PoG-Proof` on every HTTP response!
+    #[arg(long)]
+    upstream: Option<String>,
     #[arg(long, default_value_t = false)]
     allow_dev_tee: bool,
 }
@@ -55,6 +66,8 @@ struct ProverState {
     target: LatLon,
     required_radius_km: f64,
     rounds: u16,
+    log_url: Option<String>,
+    upstream: Option<String>,
     keypair: WorkloadKeypair,
     tee_provider: Box<dyn TeeProvider>,
     latest_bundle: RwLock<Option<GeoProofBundle>>,
@@ -86,6 +99,8 @@ async fn main() -> Result<()> {
         tee = tee_provider.vendor().as_str(),
         lat = args.claimed_lat,
         lon = args.claimed_lon,
+        log_url = ?args.log_url,
+        upstream = ?args.upstream,
         "Starting PoG Prover TEE Sidecar"
     );
 
@@ -94,6 +109,8 @@ async fn main() -> Result<()> {
         target: LatLon::new(args.claimed_lat, args.claimed_lon),
         required_radius_km: args.required_radius_km,
         rounds: args.rounds,
+        log_url: args.log_url,
+        upstream: args.upstream,
         keypair,
         tee_provider,
         latest_bundle: RwLock::new(None),
@@ -101,7 +118,7 @@ async fn main() -> Result<()> {
         last_hash: RwLock::new(None),
     });
 
-    // Background task: Continuous hourly hash-chained PoG loop (defends against mobile DCs / relocation).
+    // Background task: Continuous hourly hash-chained PoG loop + optional push to pog-log!
     let bg_state = Arc::clone(&state);
     let interval = Duration::from_secs(args.interval_secs.max(10));
     tokio::spawn(async move {
@@ -114,6 +131,12 @@ async fn main() -> Result<()> {
                         record_hash = %bundle.record_hash_hex(),
                         "Completed continuous hourly PoG chain link"
                     );
+                    if let Some(ref log_url) = bg_state.log_url {
+                        match publish_to_log(log_url, &bundle).await {
+                            Ok(status) => info!(%log_url, status, "Published hourly PoG link to transparency log"),
+                            Err(e) => warn!(%log_url, err = %e, "Failed to publish PoG link to transparency log"),
+                        }
+                    }
                 }
                 Err(e) => {
                     warn!(err = %e, "Hourly PoG round did not reach quorum (will retry)");
@@ -123,15 +146,19 @@ async fn main() -> Result<()> {
         }
     });
 
-    // HTTP sidecar endpoint: attaches live or cached `X-PoG-Proof` header to workload connections!
-    let app = Router::new()
+    // HTTP sidecar endpoint + optional drop-in reverse proxy injecting `X-PoG-Proof` on every response!
+    let mut app = Router::new()
+        .route("/health", get(|| async { Json(serde_json::json!({ "status": "ok" })) }))
         .route("/v1/handshake-proof", get(handshake_proof_handler))
-        .route("/v1/latest-proof", get(latest_proof_handler))
-        .with_state(state);
+        .route("/v1/latest-proof", get(latest_proof_handler));
+
+    if state.upstream.is_some() {
+        app = app.fallback(reverse_proxy_handler);
+    }
 
     let listener = tokio::net::TcpListener::bind(args.http_listen).await?;
     info!(listen = %args.http_listen, "Prover HTTP handshake sidecar ready");
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.with_state(state)).await?;
     Ok(())
 }
 
@@ -342,4 +369,213 @@ async fn probe_single_anchor(
     buf_reader.read_line(&mut resp_line).await?;
     let receipt: AnchorReceipt = serde_json::from_str(resp_line.trim())?;
     Ok(receipt)
+}
+
+fn parse_http_host_port(url_or_addr: &str) -> Result<(String, String)> {
+    let stripped = url_or_addr
+        .trim()
+        .trim_start_matches("http://")
+        .trim_start_matches("https://");
+    let authority = stripped.split('/').next().unwrap_or(stripped);
+    if authority.is_empty() {
+        anyhow::bail!("empty endpoint: {url_or_addr}");
+    }
+    let addr = if authority.contains(':') {
+        authority.to_string()
+    } else {
+        format!("{authority}:80")
+    };
+    Ok((addr, authority.to_string()))
+}
+
+/// Zero-dependency HTTP/1.1 POST of a newly minted hourly `GeoProofBundle` to `pog-log`.
+async fn publish_to_log(log_url: &str, bundle: &GeoProofBundle) -> Result<u16> {
+    let (addr, host_hdr) = parse_http_host_port(log_url)?;
+    let body = serde_json::to_vec(bundle)?;
+    let mut stream = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&addr))
+        .await
+        .map_err(|_| anyhow::anyhow!("log connect timeout"))??;
+    let req = format!(
+        "POST /v1/attestations HTTP/1.1\r\nHost: {host_hdr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    stream.write_all(req.as_bytes()).await?;
+    stream.write_all(&body).await?;
+    stream.flush().await?;
+
+    let mut resp_buf = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut resp_buf))
+        .await
+        .map_err(|_| anyhow::anyhow!("log response timeout"))??;
+    let status_line = String::from_utf8_lossy(&resp_buf)
+        .lines()
+        .next()
+        .unwrap_or("")
+        .to_string();
+    let code = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(0);
+    if !(200..300).contains(&code) {
+        anyhow::bail!("log returned HTTP {code} ({status_line})");
+    }
+    Ok(code)
+}
+
+/// Drop-in reverse proxy forwarding requests to `--upstream` (e.g., vLLM / SGLang / API)
+/// and injecting `X-PoG-Proof`, `X-PoG-Prover-Key`, and `X-PoG-Chain-Seq` on every response!
+async fn reverse_proxy_handler(
+    State(state): State<Arc<ProverState>>,
+    req: Request,
+) -> Response {
+    let Some(ref upstream) = state.upstream else {
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from("upstream not configured"))
+            .unwrap();
+    };
+    let Ok((addr, host_hdr)) = parse_http_host_port(upstream) else {
+        return Response::builder()
+            .status(StatusCode::BAD_GATEWAY)
+            .body(Body::from("invalid upstream address"))
+            .unwrap();
+    };
+
+    let (parts, body) = req.into_parts();
+    let req_bytes = match to_bytes(body, MAX_PROXY_BODY_BYTES).await {
+        Ok(b) => b,
+        Err(_) => {
+            return Response::builder()
+                .status(StatusCode::PAYLOAD_TOO_LARGE)
+                .body(Body::from("request body exceeds 8 MiB sidecar cap"))
+                .unwrap();
+        }
+    };
+
+    let path_and_query = parts
+        .uri
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/");
+    let mut raw_req = format!(
+        "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n",
+        parts.method, path_and_query, host_hdr
+    );
+    for (k, v) in &parts.headers {
+        let name = k.as_str();
+        if name.eq_ignore_ascii_case("host")
+            || name.eq_ignore_ascii_case("connection")
+            || name.eq_ignore_ascii_case("content-length")
+            || name.eq_ignore_ascii_case("transfer-encoding")
+        {
+            continue;
+        }
+        if let Ok(vs) = v.to_str() {
+            raw_req.push_str(&format!("{name}: {vs}\r\n"));
+        }
+    }
+    if !req_bytes.is_empty() {
+        raw_req.push_str(&format!("Content-Length: {}\r\n", req_bytes.len()));
+    }
+    raw_req.push_str("\r\n");
+
+    let mut stream = match tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&addr)).await {
+        Ok(Ok(s)) => s,
+        _ => {
+            return Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .body(Body::from("upstream unreachable"))
+                .unwrap();
+        }
+    };
+    if stream.write_all(raw_req.as_bytes()).await.is_err()
+        || (!req_bytes.is_empty() && stream.write_all(&req_bytes).await.is_err())
+        || stream.flush().await.is_err()
+    {
+        return Response::builder()
+            .status(StatusCode::BAD_GATEWAY)
+            .body(Body::from("upstream write failed"))
+            .unwrap();
+    }
+
+    let mut resp_bytes = Vec::new();
+    if tokio::time::timeout(Duration::from_secs(30), stream.read_to_end(&mut resp_bytes))
+        .await
+        .is_err()
+    {
+        return Response::builder()
+            .status(StatusCode::GATEWAY_TIMEOUT)
+            .body(Body::from("upstream timeout"))
+            .unwrap();
+    }
+
+    let split_idx = resp_bytes
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .unwrap_or(resp_bytes.len());
+    let head_str = String::from_utf8_lossy(&resp_bytes[..split_idx]);
+    let resp_body = if split_idx + 4 <= resp_bytes.len() {
+        resp_bytes[split_idx + 4..].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    let mut lines = head_str.lines();
+    let status_code = lines
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|s| s.parse::<u16>().ok())
+        .and_then(|c| StatusCode::from_u16(c).ok())
+        .unwrap_or(StatusCode::OK);
+
+    let mut builder = Response::builder().status(status_code);
+    for line in lines {
+        if let Some((k, v)) = line.split_once(':') {
+            let kn = k.trim();
+            if kn.eq_ignore_ascii_case("transfer-encoding") || kn.eq_ignore_ascii_case("connection") {
+                continue;
+            }
+            if let (Ok(hn), Ok(hv)) = (
+                HeaderName::from_bytes(kn.as_bytes()),
+                HeaderValue::from_str(v.trim()),
+            ) {
+                builder = builder.header(hn, hv);
+            }
+        }
+    }
+
+    // Automatically inject cached continuous-chain X-PoG-Proof header on every response!
+    let cached = state.latest_bundle.read().unwrap().clone();
+    if let Some(bundle) = cached {
+        if let Ok(hdr) = bundle.to_header_value() {
+            if let Ok(hv) = HeaderValue::from_str(&hdr) {
+                builder = builder.header(HTTP_HEADER_POG_PROOF, hv);
+            }
+        }
+        if let Ok(hv) = HeaderValue::from_str(&bundle.chain_seq.to_string()) {
+            builder = builder.header("x-pog-chain-seq", hv);
+        }
+    }
+    if let Ok(hv) = HeaderValue::from_str(&state.keypair.public_key_hex()) {
+        builder = builder.header("x-pog-prover-key", hv);
+    }
+
+    builder.body(Body::from(resp_body)).unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_http_host_port() {
+        let (addr, host) = parse_http_host_port("http://127.0.0.1:8090/v1").unwrap();
+        assert_eq!(addr, "127.0.0.1:8090");
+        assert_eq!(host, "127.0.0.1:8090");
+
+        let (addr2, host2) = parse_http_host_port("127.0.0.1:8000").unwrap();
+        assert_eq!(addr2, "127.0.0.1:8000");
+        assert_eq!(host2, "127.0.0.1:8000");
+    }
 }
