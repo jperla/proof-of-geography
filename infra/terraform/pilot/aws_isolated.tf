@@ -27,6 +27,7 @@ module "aws_isolated_us_west_1" {
   ssh_public_key      = var.ssh_public_key
   release_tarball_url = var.release_tarball_url
   allow_ssh           = var.allow_ssh
+  lockdown_egress     = var.lockdown_egress
 }
 
 module "aws_isolated_us_east_1" {
@@ -36,6 +37,7 @@ module "aws_isolated_us_east_1" {
   ssh_public_key      = var.ssh_public_key
   release_tarball_url = var.release_tarball_url
   allow_ssh           = var.allow_ssh
+  lockdown_egress     = var.lockdown_egress
 }
 
 module "aws_isolated_eu_central_1" {
@@ -45,6 +47,7 @@ module "aws_isolated_eu_central_1" {
   ssh_public_key      = var.ssh_public_key
   release_tarball_url = var.release_tarball_url
   allow_ssh           = var.allow_ssh
+  lockdown_egress     = var.lockdown_egress
 }
 
 module "aws_isolated_ap_northeast_1" {
@@ -54,6 +57,7 @@ module "aws_isolated_ap_northeast_1" {
   ssh_public_key      = var.ssh_public_key
   release_tarball_url = var.release_tarball_url
   allow_ssh           = var.allow_ssh
+  lockdown_egress     = var.lockdown_egress
 }
 
 locals {

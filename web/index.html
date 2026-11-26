@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Proof of Geography — Live Speed-of-Light Datacenter &amp; Device Localization</title>
+  <meta name="description" content="Prove where a server, GPU, or device physically is on Earth using speed-of-light multilateration across 9 live multi-cloud hardware TEE Anchors (Intel TDX, AMD SEV-SNP, AWS)." />
+  <meta property="og:title" content="Proof of Geography — Live Speed-of-Light Visualizer" />
+  <meta property="og:description" content="Watch speed-of-light circles from 9 live multi-cloud TEE Anchors around the world intersect on your real physical location — and try to spoof them." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://proofofgeography.com/" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css?v=2" />
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Top Navigation HUD -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-dot"></div>
+      <div>
+        <div class="brand-title">Proof of Geography</div>
+        <div class="brand-sub">Multi-Cloud Hardware TEE Speed-of-Light Multilateration</div>
+      </div>
+    </div>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="live" role="tab">⚡ Locate Me Live</button>
+      <button class="tab" data-tab="mesh" role="tab">🌐 9×9 Cloud Mesh</button>
+      <button class="tab" data-tab="verify" role="tab">🔐 Verify Proof</button>
+      <button class="tab" data-tab="cli" role="tab">💻 CLI &amp; SDKs</button>
+    </nav>
+
+    <div class="top-right">
+      <div id="grid-status-pill" class="status-pill">
+        <span class="pulse-dot"></span>
+        <span id="grid-status-text">Checking 9 Live Anchors…</span>
+      </div>
+      <a class="gh-btn" href="https://github.com/jperla/proof-of-geography" target="_blank" rel="noopener">
+        GitHub ↗
+      </a>
+    </div>
+  </header>
+
+  <!-- Floating Left HUD Panel -->
+  <aside id="panel" class="panel">
+    <button id="panel-toggle" class="panel-toggle" title="Toggle Panel">‹</button>
+
+    <!-- TAB 1: LIVE LOCATE ME -->
+    <section class="tab-pane active" id="pane-live">
+      <div class="hero-box">
+        <div class="eyebrow">REAL-TIME PHYSICS · ZERO GPS · ZERO IP DATABASE</div>
+        <h1>Where does the speed of light prove you are?</h1>
+        <p class="lead">
+          Your browser pings <strong>9 real multi-cloud Anchors</strong> (Intel TDX, AMD SEV-SNP &amp; AWS) around Earth over direct unicast HTTPS. Each Anchor draws a speed-of-light circle centered on itself — your physical location must lie in their <strong>intersection</strong>.
+        </p>
+        <div class="cta-row">
+          <button id="btn-probe-live" class="btn-primary">
+            <span class="btn-icon">⚡</span>
+            <span id="btn-probe-label">Locate Me Live</span>
+          </button>
+          <button id="btn-spoof-toggle" class="btn-secondary" title="Try lying about your location">
+            🕵️ Try to Spoof
+          </button>
+        </div>
+        <div id="probe-progress-wrap" class="progress-wrap hidden">
+          <div class="progress-bar"><div id="probe-progress-fill" class="progress-fill"></div></div>
+          <div id="probe-progress-text" class="progress-text">Warming up TLS connections…</div>
+        </div>
+      </div>
+
+      <!-- Spoof Attack Lab Drawer -->
+      <div id="spoof-box" class="spoof-box hidden">
+        <div class="spoof-header">
+          <strong>🕵️ Spoof / Inference-Cloud Lie Simulator</strong>
+          <button id="btn-spoof-clear" class="link-btn">Exit Spoof Mode</button>
+        </div>
+        <p class="small muted">
+          Click anywhere on the map — or pick a fake datacenter city below — to pretend your GPU / server is there. Watch the speed-of-light circles catch the lie:
+        </p>
+        <div class="preset-chips">
+          <button class="chip" data-spoof="39.0438,-77.4874,Ashburn, VA">Ashburn, VA</button>
+          <button class="chip" data-spoof="50.1109,8.6821,Frankfurt, DE">Frankfurt, DE</button>
+          <button class="chip" data-spoof="35.6895,139.6917,Tokyo, JP">Tokyo, JP</button>
+          <button class="chip" data-spoof="1.3521,103.8198,Singapore">Singapore</button>
+          <button class="chip" data-spoof="40.7128,-74.0060,New York, NY">New York</button>
+          <button class="chip" data-spoof="51.5074,-0.1278,London, UK">London</button>
+        </div>
+        <div id="spoof-verdict" class="verdict-card hidden"></div>
+      </div>
+
+      <!-- Live Physics Bounds Summary -->
+      <div id="live-summary" class="metrics-grid hidden">
+        <div class="metric-card highlight">
+          <div class="metric-label">Best-Fit Intersection</div>
+          <div id="m-coords" class="metric-val mono">—</div>
+          <div id="m-nearest" class="metric-sub">Nearest Anchor: —</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Calibrated Bound</div>
+          <div id="m-cal" class="metric-val mono">—</div>
+          <div class="metric-sub">168k km/s empirical P95</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Optical Fiber (Tier 1B)</div>
+          <div id="m-fiber" class="metric-val mono">—</div>
+          <div class="metric-sub">204k km/s glass limit</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Vacuum c₀ (Tier 1A)</div>
+          <div id="m-vac" class="metric-val mono">—</div>
+          <div class="metric-sub">299.8k km/s absolute</div>
+        </div>
+      </div>
+
+      <div id="live-note" class="info-banner hidden"></div>
+
+      <!-- Per-Anchor Live RTT Waterfall -->
+      <div class="section-head">
+        <span>Live Anchor Measurements</span>
+        <span id="anchor-count-badge" class="badge">9 Anchors</span>
+      </div>
+      <div id="live-anchor-list" class="anchor-list"></div>
+    </section>
+
+    <!-- TAB 2: 9x9 CLOUD MESH -->
+    <section class="tab-pane" id="pane-mesh">
+      <div class="hero-box compact">
+        <div class="eyebrow">REAL HARDWARE-SIGNED UDP PROBES · 9 LIVE CLOUD VMs</div>
+        <h2>Multi-Cloud Datacenter Mesh (9×9)</h2>
+        <p class="lead">
+          Select any live cloud VM below to visualize its <strong>actual hardware-signed UDP speed-of-light circles</strong> measured across our isolated GCP (Intel TDX + AMD SEV-SNP) &amp; AWS pilot. Cross-cloud Frankfurt &amp; Ashburn localize to <strong>55–65 miles</strong>!
+        </p>
+      </div>
+
+      <div class="section-head">
+        <span>Select Prover Datacenter</span>
+        <span class="badge">Real UDP Min-RTT</span>
+      </div>
+      <div id="mesh-prover-picker" class="mesh-picker"></div>
+
+      <div id="mesh-stats" class="metrics-grid">
+        <div class="metric-card highlight">
+          <div class="metric-label">Selected Prover</div>
+          <div id="mesh-name" class="metric-val">—</div>
+          <div id="mesh-tee" class="metric-sub">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Tightest Cross-Cloud</div>
+          <div id="mesh-best" class="metric-val mono">—</div>
+          <div id="mesh-best-sub" class="metric-sub">—</div>
+        </div>
+      </div>
+
+      <div class="section-head">
+        <span>Live Hardware TEE Attestation (/info)</span>
+        <button id="btn-refresh-tees" class="link-btn">Refresh Live</button>
+      </div>
+      <div id="mesh-anchor-list" class="anchor-list"></div>
+    </section>
+
+    <!-- TAB 3: VERIFY X-POG-PROOF -->
+    <section class="tab-pane" id="pane-verify">
+      <div class="hero-box compact">
+        <div class="eyebrow">RUST BACKEND VERIFIER · ZERO-TRUST CRYPTOGRAPHY</div>
+        <h2>Verify an <code>X-PoG-Proof</code> Header</h2>
+        <p class="lead">
+          AI inference APIs and confidential datacenters attach an <code>X-PoG-Proof</code> header to every TLS handshake. Paste one below — or load a real live cloud proof — to verify its Ed25519 Anchor signatures &amp; Byzantine (K-f)-core physics bounds via our Rust verifier.
+        </p>
+      </div>
+
+      <div class="preset-chips" style="margin-bottom:10px">
+        <button class="chip verify-sample" data-sample="gcp-europe-west3-frankfurt">Load Live Frankfurt SEV-SNP</button>
+        <button class="chip verify-sample" data-sample="gcp-us-east4-ashburn">Load Live Ashburn Intel TDX</button>
+        <button class="chip verify-sample" data-sample="aws-us-west-1-sanjose">Load Live San Jose AWS</button>
+      </div>
+
+      <textarea id="verify-input" class="code-input" placeholder="Paste base64url X-PoG-Proof header value here…"></textarea>
+      <div class="cta-row" style="margin-top:10px">
+        <button id="btn-verify-header" class="btn-primary">🔐 Verify Cryptographically</button>
+        <a href="/.well-known/pog-registry" target="_blank" class="btn-secondary">Registry JSON ↗</a>
+      </div>
+
+      <div id="verify-verdict" class="verdict-card hidden" style="margin-top:12px"></div>
+      <pre id="verify-json" class="code-out hidden"></pre>
+    </section>
+
+    <!-- TAB 4: CLI & SDKS -->
+    <section class="tab-pane" id="pane-cli">
+      <div class="hero-box compact">
+        <div class="eyebrow">OPEN PUBLIC UTILITY · HARDWARE-ATTESTED UDP PROBING</div>
+        <h2>Run Cryptographic Probes Yourself</h2>
+        <p class="lead">
+          Browser pings show the physics visually via HTTPS; for <strong>full hardware-attested UDP <code>BLAKE3-MAC</code> proofs</strong> with Ed25519 Anchor receipts, run our open-source Rust CLI against the locked-down 9-node public grid right now:
+        </p>
+      </div>
+
+      <div class="code-block-card">
+        <div class="code-block-head">
+          <span>1. Clone &amp; Probe the Live 9-Node Public Grid</span>
+          <button class="copy-btn" data-copy="cmd-cli">Copy</button>
+        </div>
+        <pre id="cmd-cli">git clone https://github.com/jperla/proof-of-geography
+cd proof-of-geography
+cargo run --release --bin pog-cli -- probe-live \
+  --grid config/public_anchors.json \
+  --rounds 8 --allow-dev-tee</pre>
+      </div>
+
+      <div class="code-block-card">
+        <div class="code-block-head">
+          <span>2. Zero-Dependency Client Verifier SDKs (TS · Go · Python)</span>
+          <button class="copy-btn" data-copy="cmd-sdk">Copy</button>
+        </div>
+        <pre id="cmd-sdk">import { verifyProofHeader } from "./sdks/typescript/src/index.ts";
+const registry = await fetch("https://proofofgeography.com/.well-known/pog-registry").then(r =&gt; r.json());
+const report = await verifyProofHeader(res.headers.get("X-PoG-Proof"), registry);
+console.log(report.overall_valid, report.tier1b_fiber.proven_max_radius_km);</pre>
+      </div>
+
+      <div class="why-card">
+        <h3>Why Proof of Geography Matters</h3>
+        <ul>
+          <li><strong>GPU Export-Control &amp; Hardware Localization:</strong> Proves where confidential GPUs (H100/B200 SPDM + SEV-SNP/TDX) physically sit on Earth — even against VPNs, BGP hijacks, or spoofed geofeed claims.</li>
+          <li><strong>Data Sovereignty &amp; AI Compliance:</strong> Cryptographically verifies EU/US/regional inference residency on every API handshake (<code>X-PoG-Proof</code>).</li>
+          <li><strong>Stop Inference-Cloud Routing Lies:</strong> Catches API routers silently forwarding "US-hosted" prompts overseas — light physically cannot beat 299,792 km/s.</li>
+          <li><strong>Continuous Mobility Detection:</strong> Hourly hash-chained proofs catch datacenters moved onto trucks, ships, or aircraft.</li>
+        </ul>
+      </div>
+    </section>
+  </aside>
+
+  <!-- Floating Bottom-Right Physics Controls -->
+  <div class="bottom-controls">
+    <div class="control-group" title="Switch speed-of-light physics bound model">
+      <span class="control-label">Physics Tier</span>
+      <div class="segmented" id="tier-switcher">
+        <button class="seg-btn" data-tier="vacuum">Vacuum c₀</button>
+        <button class="seg-btn" data-tier="fiber">Optical Fiber</button>
+        <button class="seg-btn active" data-tier="calibrated">Calibrated</button>
+      </div>
+    </div>
+
+    <div class="control-group" title="Choose how many Anchor circles to display">
+      <span class="control-label">Circles</span>
+      <div class="segmented" id="circle-switcher">
+        <button class="seg-btn active" data-circles="top5">Closest 5</button>
+        <button class="seg-btn" data-circles="all">All 9</button>
+        <button class="seg-btn" data-circles="none">Clean</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Bottom-Left Legend -->
+  <div class="map-legend">
+    <span class="leg-item"><i class="dot" style="background:#38bdf8"></i>GCP Intel TDX</span>
+    <span class="leg-item"><i class="dot" style="background:#818cf8"></i>GCP AMD SEV-SNP</span>
+    <span class="leg-item"><i class="dot" style="background:#f59e0b"></i>AWS Anchor</span>
+    <span class="leg-item"><i class="dot" style="background:#2dd4bf"></i>Intersection Zone</span>
+    <span class="leg-item"><i class="dot" style="background:#f43f5e"></i>Spoof Violation</span>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="/geo.js?v=2"></script>
+  <script src="/app.js?v=2"></script>
+</body>
+</html>

@@ -46,6 +46,12 @@ def main() -> None:
         if aid not in results:
             continue
         info = results[aid]
+        if meta["cloud_provider"] == "aws":
+            inst_type = "c6a.large"
+        elif info["tee_vendor"] == "IntelTdx":
+            inst_type = "c3-standard-4"
+        else:
+            inst_type = "n2d-standard-2"
         anchors.append(
             {
                 "anchor_id": aid,
@@ -53,7 +59,7 @@ def main() -> None:
                 "region": meta["region"],
                 "city": meta["city"],
                 "tee_vendor": info["tee_vendor"],
-                "instance_type": "c6a.large" if meta["cloud_provider"] == "aws" else "n2d-standard-2",
+                "instance_type": inst_type,
                 "location": {"lat": meta["lat"], "lon": meta["lon"]},
                 "endpoint_tcp": f"{meta['ip']}:7443",
                 "endpoint_udp": f"{meta['ip']}:7444",
@@ -63,8 +69,8 @@ def main() -> None:
 
     grid = {
         "version": "1.0.0",
-        "grid_name": "pog-live-isolated-pilot",
-        "description": "Live isolated 8-node multi-cloud AMD SEV-SNP Anchor pilot (GCP + AWS across US West, US East, Frankfurt, Tokyo)",
+        "grid_name": "pog-live-public-grid-9",
+        "description": "Live locked-down 9-node multi-cloud Proof of Geography public Anchor grid (GCP Intel TDX + AMD SEV-SNP + AWS across US, Europe & Asia)",
         "anchors": anchors,
     }
     out_grid_path.write_text(json.dumps(grid, indent=2))

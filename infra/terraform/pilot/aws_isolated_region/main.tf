@@ -13,6 +13,10 @@ variable "allow_ssh" {
   type    = bool
   default = false
 }
+variable "lockdown_egress" {
+  type    = bool
+  default = true
+}
 
 data "aws_ami" "ubuntu_2404" {
   most_recent = true
@@ -64,7 +68,7 @@ resource "aws_route_table_association" "rta" {
 
 resource "aws_security_group" "sg" {
   name        = "pog-isolated-sg-${var.anchor_id}"
-  description = "Locked-down Isolated Proof of Geography Anchor SG"
+  description = "Isolated Proof of Geography Anchor SG"
   vpc_id      = aws_vpc.isolated.id
 
   dynamic "ingress" {
@@ -75,6 +79,12 @@ resource "aws_security_group" "sg" {
       protocol    = "tcp"
       cidr_blocks = ["0.0.0.0/0"]
     }
+  }
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
   ingress {
     from_port   = 7443
@@ -94,12 +104,33 @@ resource "aws_security_group" "sg" {
     protocol    = "udp"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  # Stateful SG automatically allows return TCP replies on 7443/7445; block all outbound TCP scans!
-  egress {
-    from_port   = 1024
-    to_port     = 65535
-    protocol    = "udp"
-    cidr_blocks = ["0.0.0.0/0"]
+  # Stateful SG automatically allows return TCP replies on 443/7443/7445; block all outbound TCP scans in public mode!
+  dynamic "egress" {
+    for_each = var.lockdown_egress ? [1] : []
+    content {
+      from_port   = 1024
+      to_port     = 65535
+      protocol    = "udp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+  dynamic "egress" {
+    for_each = var.lockdown_egress ? [1] : []
+    content {
+      from_port   = 123
+      to_port     = 123
+      protocol    = "udp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+  dynamic "egress" {
+    for_each = var.lockdown_egress ? [] : [1]
+    content {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
   tags = { Project = "proof-of-geography-pilot" }
 }
@@ -137,6 +168,10 @@ resource "aws_instance" "anchor" {
     Name    = var.anchor_id
     Project = "proof-of-geography-pilot"
     TeeMode = "aws-isolated-pilot"
+  }
+
+  lifecycle {
+    ignore_changes = [user_data, ami]
   }
 }
 

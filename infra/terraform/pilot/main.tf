@@ -33,6 +33,12 @@ variable "allow_ssh" {
   description = "Keep false in public mode (zero public SSH attack surface!)"
 }
 
+variable "lockdown_egress" {
+  type        = bool
+  default     = true
+  description = "Keep true in public mode (blocks all Anchor outbound TCP, IMDS, and RFC1918!)"
+}
+
 variable "ssh_public_key" {
   type        = string
   description = "Ephemeral SSH public key used solely to run cross-anchor mesh benchmarks"
@@ -97,7 +103,7 @@ resource "google_compute_firewall" "pog_ingress" {
 
   allow {
     protocol = "tcp"
-    ports    = var.allow_ssh ? ["22", "7443", "7445"] : ["7443", "7445"]
+    ports    = var.allow_ssh ? ["22", "443", "7443", "7445"] : ["443", "7443", "7445"]
   }
   allow {
     protocol = "udp"
@@ -109,6 +115,7 @@ resource "google_compute_firewall" "pog_ingress" {
 
 # Strict egress lockdown: Anchors NEVER need to reach cloud metadata or initiate outbound TCP scans.
 resource "google_compute_firewall" "pog_egress_deny_private" {
+  count              = var.lockdown_egress ? 1 : 0
   name               = "pog-isolated-egress-deny-private"
   network            = google_compute_network.pog_isolated_vpc.id
   direction          = "EGRESS"
@@ -122,6 +129,7 @@ resource "google_compute_firewall" "pog_egress_deny_private" {
 }
 
 resource "google_compute_firewall" "pog_egress_allow_udp" {
+  count              = var.lockdown_egress ? 1 : 0
   name               = "pog-isolated-egress-allow-udp"
   network            = google_compute_network.pog_isolated_vpc.id
   direction          = "EGRESS"
@@ -131,11 +139,12 @@ resource "google_compute_firewall" "pog_egress_allow_udp" {
 
   allow {
     protocol = "udp"
-    ports    = ["1024-65535"]
+    ports    = ["123", "1024-65535"]
   }
 }
 
 resource "google_compute_firewall" "pog_egress_deny_all" {
+  count              = var.lockdown_egress ? 1 : 0
   name               = "pog-isolated-egress-deny-all"
   network            = google_compute_network.pog_isolated_vpc.id
   direction          = "EGRESS"
@@ -145,6 +154,91 @@ resource "google_compute_firewall" "pog_egress_deny_all" {
 
   deny {
     protocol = "all"
+  }
+}
+
+# =============================================================================
+# 1B. DEDICATED ISOLATED PUBLIC WEB VISUALIZER (proofofgeography.com)
+#     Tiny e2-micro (~$0.008/hr) strictly separated from the 9 TEE Anchors!
+# =============================================================================
+
+resource "google_compute_firewall" "pog_web_ingress" {
+  name      = "pog-isolated-web-ingress"
+  network   = google_compute_network.pog_isolated_vpc.id
+  direction = "INGRESS"
+
+  allow {
+    protocol = "tcp"
+    ports    = var.allow_ssh ? ["22", "80", "443"] : ["80", "443"]
+  }
+  source_ranges = ["0.0.0.0/0"]
+  target_tags   = ["pog-web"]
+}
+
+resource "google_compute_firewall" "pog_web_egress_deny_private" {
+  count              = var.lockdown_egress ? 1 : 0
+  name               = "pog-isolated-web-egress-deny-private"
+  network            = google_compute_network.pog_isolated_vpc.id
+  direction          = "EGRESS"
+  priority           = 900
+  destination_ranges = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16"]
+  target_tags        = ["pog-web"]
+
+  deny {
+    protocol = "all"
+  }
+}
+
+resource "google_compute_address" "pog_web_ip" {
+  name         = "ip-pog-web"
+  region       = "us-west1"
+  network_tier = "STANDARD"
+}
+
+resource "google_compute_instance" "pog_web" {
+  name                      = "pog-web-visualizer"
+  machine_type              = "e2-micro"
+  zone                      = "us-west1-a"
+  tags                      = ["pog-web"]
+  allow_stopping_for_update = true
+
+  service_account {
+    scopes = []
+  }
+
+  shielded_instance_config {
+    enable_secure_boot          = true
+    enable_vtpm                 = true
+    enable_integrity_monitoring = true
+  }
+
+  labels = {
+    project = "proof-of-geography-pilot"
+    role    = "public-web"
+  }
+
+  boot_disk {
+    initialize_params {
+      image = "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
+      size  = 15
+      type  = "pd-balanced"
+    }
+  }
+
+  network_interface {
+    subnetwork = google_compute_subnetwork.pog_subnets["gcp-us-west1-oregon"].id
+    access_config {
+      nat_ip       = google_compute_address.pog_web_ip.address
+      network_tier = "STANDARD"
+    }
+  }
+
+  metadata = {
+    ssh-keys = "pog:${var.ssh_public_key}"
+  }
+
+  lifecycle {
+    ignore_changes = [metadata]
   }
 }
 
@@ -342,6 +436,10 @@ resource "azurerm_linux_virtual_machine" "azure_node" {
     sku       = "cvm"
     version   = "latest"
   }
+}
+
+output "web_ip" {
+  value = google_compute_address.pog_web_ip.address
 }
 
 output "pilot_endpoints" {

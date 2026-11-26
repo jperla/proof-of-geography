@@ -1,6 +1,9 @@
 # Proof of Geography (PoG)
 
-**Unspoofable, cryptographic, speed-of-light physical location proofs for GPUs, confidential datacenters, and AI inference endpoints—secured by hardware TEEs and a 24-node multi-cloud Anchor network.**
+**Unspoofable, cryptographic, speed-of-light physical location proofs for GPUs, confidential datacenters, and AI inference endpoints—secured by hardware TEEs and a multi-cloud Anchor network.**
+
+> 🌐 **Try the Live Interactive Speed-of-Light Visualizer:** **[https://proofofgeography.com](https://proofofgeography.com)**
+> Watch 9 live multi-cloud Anchors (GCP Intel TDX, GCP AMD SEV-SNP & AWS) locate your browser in real time, simulate spoofing / inference-cloud lies, explore our 9×9 cross-cloud datacenter mesh, and cryptographically verify `X-PoG-Proof` headers online!
 
 ---
 
@@ -25,7 +28,27 @@ Real-time speed-of-light geolocation of a developer laptop behind NAT measured l
 
 ![Live Proof of Geography Geolocation Map](docs/assets/live_geolocation_screenshot.png)
 
-*Datacenter-to-datacenter cross-cloud pairs tighten even further with zero last-mile ISP overhead: live **GCP Frankfurt (AMD SEV-SNP) <-> AWS Frankfurt** measured **1.69 ms** (**55.2 mi** calibrated / **157.7 mi** hard vacuum), and **GCP Ashburn (Intel TDX) <-> AWS Ashburn** measured **1.85 ms** (**65.3 mi** calibrated / **174.7 mi** hard vacuum). See the full 9×9 live matrix in [docs/LIVE_PILOT_RESULTS.md](docs/LIVE_PILOT_RESULTS.md).*
+*Datacenter-to-datacenter cross-cloud pairs tighten even further with zero last-mile ISP overhead: live **GCP Frankfurt (AMD SEV-SNP) <-> AWS Frankfurt** measured **1.54–1.69 ms** (**46–55 mi** calibrated / **144–158 mi** hard vacuum), and **GCP Ashburn (Intel TDX) <-> AWS Ashburn** measured **1.85 ms** (**65.3 mi** calibrated / **174.7 mi** hard vacuum). See the full 9×9 live matrix in [docs/LIVE_PILOT_RESULTS.md](docs/LIVE_PILOT_RESULTS.md).*
+
+### Try It Right Now Against the Live Locked-Down 9-Node Public Grid
+
+1. **In your browser (zero install):** Open **[https://proofofgeography.com](https://proofofgeography.com)** and click **⚡ Locate Me Live** (or **🕵️ Try to Spoof** to test speed-of-light lie detection).
+2. **From your terminal (full cryptographic UDP `BLAKE3-MAC` + Ed25519 receipts):**
+   ```bash
+   git clone https://github.com/jperla/proof-of-geography
+   cd proof-of-geography
+   cargo run --release --bin pog-cli -- probe-live \
+     --grid config/public_anchors.json \
+     --rounds 8 --allow-dev-tee
+   ```
+   *(Public Anchor registry is also served live at `https://proofofgeography.com/.well-known/pog-registry`.)*
+
+### Public Security Lockdown
+
+All 9 live public Anchors and the isolated `proofofgeography.com` web host run in a strictly segregated GCP project + dedicated AWS VPCs with defense-in-depth hardening:
+* **Zero Public SSH (`22/tcp` closed everywhere):** All cloud firewalls block port 22; Anchors also close HTTP `80/tcp`.
+* **Zero Cloud Credentials / IMDS Attack Surface:** AWS EC2 IMDS is completely disabled (`http_endpoint = "disabled"`); GCP VMs have zero IAM service account scopes + Shielded VM Secure Boot, vTPM, and Integrity Monitoring enabled; host `iptables` + cloud egress firewalls block RFC1918 private ranges and all Anchor outbound TCP (UDP `123` NTP + `1024-65535` PoG replies only).
+* **Hardened `pog-anchor` (`v0.1.2`) + Systemd Sandboxing:** Bounded 32 KiB Phase 1 line cap & 4s/12s Slowloris timeouts, mandatory authenticated UDP `PUNCH` (eliminates UDP reflection DDoS), scoped UDP port window (`40000-40999/udp`), concurrency cap (`64`), per-IP (`12/min`) + global (`600/min`) rate limiting, 60-second cached `/info` endpoint, and strict systemd confinement (`ProtectSystem=strict`, `NoNewPrivileges=yes`, `MemoryDenyWriteExecute=yes`, `MemoryMax=256M`).
 
 ---
 

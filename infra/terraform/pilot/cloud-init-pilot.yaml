@@ -43,7 +43,6 @@ write_files:
       ProtectSystem=strict
       ProtectHome=yes
       PrivateTmp=yes
-      ProtectKernelTunables=yes
       ProtectKernelModules=yes
       ProtectControlGroups=yes
       RestrictNamespaces=yes
