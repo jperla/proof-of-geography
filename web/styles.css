@@ -528,12 +528,13 @@ html, body {
 .bottom-controls {
   position: fixed;
   right: 12px;
-  bottom: 28px;
+  bottom: 24px;
   z-index: 15;
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  max-width: calc(100vw - 450px);
 }
 .control-group {
   display: flex;

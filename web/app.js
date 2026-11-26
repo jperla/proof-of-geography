@@ -177,10 +177,9 @@
             }
           }
         }
-        // Discard round 0 (TCP+TLS handshake warmup); keep round 1 as fallback and rounds 2..N as true warm RTTs
+        // Discard round 0 (TCP+TLS handshake + Wi-Fi radio wakeup); keep warm rounds 1..N and take true min floor!
         if (r >= 2 || (r === 1 && samples.length === 0)) {
           if (r >= 2 && samples.length === 1 && totalRounds >= 4) {
-            // Replace warmup fallback once true warm round arrives
             samples.length = 0;
             bestMs = Infinity;
           }
@@ -191,12 +190,16 @@
       } catch (_) {
         // timeout or network error on one round; continue
       }
+      // Small 18 ms breath between pings prevents Wi-Fi AP bufferbloat queueing spikes!
+      if (r + 1 < totalRounds) {
+        await new Promise((res) => setTimeout(res, 18));
+      }
     }
     if (!Number.isFinite(bestMs)) return null;
     return { anchor, rttMs: bestMs, samples };
   }
 
-  // --- Run Live Speed-of-Light Probe Across All 9 Global Anchors ---
+  // --- Run Anti-Bufferbloat Staggered Speed-of-Light Probe Across All 9 Global Anchors ---
   async function runLiveProbe() {
     if (state.probing) return;
     state.probing = true;
@@ -209,44 +212,52 @@
     btn.disabled = true;
     label.textContent = "Probing 9 Global Anchors…";
     progWrap.classList.remove("hidden");
-    progFill.style.width = "6%";
-    progText.textContent = "Opening unicast TLS 1.3 connections to 9 global datacenters…";
+    progFill.style.width = "5%";
+    progText.textContent = "Staggering TLS handshakes (avoids Wi-Fi bufferbloat)…";
 
-    const TOTAL_ROUNDS = 6;
+    const TOTAL_ROUNDS = 8;
     const liveMap = new Map();
     let completedSteps = 0;
     const totalSteps = ANCHORS.length * TOTAL_ROUNDS;
 
     if (performance.clearResourceTimings) performance.clearResourceTimings();
 
-    const results = await Promise.all(
-      ANCHORS.map((a) =>
-        measureSingleAnchor(a, TOTAL_ROUNDS, (anchor, r, bestMs, samples) => {
-          completedSteps++;
-          if (Number.isFinite(bestMs)) {
-            liveMap.set(anchor.id, { anchor, rttMs: bestMs, samples });
-          }
-          const pct = Math.min(100, Math.round((completedSteps / totalSteps) * 100));
-          progFill.style.width = `${pct}%`;
-          progText.textContent =
-            r < 2
-              ? `Warming TLS handshakes (${liveMap.size}/9 responding)…`
-              : `Measuring speed-of-light RTT floor: ${liveMap.size}/9 Anchors (${pct}%)`;
+    // Run in 3 gentle waves of 3 Anchors so home/office Wi-Fi routers never queue-bloat all 9 at once!
+    const allResults = [];
+    for (let wave = 0; wave < ANCHORS.length; wave += 3) {
+      const batch = ANCHORS.slice(wave, wave + 3);
+      const batchRes = await Promise.all(
+        batch.map((a, idx) =>
+          (async () => {
+            if (idx > 0) await new Promise((r) => setTimeout(r, idx * 35));
+            return measureSingleAnchor(a, TOTAL_ROUNDS, (anchor, r, bestMs, samples) => {
+              completedSteps++;
+              if (Number.isFinite(bestMs)) {
+                liveMap.set(anchor.id, { anchor, rttMs: bestMs, samples });
+              }
+              const pct = Math.min(100, Math.round((completedSteps / totalSteps) * 100));
+              progFill.style.width = `${pct}%`;
+              progText.textContent =
+                r < 2
+                  ? `Warming TLS wave ${Math.floor(wave / 3) + 1}/3 (${liveMap.size}/9 online)…`
+                  : `Measuring clean RTT floor (anti-jitter): ${liveMap.size}/9 Anchors (${pct}%)`;
 
-          // Live animation update every 4 steps
-          if (completedSteps % 4 === 0 && liveMap.size >= 3) {
-            state.liveMeasurements = Array.from(liveMap.values()).sort((x, y) => x.rttMs - y.rttMs);
-            redrawActiveScene(false);
-          }
-        })
-      )
-    );
+              if (completedSteps % 4 === 0 && liveMap.size >= 3) {
+                state.liveMeasurements = Array.from(liveMap.values()).sort((x, y) => x.rttMs - y.rttMs);
+                redrawActiveScene(false);
+              }
+            });
+          })()
+        )
+      );
+      allResults.push(...batchRes);
+    }
 
-    state.liveMeasurements = results.filter(Boolean).sort((a, b) => a.rttMs - b.rttMs);
+    state.liveMeasurements = allResults.filter(Boolean).sort((a, b) => a.rttMs - b.rttMs);
     state.probing = false;
     btn.disabled = false;
     label.textContent = "Re-Run Live Probe";
-    progText.textContent = `Measured ${state.liveMeasurements.length}/9 multi-cloud Anchors (min RTT across warm rounds).`;
+    progText.textContent = `Measured ${state.liveMeasurements.length}/9 Anchors (min RTT across 6 clean warm rounds).`;
     setTimeout(() => progWrap.classList.add("hidden"), 2600);
 
     redrawActiveScene(true);
@@ -303,12 +314,14 @@
         const geom = PogGeo.geodesicCircleGeometry(c.lat, c.lon, c.radiusKm, 144, shift);
         if (geom.polar) {
           // Fill polar interior without drawing a border across the pole edge, then stroke only the true geodesic curve
-          L.polygon(geom.fill, {
-            stroke: false,
-            fillColor: strokeColor,
-            fillOpacity: fillOpacity * 0.85,
-            interactive: false,
-          }).addTo(circlesLayer);
+          if (geom.fill && geom.fill.length >= 3) {
+            L.polygon(geom.fill, {
+              stroke: false,
+              fillColor: strokeColor,
+              fillOpacity: fillOpacity * 0.85,
+              interactive: false,
+            }).addTo(circlesLayer);
+          }
           L.polyline(geom.stroke, {
             color: strokeColor,
             weight,
@@ -492,6 +505,10 @@
     const solCal = PogGeo.solveLocation(measurements, "calibrated", 1.5, 1);
 
     const best = res.solution;
+    const overheadNote =
+      best.estOverheadMs >= 3.0
+        ? ` · Est. Wi-Fi/ISP overhead: <strong>~${best.estOverheadMs.toFixed(1)} ms</strong> (auto-subtracted in Calibrated TDOA mode)`
+        : "";
     document.getElementById("m-coords").textContent = fmtCoord(best.mle[0], best.mle[1]);
     document.getElementById("m-nearest").textContent = `Nearest: ${best.nearest.anchor.city} (${best.nearest.rttMs.toFixed(1)} ms)`;
     document.getElementById("m-cal").textContent = `± ${fmtDist(solCal.maxRadiusKm)}`;
@@ -500,10 +517,10 @@
 
     if (!best.strictFeasible) {
       noteEl.classList.remove("hidden");
-      noteEl.innerHTML = `<strong>Note:</strong> High local Wi-Fi / VPN / cellular jitter detected (${best.feasibleCount}/${measurements.length} circles overlap under <em>${state.tier}</em>). Switch Physics Tier to <strong>Optical Fiber</strong> or <strong>Vacuum c₀</strong> for a guaranteed upper bound!`;
+      noteEl.innerHTML = `<strong>Note:</strong> High local Wi-Fi / VPN / cellular jitter detected (${best.feasibleCount}/${measurements.length} circles overlap under <em>${state.tier}</em>)${overheadNote}. Switch Physics Tier to <strong>Optical Fiber</strong> or <strong>Vacuum c₀</strong> for a guaranteed upper bound!`;
     } else {
       noteEl.classList.remove("hidden");
-      noteEl.innerHTML = `<strong>Physics Proven:</strong> ${best.feasibleCount}/${measurements.length} independent multi-cloud Anchor circles intersect in the bright teal zone (Byzantine <code>f=1</code> fault-tolerant). Click any Anchor row to isolate its circle!`;
+      noteEl.innerHTML = `<strong>Physics Proven:</strong> ${best.feasibleCount}/${measurements.length} independent multi-cloud Anchor circles intersect in the smooth teal lens${overheadNote}. Click any Anchor row to isolate its circle!`;
     }
   }
 

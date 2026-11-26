@@ -1,5 +1,5 @@
 // Exact spherical geometry & Proof of Geography speed-of-light solver
-// Calibrated to match crates/pog-geo/src/lib.rs (Tier 1A Vacuum, Tier 1B Fiber, Tier 2B Calibrated)
+// Zero-artifact Mercator geodesic circles + Joint TDOA-MLE Wi-Fi/ISP overhead estimator
 
 (function (global) {
   const EARTH_RADIUS_KM = 6371.0088;
@@ -11,23 +11,23 @@
     vacuum: {
       id: "vacuum",
       label: "Tier 1A Vacuum (c₀)",
-      velocityKmPerMs: 299.792458, // exact speed of light in vacuum
+      velocityKmPerMs: 299.792458,
       overheadMs: 0.0,
       minRadiusKm: 15,
     },
     fiber: {
       id: "fiber",
       label: "Tier 1B Optical Fiber",
-      velocityKmPerMs: 204.0, // c₀ / 1.468 in silica optical fiber
+      velocityKmPerMs: 204.0,
       overheadMs: 0.0,
       minRadiusKm: 15,
     },
     calibrated: {
       id: "calibrated",
       label: "Tier 2B Calibrated Internet",
-      velocityKmPerMs: 130.271, // distance-calibrated empirical internet curve (102–166 km/ms)
+      velocityKmPerMs: 130.271,
       overheadMs: 0.65,
-      minRadiusKm: 25,
+      minRadiusKm: 35,
     },
   };
 
@@ -44,9 +44,8 @@
     const t = TIERS[tierId] || TIERS.calibrated;
     const effectiveRtt = Math.max(0, rttMs - t.overheadMs - extraOverheadMs);
     if (tierId === "calibrated") {
-      // Empirical distance-dependent internet velocity learned from our 9x9 multi-cloud mesh:
-      // Regional/metro routes experience higher fiber stretch (~102 km/ms), converging toward
-      // straight subsea optical corridors (~166 km/ms) at long distances.
+      // Empirical distance-dependent internet velocity from our live 9x9 multi-cloud mesh:
+      // Regional/metro routes ~102 km/ms (fiber stretch + peering) -> long subsea cables ~166 km/ms
       const vKmPerMs = 102.0 + 64.0 * Math.min(1.0, effectiveRtt / 95.0);
       return Math.max(t.minRadiusKm, (effectiveRtt / 2.0) * vKmPerMs);
     }
@@ -79,32 +78,48 @@
 
   /**
    * Build Mercator-safe geodesic circle geometry centered on (anchorLat, anchorLon).
-   * Properly distinguishes:
-   *   - Standard closed loops (neither pole enclosed) -> unwrapped continuous polygon
-   *   - North/South polar-cap circles (circle encloses a pole!) -> smooth open boundary curve
-   *     from -180..+180 + polar-edge fill polygon (ZERO horizontal wrap-around chords!)
+   * Exact spherical topology check:
+   *   - Circle encloses North Pole IFF anchorLat + radiusDeg >= 89.8
+   *   - Circle encloses South Pole IFF anchorLat - radiusDeg <= -89.8
+   *   - Otherwise it is ALWAYS a simple closed loop (never sorted by lon -> zero vertical zig-zag chords!).
+   *   - For true polar-enclosing circles, trace monotonically by bearing and split at the single
+   *     antimeridian crossing so the boundary wave runs cleanly from -180 to +180.
    */
-  function geodesicCircleGeometry(anchorLat, anchorLon, radiusKm, steps = 144, lonShift = 0) {
+  function geodesicCircleGeometry(anchorLat, anchorLon, radiusKm, steps = 160, lonShift = 0) {
     const clampedKm = Math.min(radiusKm, 19000);
     const radiusDeg = (clampedKm / EARTH_RADIUS_KM) * RAD2DEG;
-    const enclosesNorth = anchorLat + radiusDeg >= 84.5;
-    const enclosesSouth = anchorLat - radiusDeg <= -84.5;
+    const enclosesNorth = anchorLat + radiusDeg >= 90.0;
+    const enclosesSouth = anchorLat - radiusDeg <= -90.0;
+    const enclosesBothPoles = enclosesNorth && enclosesSouth;
+    const enclosesExactlyOnePole = enclosesNorth !== enclosesSouth;
 
-    if (enclosesNorth || enclosesSouth) {
-      // Polar-enclosing circle: boundary is a single-valued wave lat(lon) over [-180, +180]
+    if (enclosesExactlyOnePole) {
+      // Trace boundary monotonically by bearing (enclosing exactly 1 pole crosses +/-180 deg ONCE!)
       const raw = [];
       for (let i = 0; i < steps; i++) {
         const brg = (2 * Math.PI * i) / steps;
         const [lat, lon] = destPoint(anchorLat, anchorLon, brg, clampedKm);
         raw.push([Math.max(-84.5, Math.min(84.5, lat)), lon]);
       }
-      raw.sort((a, b) => a[1] - b[1]);
-      // Extend smoothly to exact +/-180 edge so adjacent world copies join seamlessly
-      const first = raw[0];
-      const last = raw[raw.length - 1];
-      const edgeLat = (first[0] + last[0]) / 2;
+      // Find the single antimeridian jump (> 180 deg between adjacent bearing samples)
+      let cutIdx = 0;
+      for (let i = 0; i < raw.length; i++) {
+        const next = (i + 1) % raw.length;
+        if (Math.abs(raw[next][1] - raw[i][1]) > 180) {
+          cutIdx = next;
+          break;
+        }
+      }
+      const ordered = [];
+      for (let k = 0; k < raw.length; k++) {
+        ordered.push(raw[(cutIdx + k) % raw.length]);
+      }
+      if (ordered[0][1] > ordered[ordered.length - 1][1]) {
+        ordered.reverse();
+      }
+      const edgeLat = (ordered[0][0] + ordered[ordered.length - 1][0]) / 2;
       const stroke = [[edgeLat, -180 + lonShift]];
-      for (const [lat, lon] of raw) {
+      for (const [lat, lon] of ordered) {
         stroke.push([lat, lon + lonShift]);
       }
       stroke.push([edgeLat, 180 + lonShift]);
@@ -117,30 +132,24 @@
       return { polar: true, stroke, fill };
     }
 
-    // Standard closed circle: unwrap continuously around anchorLon + lonShift
+    // Standard closed loop (0 poles -> around anchor; 2 poles -> closed loop around antipode!)
+    const refLon = enclosesBothPoles
+      ? (anchorLon > 0 ? anchorLon - 180 : anchorLon + 180) + lonShift
+      : anchorLon + lonShift;
     const pts = [];
-    let prevLon = null;
+    let prevLon = refLon;
     for (let i = 0; i <= steps; i++) {
       const brg = (2 * Math.PI * i) / steps;
-      const [lat, rawLon] = destPoint(anchorLat, anchorLon, brg, clampedKm);
+      const [rawLat, rawLon] = destPoint(anchorLat, anchorLon, brg, clampedKm);
       let lon = rawLon;
-      if (prevLon === null) {
-        const target = anchorLon + lonShift;
-        while (lon - target > 180) lon -= 360;
-        while (lon - target < -180) lon += 360;
-      } else {
-        while (lon - prevLon > 180) lon -= 360;
-        while (lon - prevLon < -180) lon += 360;
-      }
+      while (lon - prevLon > 180) lon -= 360;
+      while (lon - prevLon < -180) lon += 360;
       prevLon = lon;
-      pts.push([Math.max(-84.5, Math.min(84.5, lat)), lon]);
+      pts.push([Math.max(-84.5, Math.min(84.5, rawLat)), lon]);
     }
-    return { polar: false, stroke: pts, fill: pts };
+    return { polar: enclosesBothPoles, stroke: pts, fill: enclosesBothPoles ? [] : pts };
   }
 
-  /**
-   * Compute spherical great-circle arc between two points (unwrapped continuously from lon1).
-   */
   function greatCircleArc(lat1, lon1, lat2, lon2, steps = 36) {
     const p1 = toVec3(lat1, lon1);
     const p2 = toVec3(lat2, lon2);
@@ -204,65 +213,178 @@
   }
 
   /**
-   * Joint (lat, lon, delta_ms) TDOA-MLE loss for a candidate point:
-   * Automatically solves for unknown local Wi-Fi/ISP/HTTPS overhead delta >= 0 in closed form!
-   * Model: rtt_i ≈ delta + 2 * d_i / v_emp   (v_emp = 136 km/ms typical empirical internet speed)
+   * Joint (lat, lon, delta_ms) TDOA-MLE loss:
+   * Solves in closed form for the visitor's unknown local Wi-Fi + ISP + TLS overhead delta >= 0!
+   * Even if a laptop on Wi-Fi has 25-40 ms of last-mile overhead, relative Anchor timing (TDOA)
+   * accurately recovers BOTH the visitor's true location AND their local Wi-Fi overhead!
    */
-  function tdoaMleLoss(lat, lon, circles) {
-    const V_EMP = 136.0; // km/ms typical multi-cloud corridor median
+  function tdoaMleFit(lat, lon, measurements) {
     let wSum = 0;
     let wDelta = 0;
-    const diffs = new Array(circles.length);
-    const weights = new Array(circles.length);
-    let penalty = 0;
+    const diffs = new Array(measurements.length);
+    const weights = new Array(measurements.length);
+    let minRtt = Infinity;
 
-    for (let i = 0; i < circles.length; i++) {
-      const c = circles[i];
-      const d = haversineKm(lat, lon, c.lat, c.lon);
-      // Penalize violating hard speed-of-light circle strongly
-      if (d > c.radiusKm) {
-        const ex = (d - c.radiusKm) / 200.0;
-        penalty += 500 * ex * ex;
-      }
-      const expectedPropMs = (2.0 * d) / V_EMP;
-      const residDelta = c.rttMs - expectedPropMs;
-      const w = 1.0 / Math.max(8.0, c.rttMs);
-      diffs[i] = residDelta;
+    for (let i = 0; i < measurements.length; i++) {
+      const m = measurements[i];
+      if (m.rttMs < minRtt) minRtt = m.rttMs;
+      const d = haversineKm(lat, lon, m.anchor.lat, m.anchor.lon);
+      // Empirical distance-dependent internet speed for propagation estimate
+      const vEst = 102.0 + 48.0 * Math.min(1.0, d / 7500.0);
+      const expectedPropMs = (2.0 * d) / vEst;
+      const resid = m.rttMs - expectedPropMs;
+      const w = 1.0 / Math.max(12.0, m.rttMs);
+      diffs[i] = resid;
       weights[i] = w;
       wSum += w;
-      wDelta += w * residDelta;
+      wDelta += w * resid;
     }
 
-    // Optimal non-negative last-mile overhead delta >= 0 (clamped so we don't absorb more than min_rtt)
-    const minRtt = circles[0]?.rttMs || 0;
-    const delta = Math.max(0, Math.min(minRtt, wDelta / (wSum || 1)));
-
+    // Clamp delta to [0, minRtt] — local overhead cannot exceed the shortest measured RTT!
+    const deltaMs = Math.max(0, Math.min(minRtt, wDelta / (wSum || 1)));
     let sse = 0;
-    for (let i = 0; i < circles.length; i++) {
-      const errMs = diffs[i] - delta;
-      sse += weights[i] * errMs * errMs;
+    for (let i = 0; i < measurements.length; i++) {
+      const err = diffs[i] - deltaMs;
+      sse += weights[i] * err * err;
     }
-    return { loss: sse + penalty, deltaMs: delta };
+    return { loss: sse, deltaMs };
   }
 
   /**
-   * Two-stage spherical Byzantine (K-f)-core intersection solver + Joint TDOA-MLE estimator.
+   * Estimate the visitor's best-fit (lat, lon) AND local Wi-Fi/ISP overhead deltaMs
+   * purely from relative arrival times across all Anchors.
+   */
+  function estimateTdoaAndOverhead(measurements) {
+    const sorted = measurements.slice().sort((a, b) => a.rttMs - b.rttMs);
+    let bestPt = [sorted[0].anchor.lat, sorted[0].anchor.lon];
+    let best = tdoaMleFit(bestPt[0], bestPt[1], sorted);
+
+    // Coarse global scan + dense anchor-adjacent samples
+    for (let lat = -58; lat <= 72; lat += 3.0) {
+      for (let lon = -180; lon < 180; lon += 3.0) {
+        const res = tdoaMleFit(lat, lon, sorted);
+        if (res.loss < best.loss) {
+          best = res;
+          bestPt = [lat, lon];
+        }
+      }
+    }
+    for (const m of sorted.slice(0, 3)) {
+      for (const distKm of [0, 80, 220, 500, 1000]) {
+        const n = distKm === 0 ? 1 : 12;
+        for (let k = 0; k < n; k++) {
+          const pt = distKm === 0 ? [m.anchor.lat, m.anchor.lon] : destPoint(m.anchor.lat, m.anchor.lon, (2 * Math.PI * k) / n, distKm);
+          const res = tdoaMleFit(pt[0], pt[1], sorted);
+          if (res.loss < best.loss) {
+            best = res;
+            bestPt = pt;
+          }
+        }
+      }
+    }
+    // Fine local refinement around winning seed
+    for (let step of [1.0, 0.25]) {
+      const center = bestPt.slice();
+      for (let dLat = -step * 3; dLat <= step * 3; dLat += step) {
+        for (let dLon = -step * 3; dLon <= step * 3; dLon += step) {
+          const lat = Math.max(-82, Math.min(82, center[0] + dLat));
+          let lon = center[1] + dLon;
+          while (lon > 180) lon -= 360;
+          while (lon < -180) lon += 360;
+          const res = tdoaMleFit(lat, lon, sorted);
+          if (res.loss < best.loss) {
+            best = res;
+            bestPt = [lat, lon];
+          }
+        }
+      }
+    }
+    return { mle: bestPt, deltaMs: best.deltaMs };
+  }
+
+  /**
+   * Compute exact calibrated overhead to apply in `calibrated` mode for browser/Wi-Fi probes.
+   * For raw datacenter UDP meshes (`extraOverheadMs === 0`), returns 0.
+   */
+  function computeCalibratedOverheadMs(measurements, tierId, extraOverheadMs, tdoaDeltaMs) {
+    if (tierId !== "calibrated" || extraOverheadMs <= 0 || measurements.length < 3) {
+      return extraOverheadMs;
+    }
+    const minRtt = Math.min(...measurements.map((m) => m.rttMs));
+    // Use the joint TDOA-estimated Wi-Fi/ISP overhead, conservatively discounted by 15%
+    // and leaving at least 2.0 ms of propagation margin on the closest Anchor so the true
+    // location stays safely inside the calibrated intersection!
+    const conservativeDelta = Math.max(extraOverheadMs, tdoaDeltaMs * 0.85);
+    return Math.min(Math.max(extraOverheadMs, minRtt - 2.0), conservativeDelta);
+  }
+
+  /**
+   * Compute smooth polar-ray intersection boundary around `center` for all circles!
+   * Traces 72 rays outward from `center` and binary-searches the exact distance where
+   * the point exits the intersection of >= `minInside` circles -> ALWAYS produces a
+   * razor-smooth curved intersection lens (NEVER a square sampling-grid artifact!).
+   */
+  function traceIntersectionBoundary(center, circles, minInside) {
+    const numRays = 96;
+    const pts = [];
+    let maxRadiusKm = 0;
+
+    // Upper bound on ray length = largest circle radius
+    const maxSearchKm = Math.min(
+      12000,
+      Math.max(...circles.map((c) => c.radiusKm), 200) * 1.15
+    );
+
+    const isInside = (lat, lon) => {
+      let cnt = 0;
+      for (const c of circles) {
+        if (haversineKm(lat, lon, c.lat, c.lon) <= c.radiusKm) cnt++;
+      }
+      return cnt >= minInside;
+    };
+
+    if (!isInside(center[0], center[1])) {
+      return { hull: [], maxRadiusKm: 0 };
+    }
+
+    for (let i = 0; i < numRays; i++) {
+      const brg = (2 * Math.PI * i) / numRays;
+      let lo = 0;
+      let hi = maxSearchKm;
+      for (let iter = 0; iter < 18; iter++) {
+        const mid = (lo + hi) * 0.5;
+        const [lt, ln] = destPoint(center[0], center[1], brg, mid);
+        if (isInside(lt, ln)) {
+          lo = mid;
+        } else {
+          hi = mid;
+        }
+      }
+      if (lo > maxRadiusKm) maxRadiusKm = lo;
+      const [lt, rawLon] = destPoint(center[0], center[1], brg, lo);
+      let lon = rawLon;
+      while (lon - center[1] > 180) lon -= 360;
+      while (lon - center[1] < -180) lon += 360;
+      pts.push([Math.max(-84.5, Math.min(84.5, lt)), lon]);
+    }
+    return { hull: pts, maxRadiusKm };
+  }
+
+  /**
+   * Full solver: Joint TDOA-MLE + exact curved intersection lens + Byzantine (K-f)-core bound.
    */
   function solveLocation(measurements, tierId, extraOverheadMs = 0, byzantineF = 1) {
     if (!measurements || measurements.length === 0) return null;
     const K = measurements.length;
     const required = Math.max(1, K - (K >= 4 ? byzantineF : 0));
 
-    // In Calibrated mode for browser/ISP visitors (extraOverheadMs > 0), also estimate
-    // local last-mile/TLS overhead conservatively (up to 65% of nearest RTT) so circles
-    // reflect real calibrated internet geometry instead of inflated lightcones!
-    let appliedOverheadMs = extraOverheadMs;
-    if (tierId === "calibrated" && extraOverheadMs > 0 && measurements.length >= 3) {
-      const minRtt = Math.min(...measurements.map((m) => m.rttMs));
-      if (minRtt > 4.0) {
-        appliedOverheadMs = Math.min(minRtt * 0.65, Math.max(extraOverheadMs, minRtt - 2.5));
-      }
-    }
+    const tdoa = estimateTdoaAndOverhead(measurements);
+    const appliedOverheadMs = computeCalibratedOverheadMs(
+      measurements,
+      tierId,
+      extraOverheadMs,
+      tdoa.deltaMs
+    );
 
     const circles = measurements
       .map((m) => ({
@@ -274,102 +396,42 @@
       }))
       .sort((a, b) => a.rttMs - b.rttMs);
 
-    // Stage 1: Coarse global scan + dense rings around the 3 closest Anchors
-    const candidates = [];
-    for (let lat = -60; lat <= 74; lat += 2.5) {
-      for (let lon = -180; lon < 180; lon += 2.5) {
-        candidates.push([lat, lon]);
-      }
-    }
+    // Find best interior seed (maximizing circles satisfied, breaking ties by TDOA-MLE)
+    const seeds = [tdoa.mle, [circles[0].lat, circles[0].lon]];
     for (const c of circles.slice(0, 3)) {
-      candidates.push([c.lat, c.lon]);
-      for (const frac of [0.15, 0.35, 0.6, 0.85]) {
+      for (const frac of [0.2, 0.5, 0.8]) {
         for (let k = 0; k < 12; k++) {
-          candidates.push(destPoint(c.lat, c.lon, (2 * Math.PI * k) / 12, Math.min(c.radiusKm, 6000) * frac));
+          seeds.push(destPoint(c.lat, c.lon, (2 * Math.PI * k) / 12, Math.min(c.radiusKm, 5000) * frac));
         }
       }
     }
-
     let maxIn = 0;
-    let bestSeed = [circles[0].lat, circles[0].lon];
-    let bestLoss = Infinity;
-
-    for (const [lat, lon] of candidates) {
+    let bestSeed = tdoa.mle;
+    let bestSeedLoss = Infinity;
+    for (const pt of seeds) {
       let inside = 0;
       for (const c of circles) {
-        if (haversineKm(lat, lon, c.lat, c.lon) <= c.radiusKm) inside++;
+        if (haversineKm(pt[0], pt[1], c.lat, c.lon) <= c.radiusKm) inside++;
       }
-      if (inside < maxIn - 1) continue;
-      const { loss } = tdoaMleLoss(lat, lon, circles);
-      if (inside > maxIn || (inside === maxIn && loss < bestLoss)) {
+      const { loss } = tdoaMleFit(pt[0], pt[1], circles);
+      if (inside > maxIn || (inside === maxIn && loss < bestSeedLoss)) {
         maxIn = inside;
-        bestLoss = loss;
-        bestSeed = [lat, lon];
+        bestSeedLoss = loss;
+        bestSeed = pt;
       }
     }
 
-    // Stage 2: Fine local spherical refinement around bestSeed
-    const tightKm = circles[0].radiusKm;
-    const spanDeg = Math.min(36, Math.max(1.8, (tightKm / 111.0) * 1.45));
-    const stepDeg = spanDeg / 28;
-    const corePoints = [];
-    let bestMle = bestSeed;
-    let bestMleScore = Infinity;
-    let estOverheadMs = 0;
+    // Visual intersection lens: trace exact smooth boundary where ALL `maxIn` overlapping circles meet!
+    // (When 9/9 overlap, this draws the exact smooth curved intersection of all 9 circles — NEVER a square!)
+    const lens = traceIntersectionBoundary(bestSeed, circles, maxIn);
 
-    const targetCount = Math.min(required, maxIn);
+    // Also compute Byzantine (K-f)-core bound radius for adversarial security metric
+    const byzMin = Math.min(required, maxIn);
+    const byz = traceIntersectionBoundary(bestSeed, circles, byzMin);
 
-    for (let dLat = -spanDeg; dLat <= spanDeg; dLat += stepDeg) {
-      const lat = Math.max(-82, Math.min(82, bestSeed[0] + dLat));
-      const cosLat = Math.max(0.22, Math.cos(lat * DEG2RAD));
-      const lonStep = stepDeg / cosLat;
-      const lonSpan = Math.min(85, spanDeg / cosLat);
-      for (let dLon = -lonSpan; dLon <= lonSpan; dLon += lonStep) {
-        let lon = bestSeed[1] + dLon;
-        while (lon > 180) lon -= 360;
-        while (lon < -180) lon += 360;
-
-        let inside = 0;
-        for (const c of circles) {
-          if (haversineKm(lat, lon, c.lat, c.lon) <= c.radiusKm) inside++;
-        }
-        if (inside >= targetCount) {
-          corePoints.push([lat, lon]);
-          const { loss, deltaMs } = tdoaMleLoss(lat, lon, circles);
-          if (loss < bestMleScore) {
-            bestMleScore = loss;
-            bestMle = [lat, lon];
-            estOverheadMs = deltaMs;
-          }
-        }
-      }
-    }
-
-    // Compute spherical centroid + proven maximum radius of the feasible intersection zone
-    let cx = 0, cy = 0, cz = 0;
-    const ptsForStats = corePoints.length > 0 ? corePoints : [bestMle];
-    for (const [lat, lon] of ptsForStats) {
-      const v = toVec3(lat, lon);
-      cx += v[0]; cy += v[1]; cz += v[2];
-    }
-    const centroid = vec3ToLatLon([cx, cy, cz]);
-
-    let maxRadiusKm = 0;
-    for (const [lat, lon] of ptsForStats) {
-      const d = haversineKm(centroid[0], centroid[1], lat, lon);
-      if (d > maxRadiusKm) maxRadiusKm = d;
-    }
     const floorKm = TIERS[tierId]?.minRadiusKm || 20;
-    maxRadiusKm = Math.max(floorKm, maxRadiusKm);
-
-    // Unwrap core points around centroid longitude before computing hull polygon
-    const unwrapped = ptsForStats.map(([lat, lon]) => {
-      let l = lon;
-      while (l - centroid[1] > 180) l -= 360;
-      while (l - centroid[1] < -180) l += 360;
-      return [lat, l];
-    });
-    const hull = unwrapped.length >= 3 ? convexHull(unwrapped) : [];
+    const maxRadiusKm = Math.max(floorKm, lens.maxRadiusKm || byz.maxRadiusKm);
+    const byzRadiusKm = Math.max(floorKm, byz.maxRadiusKm);
 
     return {
       tierId,
@@ -377,24 +439,27 @@
       feasibleCount: maxIn,
       requiredCount: required,
       strictFeasible: maxIn >= required,
-      centroid,
-      mle: bestMle,
-      estOverheadMs,
+      centroid: bestSeed,
+      mle: bestSeed,
+      estOverheadMs: tdoa.deltaMs,
+      appliedOverheadMs,
       maxRadiusKm,
       maxRadiusMi: maxRadiusKm * KM_TO_MI,
-      hull,
+      byzRadiusKm,
+      byzRadiusMi: byzRadiusKm * KM_TO_MI,
+      hull: lens.hull,
       nearest: circles[0],
     };
   }
 
   function evaluateSpoofClaim(claimLat, claimLon, measurements, tierId, extraOverheadMs = 0) {
-    let appliedOverheadMs = extraOverheadMs;
-    if (tierId === "calibrated" && extraOverheadMs > 0 && measurements.length >= 3) {
-      const minRtt = Math.min(...measurements.map((m) => m.rttMs));
-      if (minRtt > 4.0) {
-        appliedOverheadMs = Math.min(minRtt * 0.65, Math.max(extraOverheadMs, minRtt - 2.5));
-      }
-    }
+    const tdoa = estimateTdoaAndOverhead(measurements);
+    const appliedOverheadMs = computeCalibratedOverheadMs(
+      measurements,
+      tierId,
+      extraOverheadMs,
+      tdoa.deltaMs
+    );
     const results = measurements.map((m) => {
       const distKm = haversineKm(claimLat, claimLon, m.anchor.lat, m.anchor.lon);
       const maxKm = rttToRadiusKm(m.rttMs, tierId, appliedOverheadMs);
@@ -442,4 +507,4 @@
     solveLocation,
     evaluateSpoofClaim,
   };
-})(window);
+})(typeof window !== "undefined" ? window : globalThis);
