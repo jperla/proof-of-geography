@@ -1,0 +1,15 @@
+# Reproducible static binary builder for AWS Nitro Enclaves (.eif) & Confidential Containers
+FROM rust:1.83-alpine AS builder
+RUN apk add --no-cache musl-dev
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+COPY config ./config
+RUN cargo build --release --bin pog-anchor --bin pog-prover
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /src/target/release/pog-anchor /usr/local/bin/pog-anchor
+COPY --from=builder /src/target/release/pog-prover /usr/local/bin/pog-prover
+ENTRYPOINT ["/usr/local/bin/pog-anchor"]
+CMD ["--tcp-listen", "0.0.0.0:7443", "--udp-bind", "0.0.0.0:7444"]

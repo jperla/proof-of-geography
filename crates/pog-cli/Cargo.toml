@@ -1,0 +1,26 @@
+[package]
+name = "pog-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Proof of Geography CLI: offline verifier, red-team attack simulator, throughput benchmark, transparency log server, and GeoJSON exporter"
+
+[dependencies]
+pog-geo.workspace = true
+pog-tee.workspace = true
+pog-proto.workspace = true
+pog-telemetry.workspace = true
+pog-log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+tokio.workspace = true
+axum.workspace = true
+ed25519-dalek.workspace = true
+rand.workspace = true
+blake3.workspace = true
+hex.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

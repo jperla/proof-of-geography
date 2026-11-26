@@ -1,0 +1,36 @@
+#cloud-config
+# Kernel low-latency tuning + deterministic Proof of Geography Anchor daemon bootstrap.
+write_files:
+  - path: /etc/sysctl.d/99-pog-lowlatency.conf
+    content: |
+      net.core.busy_poll = 50
+      net.core.busy_read = 50
+      net.core.rmem_max = 16777216
+      net.core.wmem_max = 16777216
+      net.ipv4.udp_rmem_min = 65536
+      net.ipv4.udp_wmem_min = 65536
+      kernel.sched_min_granularity_ns = 100000
+
+  - path: /etc/systemd/system/pog-anchor.service
+    content: |
+      [Unit]
+      Description=Proof of Geography Anchor TEE Daemon
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/local/bin/pog-anchor --tcp-listen 0.0.0.0:${tcp_port} --udp-bind 0.0.0.0:${udp_port}
+      Restart=always
+      RestartSec=2
+      CPUSchedulingPolicy=fifo
+      CPUSchedulingPriority=50
+      LimitMEMLOCK=infinity
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - sysctl --system
+  - systemctl daemon-reload
+  - echo "PoG anchor image tag ${pog_image_tag} ready"

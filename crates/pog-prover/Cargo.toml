@@ -1,0 +1,24 @@
+[package]
+name = "pog-prover"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Prover TEE sidecar: runs continuous hourly hash-chained PoG proofs + attaches live handshake X-PoG-Proof headers"
+
+[dependencies]
+pog-geo.workspace = true
+pog-tee.workspace = true
+pog-proto.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+tokio.workspace = true
+axum.workspace = true
+x25519-dalek.workspace = true
+rand.workspace = true
+blake3.workspace = true
+hex.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

@@ -1,0 +1,12 @@
+[package]
+name = "pog-telemetry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "IPinfo-style active telemetry enrichment: RFC 8805 geofeed validation, traceroute rDNS airport-code hints, and Tier-2 confidence radius fusion"
+
+[dependencies]
+pog-geo.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

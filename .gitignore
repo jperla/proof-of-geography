@@ -1,0 +1,15 @@
+/target
+**/*.rs.bk
+*.pdb
+.DS_Store
+.env
+*.tfvars
+!*.tfvars.example
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.eif
+*.pem
+*.key
+!tests/fixtures/*

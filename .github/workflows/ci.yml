@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  rust-test-and-simulate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Run workspace unit tests
+        run: cargo test --workspace
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets
+      - name: Run Red-Team & Physics Simulation Suite
+        run: cargo run --release --bin pog-cli -- simulate
+      - name: Run Performance & Capacity Benchmark
+        run: cargo run --release --bin pog-cli -- bench --verify-iters 1000

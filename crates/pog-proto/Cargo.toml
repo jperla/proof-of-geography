@@ -1,0 +1,22 @@
+[package]
+name = "pog-proto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Wire protocol, anti-cherry-picking multi-cloud committee selection, raw UDP BLAKE3-MAC distance bounding, kernel timestamping, and RA-TLS/HTTP proof bundles"
+
+[dependencies]
+pog-geo.workspace = true
+pog-tee.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+blake3.workspace = true
+ed25519-dalek.workspace = true
+x25519-dalek.workspace = true
+rand.workspace = true
+hex.workspace = true
+base64.workspace = true
+chrono.workspace = true
+socket2.workspace = true
+libc.workspace = true

@@ -1,0 +1,25 @@
+[package]
+name = "pog-log"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "DNS / Certificate Transparency style signed append-only transparency log for continuous hourly Proof of Geography chains"
+
+[dependencies]
+pog-geo.workspace = true
+pog-tee.workspace = true
+pog-proto.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+blake3.workspace = true
+ed25519-dalek.workspace = true
+rand.workspace = true
+hex.workspace = true
+chrono.workspace = true
+tokio.workspace = true
+axum.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+x25519-dalek.workspace = true
