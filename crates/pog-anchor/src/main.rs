@@ -4,8 +4,8 @@ use chrono::Utc;
 use clap::Parser;
 use ed25519_dalek::SigningKey;
 use pog_proto::{
-    bind_low_latency_udp, compute_return_cookie, derive_session_key, measure_udp_round,
-    AnchorReceipt, Phase1InitRequest, Phase1InitResponse,
+    bind_low_latency_udp, compute_return_cookie, decode_udp_punch, derive_session_key,
+    measure_udp_round, AnchorReceipt, Phase1InitRequest, Phase1InitResponse, PUNCH_PACKET_SIZE,
 };
 use pog_tee::{auto_detect_provider, verify_quote, AttestationPolicy, TeeProvider};
 use rand::rngs::OsRng;
@@ -35,8 +35,12 @@ struct Args {
     /// Public HTTP metadata endpoint (/info, /health) used to collect hardware-attested Anchor keys at deploy time.
     #[arg(long, default_value = "0.0.0.0:7445")]
     http_info_listen: SocketAddr,
+    /// Allow software-dev TEE fallback for THIS Anchor (only for local laptop testing; NEVER on cloud TEEs).
     #[arg(long, default_value_t = false)]
     allow_dev_tee: bool,
+    /// Allow incoming Provers using software-dev TEE quotes (enables public laptop testing against real SEV-SNP Anchors).
+    #[arg(long, default_value_t = false)]
+    allow_dev_prover: bool,
     /// Optional hex seed (32 bytes) for deterministic test keypairs; random OS entropy in production.
     #[arg(long)]
     seed_hex: Option<String>,
@@ -87,7 +91,7 @@ async fn main() -> Result<()> {
         "Starting PoG Anchor TEE daemon"
     );
 
-    let tee_policy = if args.allow_dev_tee {
+    let tee_policy = if args.allow_dev_tee || args.allow_dev_prover {
         AttestationPolicy::allow_dev_software()
     } else {
         AttestationPolicy::production()
@@ -191,19 +195,40 @@ async fn handle_prover_session(
     writer.write_all(resp_json.as_bytes()).await?;
     writer.flush().await?;
 
-    // Wait for Prover "READY\n" acknowledgement so UDP burst starts cleanly with zero setup jitter.
+    // Wait for Prover "READY\n" acknowledgement, then receive Prover's 20-byte UDP NAT-punch
+    // packet so Phase 2 works identically behind home/corporate NAT and on public cloud IPs!
     line.clear();
     buf_reader.read_line(&mut line).await?;
     if line.trim() != "READY" {
         anyhow::bail!("Expected READY signal before Phase 2 UDP burst");
     }
 
-    // 4. Phase 2: Execute M sequential timed UDP distance-bounding rounds on a dedicated blocking thread!
-    let prover_udp_addr = SocketAddr::new(peer_addr.ip(), init_req.prover_udp_port);
+    // 4. Phase 2: Wait for authenticated UDP PUNCH, then execute M sequential timed UDP rounds!
+    let tcp_peer_ip = peer_addr.ip();
+    let fallback_udp_addr = SocketAddr::new(tcp_peer_ip, init_req.prover_udp_port);
     let rounds = init_req.rounds.clamp(1, 32);
     let epoch_clone = epoch_bytes.clone();
 
     let samples: Vec<u64> = tokio::task::spawn_blocking(move || -> Result<Vec<u64>> {
+        let mut punch_buf = [0u8; PUNCH_PACKET_SIZE];
+        let prover_udp_addr = match udp_sock.recv_from(&mut punch_buf) {
+            Ok((n, src)) if n == PUNCH_PACKET_SIZE => {
+                let (p_sid, p_cookie) = decode_udp_punch(&punch_buf)?;
+                if p_sid != session_id || p_cookie != cookie {
+                    anyhow::bail!("Invalid UDP punch session_id or return cookie");
+                }
+                if src.ip() != tcp_peer_ip {
+                    anyhow::bail!(
+                        "UDP punch source IP {} != TCP peer IP {}",
+                        src.ip(),
+                        tcp_peer_ip
+                    );
+                }
+                src
+            }
+            _ => fallback_udp_addr,
+        };
+
         let mut out = Vec::with_capacity(rounds as usize);
         for round in 0..rounds {
             let rtt_us = measure_udp_round(

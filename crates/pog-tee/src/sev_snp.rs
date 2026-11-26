@@ -36,8 +36,8 @@ impl AmdSevSnpProvider {
         }
     }
 
-    /// Reads a real hardware SEV-SNP attestation report from `/dev/sev-guest` on Linux.
-    /// Production Linux kernels >= 5.19 expose `SNP_GET_REPORT` via `ioctl` (0xC0185300).
+    /// Reads a real hardware SEV-SNP attestation report from `/dev/sev-guest` on Linux >= 6.2
+    /// (Ubuntu 24.04 uses Linux 6.8+, where `struct snp_guest_request_ioctl` is 32 bytes -> `0xC0205300`).
     #[cfg(target_os = "linux")]
     fn fetch_hardware_report(&self, report_data: [u8; 64]) -> Result<Vec<u8>, TeeError> {
         use std::fs::OpenOptions;
@@ -52,21 +52,20 @@ impl AmdSevSnpProvider {
 
         #[repr(C)]
         struct SnpReportResp {
-            status: u32,
-            report_size: u32,
-            rsvd: [u8; 24],
-            report: [u8; SEV_SNP_REPORT_LEN],
+            data: [u8; 4000],
         }
 
         #[repr(C)]
         struct SnpGuestRequestIoctl {
             msg_version: u8,
+            _pad: [u8; 7],
             req_data: u64,
             resp_data: u64,
-            fw_err: u64,
+            exitinfo2: u64,
         }
 
-        const SNP_GET_REPORT: libc::c_ulong = 0xC018_5300;
+        // _IOWR('S', 0x0, struct snp_guest_request_ioctl) for 32-byte Linux 6.2+ ABI.
+        const SNP_GET_REPORT: libc::c_ulong = 0xC020_5300;
 
         let file = OpenOptions::new()
             .read(true)
@@ -79,27 +78,27 @@ impl AmdSevSnpProvider {
             vmpl: 0,
             rsvd: [0u8; 28],
         };
-        let mut resp = SnpReportResp {
-            status: 0,
-            report_size: 0,
-            rsvd: [0u8; 24],
-            report: [0u8; SEV_SNP_REPORT_LEN],
-        };
+        let mut resp = SnpReportResp { data: [0u8; 4000] };
         let mut ioctl_arg = SnpGuestRequestIoctl {
             msg_version: 1,
+            _pad: [0u8; 7],
             req_data: &req as *const _ as u64,
             resp_data: &mut resp as *mut _ as u64,
-            fw_err: 0,
+            exitinfo2: 0,
         };
 
         let rc = unsafe { libc::ioctl(file.as_raw_fd(), SNP_GET_REPORT, &mut ioctl_arg) };
-        if rc != 0 || resp.status != 0 {
+        let status = u32::from_le_bytes(resp.data[0..4].try_into().unwrap());
+        let report_size = u32::from_le_bytes(resp.data[4..8].try_into().unwrap()) as usize;
+        if rc != 0 || status != 0 || report_size < SEV_SNP_REPORT_LEN {
             return Err(TeeError::GenerationFailed(format!(
-                "SNP_GET_REPORT failed (rc={rc}, status={}, fw_err={})",
-                resp.status, ioctl_arg.fw_err
+                "SNP_GET_REPORT failed (rc={rc}, errno={:?}, status={status}, size={report_size}, exitinfo2={:#x})",
+                std::io::Error::last_os_error(),
+                ioctl_arg.exitinfo2
             )));
         }
-        Ok(resp.report.to_vec())
+        // Per AMD SEV-SNP ABI Table 21: 32-byte header (status[4], report_size[4], rsvd[24]) followed by 1184B report.
+        Ok(resp.data[32..32 + SEV_SNP_REPORT_LEN].to_vec())
     }
 
     #[cfg(not(target_os = "linux"))]
