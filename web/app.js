@@ -413,9 +413,10 @@
   }
 
   // --- Render Left Panel: Live Mode ---
-  function renderLiveAnchorList(measurements, spoofEval) {
+  function renderLiveAnchorList(measurements, spoofEval, solution = null) {
     const listEl = document.getElementById("live-anchor-list");
     const measById = Object.fromEntries(measurements.map((m) => [m.anchor.id, m]));
+    const circleById = Object.fromEntries((solution?.circles || []).map((c) => [c.anchor.id, c]));
     const violById = Object.fromEntries((spoofEval?.results || []).map((r) => [r.anchor.id, r]));
 
     const ordered = measurements.length
@@ -429,7 +430,7 @@
         const tb = teeBadge(a);
         const m = measById[a.id];
         const v = violById[a.id];
-        const radiusKm = m ? PogGeo.rttToRadiusKm(m.rttMs, state.tier, 1.5) : null;
+        const radiusKm = circleById[a.id]?.radiusKm ?? (m ? PogGeo.rttToRadiusKm(m.rttMs, state.tier, 1.5) : null);
         const pct = m ? Math.min(100, Math.max(4, (m.rttMs / maxRtt) * 100)) : 0;
         const isViol = v && v.violated;
         const isFoc = state.focusedAnchorId === a.id;
@@ -707,7 +708,7 @@
         spoofClaim: state.spoofMode ? state.spoofClaim : null,
         fitCamera,
       });
-      renderLiveAnchorList(state.liveMeasurements, res?.spoofEval || null);
+      renderLiveAnchorList(state.liveMeasurements, res?.spoofEval || null, res?.solution || null);
       updateLiveSummary(state.liveMeasurements, res);
       updateSpoofVerdict(res?.spoofEval || null);
     } else if (state.tab === "mesh") {

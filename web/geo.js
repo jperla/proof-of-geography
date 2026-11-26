@@ -25,7 +25,7 @@
     calibrated: {
       id: "calibrated",
       label: "Tier 2B Calibrated Internet",
-      velocityKmPerMs: 168.0, // matches pog-geo calibrated terrestrial/subsea P95 velocity
+      velocityKmPerMs: 130.271, // distance-calibrated empirical internet curve (102–166 km/ms)
       overheadMs: 0.65,
       minRadiusKm: 25,
     },
@@ -43,6 +43,13 @@
   function rttToRadiusKm(rttMs, tierId, extraOverheadMs = 0) {
     const t = TIERS[tierId] || TIERS.calibrated;
     const effectiveRtt = Math.max(0, rttMs - t.overheadMs - extraOverheadMs);
+    if (tierId === "calibrated") {
+      // Empirical distance-dependent internet velocity learned from our 9x9 multi-cloud mesh:
+      // Regional/metro routes experience higher fiber stretch (~102 km/ms), converging toward
+      // straight subsea optical corridors (~166 km/ms) at long distances.
+      const vKmPerMs = 102.0 + 64.0 * Math.min(1.0, effectiveRtt / 95.0);
+      return Math.max(t.minRadiusKm, (effectiveRtt / 2.0) * vKmPerMs);
+    }
     return Math.max(t.minRadiusKm, (effectiveRtt / 2.0) * t.velocityKmPerMs);
   }
 
@@ -246,13 +253,24 @@
     const K = measurements.length;
     const required = Math.max(1, K - (K >= 4 ? byzantineF : 0));
 
+    // In Calibrated mode for browser/ISP visitors (extraOverheadMs > 0), also estimate
+    // local last-mile/TLS overhead conservatively (up to 65% of nearest RTT) so circles
+    // reflect real calibrated internet geometry instead of inflated lightcones!
+    let appliedOverheadMs = extraOverheadMs;
+    if (tierId === "calibrated" && extraOverheadMs > 0 && measurements.length >= 3) {
+      const minRtt = Math.min(...measurements.map((m) => m.rttMs));
+      if (minRtt > 4.0) {
+        appliedOverheadMs = Math.min(minRtt * 0.65, Math.max(extraOverheadMs, minRtt - 2.5));
+      }
+    }
+
     const circles = measurements
       .map((m) => ({
         anchor: m.anchor,
         lat: m.anchor.lat,
         lon: m.anchor.lon,
         rttMs: m.rttMs,
-        radiusKm: rttToRadiusKm(m.rttMs, tierId, extraOverheadMs),
+        radiusKm: rttToRadiusKm(m.rttMs, tierId, appliedOverheadMs),
       }))
       .sort((a, b) => a.rttMs - b.rttMs);
 
@@ -370,9 +388,16 @@
   }
 
   function evaluateSpoofClaim(claimLat, claimLon, measurements, tierId, extraOverheadMs = 0) {
+    let appliedOverheadMs = extraOverheadMs;
+    if (tierId === "calibrated" && extraOverheadMs > 0 && measurements.length >= 3) {
+      const minRtt = Math.min(...measurements.map((m) => m.rttMs));
+      if (minRtt > 4.0) {
+        appliedOverheadMs = Math.min(minRtt * 0.65, Math.max(extraOverheadMs, minRtt - 2.5));
+      }
+    }
     const results = measurements.map((m) => {
       const distKm = haversineKm(claimLat, claimLon, m.anchor.lat, m.anchor.lon);
-      const maxKm = rttToRadiusKm(m.rttMs, tierId, extraOverheadMs);
+      const maxKm = rttToRadiusKm(m.rttMs, tierId, appliedOverheadMs);
       const vacKm = rttToRadiusKm(m.rttMs, "vacuum", 0);
       const violated = distKm > maxKm;
       const violatedVacuum = distKm > vacKm;
