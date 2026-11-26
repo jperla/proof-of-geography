@@ -1,0 +1,1096 @@
+{
+  "version": 1,
+  "network_id": "proofofgeography.com",
+  "operator_name": "jperla",
+  "root_public_key_hex": "fdff6d6d0b8364e459ffbb921430e39411bd812ec3ce766c2904b39bfa996ee1",
+  "issued_at_unix_s": 1795714560,
+  "expires_at_unix_s": 1827250560,
+  "grid": {
+    "version": "2.0.0",
+    "grid_name": "pog-global-72-rim-surrounded",
+    "description": "72-node rim-surrounded multi-cloud Anchor grid: 26 North America/Canada/Mexico/Caribbean (incl. Honolulu, Anchorage, Halifax, Mexico, Puerto Rico, Panama), 30 Europe/North Atlantic/North Africa/Middle East/Eastern Border (incl. Iceland, Faroe Islands, Azores, Lisbon, Finland, Casablanca, Cairo, Tel Aviv, Dubai, Doha, Istanbul, Warsaw, Almaty), 12 APAC/Oceania, 4 LatAm/Africa.",
+    "anchors": [
+      {
+        "anchor_id": "edge-us-hnl-honolulu",
+        "cloud_provider": "edge",
+        "region": "us-hi-hnl",
+        "city": "Honolulu, HI, USA",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 21.3069,
+          "lon": -157.8583
+        },
+        "endpoint_tcp": "edge-us-hnl-honolulu.pog.example:7443",
+        "endpoint_udp": "edge-us-hnl-honolulu.pog.example:7444",
+        "public_key_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+      },
+      {
+        "anchor_id": "edge-us-anc-anchorage",
+        "cloud_provider": "edge",
+        "region": "us-ak-anc",
+        "city": "Anchorage, AK, USA",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 61.2181,
+          "lon": -149.9003
+        },
+        "endpoint_tcp": "edge-us-anc-anchorage.pog.example:7443",
+        "endpoint_udp": "edge-us-anc-anchorage.pog.example:7444",
+        "public_key_hex": "0202020202020202020202020202020202020202020202020202020202020202"
+      },
+      {
+        "anchor_id": "edge-ca-yvr-vancouver",
+        "cloud_provider": "ovh",
+        "region": "ca-west-yvr",
+        "city": "Vancouver, BC, Canada",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 49.2827,
+          "lon": -123.1207
+        },
+        "endpoint_tcp": "edge-ca-yvr-vancouver.pog.example:7443",
+        "endpoint_udp": "edge-ca-yvr-vancouver.pog.example:7444",
+        "public_key_hex": "0303030303030303030303030303030303030303030303030303030303030303"
+      },
+      {
+        "anchor_id": "aws-ca-west-1-calgary",
+        "cloud_provider": "aws",
+        "region": "ca-west-1",
+        "city": "Calgary, AB, Canada",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6i.xlarge",
+        "location": {
+          "lat": 51.0447,
+          "lon": -114.0719
+        },
+        "endpoint_tcp": "aws-ca-west-1-calgary.pog.example:7443",
+        "endpoint_udp": "aws-ca-west-1-calgary.pog.example:7444",
+        "public_key_hex": "0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      {
+        "anchor_id": "azure-canadacentral-toronto",
+        "cloud_provider": "azure",
+        "region": "canadacentral",
+        "city": "Toronto, ON, Canada",
+        "tee_vendor": "IntelTdx",
+        "instance_type": "Standard_DC2es_v5",
+        "location": {
+          "lat": 43.6532,
+          "lon": -79.3832
+        },
+        "endpoint_tcp": "azure-canadacentral-toronto.pog.example:7443",
+        "endpoint_udp": "azure-canadacentral-toronto.pog.example:7444",
+        "public_key_hex": "0505050505050505050505050505050505050505050505050505050505050505"
+      },
+      {
+        "anchor_id": "gcp-northamerica-northeast1-montreal",
+        "cloud_provider": "gcp",
+        "region": "northamerica-northeast1",
+        "city": "Montreal, QC, Canada",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 45.5017,
+          "lon": -73.5673
+        },
+        "endpoint_tcp": "gcp-northamerica-northeast1-montreal.pog.example:7443",
+        "endpoint_udp": "gcp-northamerica-northeast1-montreal.pog.example:7444",
+        "public_key_hex": "0606060606060606060606060606060606060606060606060606060606060606"
+      },
+      {
+        "anchor_id": "aws-ca-central-1-montreal",
+        "cloud_provider": "aws",
+        "region": "ca-central-1",
+        "city": "Montreal, QC, Canada",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6i.xlarge",
+        "location": {
+          "lat": 45.52,
+          "lon": -73.59
+        },
+        "endpoint_tcp": "aws-ca-central-1-montreal.pog.example:7443",
+        "endpoint_udp": "aws-ca-central-1-montreal.pog.example:7444",
+        "public_key_hex": "0707070707070707070707070707070707070707070707070707070707070707"
+      },
+      {
+        "anchor_id": "edge-ca-yhz-halifax",
+        "cloud_provider": "edge",
+        "region": "ca-ns-yhz",
+        "city": "Halifax, NS, Canada",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 44.6488,
+          "lon": -63.5752
+        },
+        "endpoint_tcp": "edge-ca-yhz-halifax.pog.example:7443",
+        "endpoint_udp": "edge-ca-yhz-halifax.pog.example:7444",
+        "public_key_hex": "0808080808080808080808080808080808080808080808080808080808080808"
+      },
+      {
+        "anchor_id": "gcp-us-west1-oregon",
+        "cloud_provider": "gcp",
+        "region": "us-west1",
+        "city": "The Dalles, OR, USA",
+        "tee_vendor": "IntelTdx",
+        "instance_type": "c3-standard-4",
+        "location": {
+          "lat": 45.5946,
+          "lon": -121.1787
+        },
+        "endpoint_tcp": "34.3.99.152:7443",
+        "endpoint_udp": "34.3.99.152:7444",
+        "public_key_hex": "bef6c6327793177482a6d0ae4c3ce3f82e82f94ff60d6ff8e537fe841fd6235e"
+      },
+      {
+        "anchor_id": "aws-us-west-2-oregon",
+        "cloud_provider": "aws",
+        "region": "us-west-2",
+        "city": "Boardman, OR, USA",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "c6a.large",
+        "location": {
+          "lat": 45.8399,
+          "lon": -119.7006
+        },
+        "endpoint_tcp": "aws-us-west-2-oregon.pog.example:7443",
+        "endpoint_udp": "aws-us-west-2-oregon.pog.example:7444",
+        "public_key_hex": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"
+      },
+      {
+        "anchor_id": "aws-us-west-1-sanjose",
+        "cloud_provider": "aws",
+        "region": "us-west-1",
+        "city": "San Jose, CA, USA",
+        "tee_vendor": "SoftwareDev",
+        "instance_type": "c6a.large",
+        "location": {
+          "lat": 37.3382,
+          "lon": -121.8863
+        },
+        "endpoint_tcp": "54.241.67.28:7443",
+        "endpoint_udp": "54.241.67.28:7444",
+        "public_key_hex": "f59af7268fcf2bf046f54b58685f9c86978def2d14cae9bf0121ed56e75945df"
+      },
+      {
+        "anchor_id": "gcp-us-west2-losangeles",
+        "cloud_provider": "gcp",
+        "region": "us-west2",
+        "city": "Los Angeles, CA, USA",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 34.0522,
+          "lon": -118.2437
+        },
+        "endpoint_tcp": "gcp-us-west2-losangeles.pog.example:7443",
+        "endpoint_udp": "gcp-us-west2-losangeles.pog.example:7444",
+        "public_key_hex": "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
+      },
+      {
+        "anchor_id": "gcp-us-west3-saltlakecity",
+        "cloud_provider": "gcp",
+        "region": "us-west3",
+        "city": "Salt Lake City, UT, USA",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 40.7608,
+          "lon": -111.891
+        },
+        "endpoint_tcp": "gcp-us-west3-saltlakecity.pog.example:7443",
+        "endpoint_udp": "gcp-us-west3-saltlakecity.pog.example:7444",
+        "public_key_hex": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
+      },
+      {
+        "anchor_id": "azure-westus3-phoenix",
+        "cloud_provider": "azure",
+        "region": "westus3",
+        "city": "Phoenix, AZ, USA",
+        "tee_vendor": "IntelTdx",
+        "instance_type": "Standard_DC2es_v5",
+        "location": {
+          "lat": 33.4484,
+          "lon": -112.074
+        },
+        "endpoint_tcp": "azure-westus3-phoenix.pog.example:7443",
+        "endpoint_udp": "azure-westus3-phoenix.pog.example:7444",
+        "public_key_hex": "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e"
+      },
+      {
+        "anchor_id": "gcp-us-central1-iowa",
+        "cloud_provider": "gcp",
+        "region": "us-central1",
+        "city": "Council Bluffs, IA, USA",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 41.2619,
+          "lon": -95.8608
+        },
+        "endpoint_tcp": "35.209.22.219:7443",
+        "endpoint_udp": "35.209.22.219:7444",
+        "public_key_hex": "1ecf75fbc1db2898adc76e112dcb293df136603dc24ec97c804d5c14cfd5e4b4"
+      },
+      {
+        "anchor_id": "azure-northcentralus-chicago",
+        "cloud_provider": "azure",
+        "region": "northcentralus",
+        "city": "Chicago, IL, USA",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "Standard_DC2as_v5",
+        "location": {
+          "lat": 41.8781,
+          "lon": -87.6298
+        },
+        "endpoint_tcp": "azure-northcentralus-chicago.pog.example:7443",
+        "endpoint_udp": "azure-northcentralus-chicago.pog.example:7444",
+        "public_key_hex": "1010101010101010101010101010101010101010101010101010101010101010"
+      },
+      {
+        "anchor_id": "gcp-us-south1-dallas",
+        "cloud_provider": "gcp",
+        "region": "us-south1",
+        "city": "Dallas, TX, USA",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 32.7767,
+          "lon": -96.797
+        },
+        "endpoint_tcp": "gcp-us-south1-dallas.pog.example:7443",
+        "endpoint_udp": "gcp-us-south1-dallas.pog.example:7444",
+        "public_key_hex": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "anchor_id": "aws-us-east-2-ohio",
+        "cloud_provider": "aws",
+        "region": "us-east-2",
+        "city": "Columbus, OH, USA",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "c6a.large",
+        "location": {
+          "lat": 39.9612,
+          "lon": -82.9988
+        },
+        "endpoint_tcp": "aws-us-east-2-ohio.pog.example:7443",
+        "endpoint_udp": "aws-us-east-2-ohio.pog.example:7444",
+        "public_key_hex": "1212121212121212121212121212121212121212121212121212121212121212"
+      },
+      {
+        "anchor_id": "gcp-us-east4-ashburn",
+        "cloud_provider": "gcp",
+        "region": "us-east4",
+        "city": "Ashburn, VA, USA",
+        "tee_vendor": "IntelTdx",
+        "instance_type": "c3-standard-4",
+        "location": {
+          "lat": 39.0438,
+          "lon": -77.4874
+        },
+        "endpoint_tcp": "34.4.37.46:7443",
+        "endpoint_udp": "34.4.37.46:7444",
+        "public_key_hex": "160331479a3a9accb79f3a8fa0b3aa0c05a48a2ec5fc02d7d534cfdba0a74741"
+      },
+      {
+        "anchor_id": "aws-us-east-1-nvirginia",
+        "cloud_provider": "aws",
+        "region": "us-east-1",
+        "city": "Ashburn, VA, USA",
+        "tee_vendor": "SoftwareDev",
+        "instance_type": "c6a.large",
+        "location": {
+          "lat": 39.018,
+          "lon": -77.459
+        },
+        "endpoint_tcp": "100.26.196.197:7443",
+        "endpoint_udp": "100.26.196.197:7444",
+        "public_key_hex": "cb5dc0070c04fcc18d3a83763bf6d1eab34f572e172220064d0ad0b39765b78f"
+      },
+      {
+        "anchor_id": "ovh-us-east-ewr-newark",
+        "cloud_provider": "ovh",
+        "region": "us-east-ewr",
+        "city": "New York / Newark, NJ, USA",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 40.7357,
+          "lon": -74.1724
+        },
+        "endpoint_tcp": "ovh-us-east-ewr-newark.pog.example:7443",
+        "endpoint_udp": "ovh-us-east-ewr-newark.pog.example:7444",
+        "public_key_hex": "1515151515151515151515151515151515151515151515151515151515151515"
+      },
+      {
+        "anchor_id": "edge-us-mia-miami",
+        "cloud_provider": "edge",
+        "region": "us-fl-mia",
+        "city": "Miami, FL, USA",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 25.7617,
+          "lon": -80.1918
+        },
+        "endpoint_tcp": "edge-us-mia-miami.pog.example:7443",
+        "endpoint_udp": "edge-us-mia-miami.pog.example:7444",
+        "public_key_hex": "1616161616161616161616161616161616161616161616161616161616161616"
+      },
+      {
+        "anchor_id": "gcp-northamerica-south1-queretaro",
+        "cloud_provider": "gcp",
+        "region": "northamerica-south1",
+        "city": "Querétaro / Mexico City, Mexico",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 20.5888,
+          "lon": -100.3899
+        },
+        "endpoint_tcp": "gcp-northamerica-south1-queretaro.pog.example:7443",
+        "endpoint_udp": "gcp-northamerica-south1-queretaro.pog.example:7444",
+        "public_key_hex": "1717171717171717171717171717171717171717171717171717171717171717"
+      },
+      {
+        "anchor_id": "aws-mx-central-1-queretaro",
+        "cloud_provider": "aws",
+        "region": "mx-central-1",
+        "city": "Querétaro, Mexico",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6i.xlarge",
+        "location": {
+          "lat": 20.62,
+          "lon": -100.41
+        },
+        "endpoint_tcp": "aws-mx-central-1-queretaro.pog.example:7443",
+        "endpoint_udp": "aws-mx-central-1-queretaro.pog.example:7444",
+        "public_key_hex": "1818181818181818181818181818181818181818181818181818181818181818"
+      },
+      {
+        "anchor_id": "edge-pr-sju-sanjuan",
+        "cloud_provider": "edge",
+        "region": "pr-sju",
+        "city": "San Juan, Puerto Rico",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 18.4655,
+          "lon": -66.1057
+        },
+        "endpoint_tcp": "edge-pr-sju-sanjuan.pog.example:7443",
+        "endpoint_udp": "edge-pr-sju-sanjuan.pog.example:7444",
+        "public_key_hex": "1919191919191919191919191919191919191919191919191919191919191919"
+      },
+      {
+        "anchor_id": "edge-pa-pty-panama",
+        "cloud_provider": "edge",
+        "region": "pa-pty",
+        "city": "Panama City, Panama",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 8.9824,
+          "lon": -79.5199
+        },
+        "endpoint_tcp": "edge-pa-pty-panama.pog.example:7443",
+        "endpoint_udp": "edge-pa-pty-panama.pog.example:7444",
+        "public_key_hex": "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a"
+      },
+      {
+        "anchor_id": "edge-is-rek-reykjavik",
+        "cloud_provider": "edge",
+        "region": "is-rek",
+        "city": "Reykjavík, Iceland",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 64.1466,
+          "lon": -21.9426
+        },
+        "endpoint_tcp": "edge-is-rek-reykjavik.pog.example:7443",
+        "endpoint_udp": "edge-is-rek-reykjavik.pog.example:7444",
+        "public_key_hex": "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b"
+      },
+      {
+        "anchor_id": "edge-fo-fae-torshavn",
+        "cloud_provider": "edge",
+        "region": "fo-fae",
+        "city": "Tórshavn, Faroe Islands",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 62.0079,
+          "lon": -6.791
+        },
+        "endpoint_tcp": "edge-fo-fae-torshavn.pog.example:7443",
+        "endpoint_udp": "edge-fo-fae-torshavn.pog.example:7444",
+        "public_key_hex": "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c"
+      },
+      {
+        "anchor_id": "edge-pt-pdl-azores",
+        "cloud_provider": "edge",
+        "region": "pt-pdl",
+        "city": "Ponta Delgada, Azores (PT)",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 37.7412,
+          "lon": -25.6756
+        },
+        "endpoint_tcp": "edge-pt-pdl-azores.pog.example:7443",
+        "endpoint_udp": "edge-pt-pdl-azores.pog.example:7444",
+        "public_key_hex": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d"
+      },
+      {
+        "anchor_id": "edge-pt-lis-lisbon",
+        "cloud_provider": "edge",
+        "region": "pt-lis",
+        "city": "Lisbon, Portugal",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 38.7223,
+          "lon": -9.1393
+        },
+        "endpoint_tcp": "edge-pt-lis-lisbon.pog.example:7443",
+        "endpoint_udp": "edge-pt-lis-lisbon.pog.example:7444",
+        "public_key_hex": "1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e"
+      },
+      {
+        "anchor_id": "aws-eu-west-1-dublin",
+        "cloud_provider": "aws",
+        "region": "eu-west-1",
+        "city": "Dublin, Ireland",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "c6a.large",
+        "location": {
+          "lat": 53.3498,
+          "lon": -6.2603
+        },
+        "endpoint_tcp": "aws-eu-west-1-dublin.pog.example:7443",
+        "endpoint_udp": "aws-eu-west-1-dublin.pog.example:7444",
+        "public_key_hex": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f"
+      },
+      {
+        "anchor_id": "azure-norwayeast-oslo",
+        "cloud_provider": "azure",
+        "region": "norwayeast",
+        "city": "Oslo, Norway",
+        "tee_vendor": "IntelTdx",
+        "instance_type": "Standard_DC2es_v5",
+        "location": {
+          "lat": 59.9139,
+          "lon": 10.7522
+        },
+        "endpoint_tcp": "azure-norwayeast-oslo.pog.example:7443",
+        "endpoint_udp": "azure-norwayeast-oslo.pog.example:7444",
+        "public_key_hex": "2020202020202020202020202020202020202020202020202020202020202020"
+      },
+      {
+        "anchor_id": "aws-eu-north-1-stockholm",
+        "cloud_provider": "aws",
+        "region": "eu-north-1",
+        "city": "Stockholm, Sweden",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6i.xlarge",
+        "location": {
+          "lat": 59.3293,
+          "lon": 18.0686
+        },
+        "endpoint_tcp": "aws-eu-north-1-stockholm.pog.example:7443",
+        "endpoint_udp": "aws-eu-north-1-stockholm.pog.example:7444",
+        "public_key_hex": "2121212121212121212121212121212121212121212121212121212121212121"
+      },
+      {
+        "anchor_id": "gcp-europe-north1-finland",
+        "cloud_provider": "gcp",
+        "region": "europe-north1",
+        "city": "Hamina, Finland",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 60.5693,
+          "lon": 27.1979
+        },
+        "endpoint_tcp": "gcp-europe-north1-finland.pog.example:7443",
+        "endpoint_udp": "gcp-europe-north1-finland.pog.example:7444",
+        "public_key_hex": "2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      {
+        "anchor_id": "gcp-europe-west2-london",
+        "cloud_provider": "gcp",
+        "region": "europe-west2",
+        "city": "London, UK",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 51.5074,
+          "lon": -0.1278
+        },
+        "endpoint_tcp": "gcp-europe-west2-london.pog.example:7443",
+        "endpoint_udp": "gcp-europe-west2-london.pog.example:7444",
+        "public_key_hex": "2323232323232323232323232323232323232323232323232323232323232323"
+      },
+      {
+        "anchor_id": "aws-eu-west-2-london",
+        "cloud_provider": "aws",
+        "region": "eu-west-2",
+        "city": "London, UK",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6i.xlarge",
+        "location": {
+          "lat": 51.52,
+          "lon": -0.11
+        },
+        "endpoint_tcp": "aws-eu-west-2-london.pog.example:7443",
+        "endpoint_udp": "aws-eu-west-2-london.pog.example:7444",
+        "public_key_hex": "2424242424242424242424242424242424242424242424242424242424242424"
+      },
+      {
+        "anchor_id": "ovh-eu-west-par-paris",
+        "cloud_provider": "ovh",
+        "region": "eu-west-par",
+        "city": "Paris, France",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 48.8566,
+          "lon": 2.3522
+        },
+        "endpoint_tcp": "ovh-eu-west-par-paris.pog.example:7443",
+        "endpoint_udp": "ovh-eu-west-par-paris.pog.example:7444",
+        "public_key_hex": "2525252525252525252525252525252525252525252525252525252525252525"
+      },
+      {
+        "anchor_id": "gcp-europe-west4-netherlands",
+        "cloud_provider": "gcp",
+        "region": "europe-west4",
+        "city": "Amsterdam / Eemshaven, NL",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 52.3676,
+          "lon": 4.9041
+        },
+        "endpoint_tcp": "gcp-europe-west4-netherlands.pog.example:7443",
+        "endpoint_udp": "gcp-europe-west4-netherlands.pog.example:7444",
+        "public_key_hex": "2626262626262626262626262626262626262626262626262626262626262626"
+      },
+      {
+        "anchor_id": "gcp-europe-west3-frankfurt",
+        "cloud_provider": "gcp",
+        "region": "europe-west3",
+        "city": "Frankfurt, Germany",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 50.1109,
+          "lon": 8.6821
+        },
+        "endpoint_tcp": "35.207.136.128:7443",
+        "endpoint_udp": "35.207.136.128:7444",
+        "public_key_hex": "4650d9bed5a021eb14923af50e36217799d46178fb37bd3705ae799b03eddbce"
+      },
+      {
+        "anchor_id": "aws-eu-central-1-frankfurt",
+        "cloud_provider": "aws",
+        "region": "eu-central-1",
+        "city": "Frankfurt, Germany",
+        "tee_vendor": "SoftwareDev",
+        "instance_type": "c6a.large",
+        "location": {
+          "lat": 50.1167,
+          "lon": 8.6833
+        },
+        "endpoint_tcp": "3.70.234.145:7443",
+        "endpoint_udp": "3.70.234.145:7444",
+        "public_key_hex": "14c9e84889941dd7eb32a7e129afe5fad23378eebcd9c8ab46cb674110f79633"
+      },
+      {
+        "anchor_id": "gcp-europe-west6-zurich",
+        "cloud_provider": "gcp",
+        "region": "europe-west6",
+        "city": "Zurich, Switzerland",
+        "tee_vendor": "IntelTdx",
+        "instance_type": "c3-standard-4",
+        "location": {
+          "lat": 47.3769,
+          "lon": 8.5417
+        },
+        "endpoint_tcp": "gcp-europe-west6-zurich.pog.example:7443",
+        "endpoint_udp": "gcp-europe-west6-zurich.pog.example:7444",
+        "public_key_hex": "2929292929292929292929292929292929292929292929292929292929292929"
+      },
+      {
+        "anchor_id": "gcp-europe-southwest1-madrid",
+        "cloud_provider": "gcp",
+        "region": "europe-southwest1",
+        "city": "Madrid, Spain",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 40.4168,
+          "lon": -3.7038
+        },
+        "endpoint_tcp": "gcp-europe-southwest1-madrid.pog.example:7443",
+        "endpoint_udp": "gcp-europe-southwest1-madrid.pog.example:7444",
+        "public_key_hex": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a"
+      },
+      {
+        "anchor_id": "edge-fr-mrs-marseille",
+        "cloud_provider": "edge",
+        "region": "fr-mrs",
+        "city": "Marseille, France",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 43.2965,
+          "lon": 5.3698
+        },
+        "endpoint_tcp": "edge-fr-mrs-marseille.pog.example:7443",
+        "endpoint_udp": "edge-fr-mrs-marseille.pog.example:7444",
+        "public_key_hex": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b"
+      },
+      {
+        "anchor_id": "gcp-europe-west8-milan",
+        "cloud_provider": "gcp",
+        "region": "europe-west8",
+        "city": "Milan, Italy",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 45.4642,
+          "lon": 9.19
+        },
+        "endpoint_tcp": "gcp-europe-west8-milan.pog.example:7443",
+        "endpoint_udp": "gcp-europe-west8-milan.pog.example:7444",
+        "public_key_hex": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c"
+      },
+      {
+        "anchor_id": "gcp-europe-central2-warsaw",
+        "cloud_provider": "gcp",
+        "region": "europe-central2",
+        "city": "Warsaw, Poland",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 52.2297,
+          "lon": 21.0122
+        },
+        "endpoint_tcp": "gcp-europe-central2-warsaw.pog.example:7443",
+        "endpoint_udp": "gcp-europe-central2-warsaw.pog.example:7444",
+        "public_key_hex": "2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d"
+      },
+      {
+        "anchor_id": "ovh-eu-central-waw-warsaw",
+        "cloud_provider": "ovh",
+        "region": "eu-central-waw",
+        "city": "Warsaw, Poland",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 52.25,
+          "lon": 21.03
+        },
+        "endpoint_tcp": "ovh-eu-central-waw-warsaw.pog.example:7443",
+        "endpoint_udp": "ovh-eu-central-waw-warsaw.pog.example:7444",
+        "public_key_hex": "2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e"
+      },
+      {
+        "anchor_id": "edge-ro-otp-bucharest",
+        "cloud_provider": "edge",
+        "region": "ro-otp",
+        "city": "Bucharest, Romania",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 44.4268,
+          "lon": 26.1025
+        },
+        "endpoint_tcp": "edge-ro-otp-bucharest.pog.example:7443",
+        "endpoint_udp": "edge-ro-otp-bucharest.pog.example:7444",
+        "public_key_hex": "2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f"
+      },
+      {
+        "anchor_id": "edge-gr-ath-athens",
+        "cloud_provider": "azure",
+        "region": "greececentral",
+        "city": "Athens, Greece",
+        "tee_vendor": "IntelTdx",
+        "instance_type": "Standard_DC2es_v5",
+        "location": {
+          "lat": 37.9838,
+          "lon": 23.7275
+        },
+        "endpoint_tcp": "edge-gr-ath-athens.pog.example:7443",
+        "endpoint_udp": "edge-gr-ath-athens.pog.example:7444",
+        "public_key_hex": "3030303030303030303030303030303030303030303030303030303030303030"
+      },
+      {
+        "anchor_id": "edge-tr-ist-istanbul",
+        "cloud_provider": "edge",
+        "region": "tr-ist",
+        "city": "Istanbul, Turkey",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 41.0082,
+          "lon": 28.9784
+        },
+        "endpoint_tcp": "edge-tr-ist-istanbul.pog.example:7443",
+        "endpoint_udp": "edge-tr-ist-istanbul.pog.example:7444",
+        "public_key_hex": "3131313131313131313131313131313131313131313131313131313131313131"
+      },
+      {
+        "anchor_id": "edge-ru-mow-moscow",
+        "cloud_provider": "edge",
+        "region": "ru-mow-optional",
+        "city": "Moscow, Russia (Optional IXP)",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 55.7558,
+          "lon": 37.6173
+        },
+        "endpoint_tcp": "edge-ru-mow-moscow.pog.example:7443",
+        "endpoint_udp": "edge-ru-mow-moscow.pog.example:7444",
+        "public_key_hex": "3232323232323232323232323232323232323232323232323232323232323232"
+      },
+      {
+        "anchor_id": "edge-kz-ala-almaty",
+        "cloud_provider": "edge",
+        "region": "kz-ala",
+        "city": "Almaty, Kazakhstan",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 43.222,
+          "lon": 76.8512
+        },
+        "endpoint_tcp": "edge-kz-ala-almaty.pog.example:7443",
+        "endpoint_udp": "edge-kz-ala-almaty.pog.example:7444",
+        "public_key_hex": "3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      {
+        "anchor_id": "edge-ma-cmn-casablanca",
+        "cloud_provider": "edge",
+        "region": "ma-cmn",
+        "city": "Casablanca, Morocco",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 33.5731,
+          "lon": -7.5898
+        },
+        "endpoint_tcp": "edge-ma-cmn-casablanca.pog.example:7443",
+        "endpoint_udp": "edge-ma-cmn-casablanca.pog.example:7444",
+        "public_key_hex": "3434343434343434343434343434343434343434343434343434343434343434"
+      },
+      {
+        "anchor_id": "edge-eg-cai-cairo",
+        "cloud_provider": "edge",
+        "region": "eg-cai",
+        "city": "Cairo, Egypt",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "baremetal-sev-snp",
+        "location": {
+          "lat": 30.0444,
+          "lon": 31.2357
+        },
+        "endpoint_tcp": "edge-eg-cai-cairo.pog.example:7443",
+        "endpoint_udp": "edge-eg-cai-cairo.pog.example:7444",
+        "public_key_hex": "3535353535353535353535353535353535353535353535353535353535353535"
+      },
+      {
+        "anchor_id": "gcp-me-west1-telaviv",
+        "cloud_provider": "gcp",
+        "region": "me-west1",
+        "city": "Tel Aviv, Israel",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 32.0853,
+          "lon": 34.7818
+        },
+        "endpoint_tcp": "gcp-me-west1-telaviv.pog.example:7443",
+        "endpoint_udp": "gcp-me-west1-telaviv.pog.example:7444",
+        "public_key_hex": "3636363636363636363636363636363636363636363636363636363636363636"
+      },
+      {
+        "anchor_id": "aws-me-central-1-dubai",
+        "cloud_provider": "aws",
+        "region": "me-central-1",
+        "city": "Dubai, UAE",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6i.xlarge",
+        "location": {
+          "lat": 25.2048,
+          "lon": 55.2708
+        },
+        "endpoint_tcp": "aws-me-central-1-dubai.pog.example:7443",
+        "endpoint_udp": "aws-me-central-1-dubai.pog.example:7444",
+        "public_key_hex": "3737373737373737373737373737373737373737373737373737373737373737"
+      },
+      {
+        "anchor_id": "gcp-me-central1-doha",
+        "cloud_provider": "gcp",
+        "region": "me-central1",
+        "city": "Doha, Qatar",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 25.2854,
+          "lon": 51.531
+        },
+        "endpoint_tcp": "gcp-me-central1-doha.pog.example:7443",
+        "endpoint_udp": "gcp-me-central1-doha.pog.example:7444",
+        "public_key_hex": "3838383838383838383838383838383838383838383838383838383838383838"
+      },
+      {
+        "anchor_id": "aws-ap-northeast-1-tokyo",
+        "cloud_provider": "aws",
+        "region": "ap-northeast-1",
+        "city": "Tokyo, Japan",
+        "tee_vendor": "SoftwareDev",
+        "instance_type": "c6a.large",
+        "location": {
+          "lat": 35.6895,
+          "lon": 139.6917
+        },
+        "endpoint_tcp": "43.206.93.106:7443",
+        "endpoint_udp": "43.206.93.106:7444",
+        "public_key_hex": "0c9381592dc7285404b91e6922da37cd9935fd603abddeca7a130feb48bf5b82"
+      },
+      {
+        "anchor_id": "gcp-asia-northeast1-tokyo",
+        "cloud_provider": "gcp",
+        "region": "asia-northeast1",
+        "city": "Tokyo, Japan",
+        "tee_vendor": "IntelTdx",
+        "instance_type": "c3-standard-4",
+        "location": {
+          "lat": 35.6762,
+          "lon": 139.6503
+        },
+        "endpoint_tcp": "gcp-asia-northeast1-tokyo.pog.example:7443",
+        "endpoint_udp": "gcp-asia-northeast1-tokyo.pog.example:7444",
+        "public_key_hex": "3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a"
+      },
+      {
+        "anchor_id": "aws-ap-northeast-2-seoul",
+        "cloud_provider": "aws",
+        "region": "ap-northeast-2",
+        "city": "Seoul, South Korea",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6i.xlarge",
+        "location": {
+          "lat": 37.5665,
+          "lon": 126.978
+        },
+        "endpoint_tcp": "aws-ap-northeast-2-seoul.pog.example:7443",
+        "endpoint_udp": "aws-ap-northeast-2-seoul.pog.example:7444",
+        "public_key_hex": "3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b"
+      },
+      {
+        "anchor_id": "gcp-asia-east1-taiwan",
+        "cloud_provider": "gcp",
+        "region": "asia-east1",
+        "city": "Changhua, Taiwan",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 24.0518,
+          "lon": 120.5161
+        },
+        "endpoint_tcp": "gcp-asia-east1-taiwan.pog.example:7443",
+        "endpoint_udp": "gcp-asia-east1-taiwan.pog.example:7444",
+        "public_key_hex": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c"
+      },
+      {
+        "anchor_id": "tencent-ap-hongkong",
+        "cloud_provider": "tencent",
+        "region": "ap-hongkong",
+        "city": "Hong Kong",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "S6.MEDIUM4",
+        "location": {
+          "lat": 22.3193,
+          "lon": 114.1694
+        },
+        "endpoint_tcp": "tencent-ap-hongkong.pog.example:7443",
+        "endpoint_udp": "tencent-ap-hongkong.pog.example:7444",
+        "public_key_hex": "3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d"
+      },
+      {
+        "anchor_id": "gcp-asia-southeast1-singapore",
+        "cloud_provider": "gcp",
+        "region": "asia-southeast1",
+        "city": "Singapore",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 1.3521,
+          "lon": 103.8198
+        },
+        "endpoint_tcp": "34.2.145.119:7443",
+        "endpoint_udp": "34.2.145.119:7444",
+        "public_key_hex": "67597ddee7127ecb2665f866fd27eec459f8f9820dfa74b09a5de72ac9d6d739"
+      },
+      {
+        "anchor_id": "bytedance-ap-southeast-singapore",
+        "cloud_provider": "bytedance",
+        "region": "ap-southeast-1",
+        "city": "Singapore",
+        "tee_vendor": "IntelTdx",
+        "instance_type": "ecs.c3t.large",
+        "location": {
+          "lat": 1.3,
+          "lon": 103.85
+        },
+        "endpoint_tcp": "bytedance-ap-southeast-singapore.pog.example:7443",
+        "endpoint_udp": "bytedance-ap-southeast-singapore.pog.example:7444",
+        "public_key_hex": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f"
+      },
+      {
+        "anchor_id": "aws-ap-south-1-mumbai",
+        "cloud_provider": "aws",
+        "region": "ap-south-1",
+        "city": "Mumbai, India",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6i.xlarge",
+        "location": {
+          "lat": 19.076,
+          "lon": 72.8777
+        },
+        "endpoint_tcp": "aws-ap-south-1-mumbai.pog.example:7443",
+        "endpoint_udp": "aws-ap-south-1-mumbai.pog.example:7444",
+        "public_key_hex": "4040404040404040404040404040404040404040404040404040404040404040"
+      },
+      {
+        "anchor_id": "gcp-asia-south1-mumbai",
+        "cloud_provider": "gcp",
+        "region": "asia-south1",
+        "city": "Mumbai, India",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 19.09,
+          "lon": 72.89
+        },
+        "endpoint_tcp": "gcp-asia-south1-mumbai.pog.example:7443",
+        "endpoint_udp": "gcp-asia-south1-mumbai.pog.example:7444",
+        "public_key_hex": "4141414141414141414141414141414141414141414141414141414141414141"
+      },
+      {
+        "anchor_id": "gcp-asia-southeast2-jakarta",
+        "cloud_provider": "gcp",
+        "region": "asia-southeast2",
+        "city": "Jakarta, Indonesia",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": -6.2088,
+          "lon": 106.8456
+        },
+        "endpoint_tcp": "gcp-asia-southeast2-jakarta.pog.example:7443",
+        "endpoint_udp": "gcp-asia-southeast2-jakarta.pog.example:7444",
+        "public_key_hex": "4242424242424242424242424242424242424242424242424242424242424242"
+      },
+      {
+        "anchor_id": "aws-ap-southeast-2-sydney",
+        "cloud_provider": "aws",
+        "region": "ap-southeast-2",
+        "city": "Sydney, Australia",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6i.xlarge",
+        "location": {
+          "lat": -33.8688,
+          "lon": 151.2093
+        },
+        "endpoint_tcp": "aws-ap-southeast-2-sydney.pog.example:7443",
+        "endpoint_udp": "aws-ap-southeast-2-sydney.pog.example:7444",
+        "public_key_hex": "4343434343434343434343434343434343434343434343434343434343434343"
+      },
+      {
+        "anchor_id": "azure-newzealandnorth-auckland",
+        "cloud_provider": "azure",
+        "region": "newzealandnorth",
+        "city": "Auckland, New Zealand",
+        "tee_vendor": "IntelTdx",
+        "instance_type": "Standard_DC2es_v5",
+        "location": {
+          "lat": -36.8485,
+          "lon": 174.7633
+        },
+        "endpoint_tcp": "azure-newzealandnorth-auckland.pog.example:7443",
+        "endpoint_udp": "azure-newzealandnorth-auckland.pog.example:7444",
+        "public_key_hex": "4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      {
+        "anchor_id": "gcp-southamerica-east1-saopaulo",
+        "cloud_provider": "gcp",
+        "region": "southamerica-east1",
+        "city": "São Paulo, Brazil",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": -23.5505,
+          "lon": -46.6333
+        },
+        "endpoint_tcp": "gcp-southamerica-east1-saopaulo.pog.example:7443",
+        "endpoint_udp": "gcp-southamerica-east1-saopaulo.pog.example:7444",
+        "public_key_hex": "4545454545454545454545454545454545454545454545454545454545454545"
+      },
+      {
+        "anchor_id": "gcp-southamerica-west1-santiago",
+        "cloud_provider": "gcp",
+        "region": "southamerica-west1",
+        "city": "Santiago, Chile",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": -33.4489,
+          "lon": -70.6693
+        },
+        "endpoint_tcp": "gcp-southamerica-west1-santiago.pog.example:7443",
+        "endpoint_udp": "gcp-southamerica-west1-santiago.pog.example:7444",
+        "public_key_hex": "4646464646464646464646464646464646464646464646464646464646464646"
+      },
+      {
+        "anchor_id": "gcp-africa-south1-johannesburg",
+        "cloud_provider": "gcp",
+        "region": "africa-south1",
+        "city": "Johannesburg, South Africa",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": -26.2041,
+          "lon": 28.0473
+        },
+        "endpoint_tcp": "gcp-africa-south1-johannesburg.pog.example:7443",
+        "endpoint_udp": "gcp-africa-south1-johannesburg.pog.example:7444",
+        "public_key_hex": "4747474747474747474747474747474747474747474747474747474747474747"
+      },
+      {
+        "anchor_id": "aws-af-south-1-capetown",
+        "cloud_provider": "aws",
+        "region": "af-south-1",
+        "city": "Cape Town, South Africa",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6i.xlarge",
+        "location": {
+          "lat": -33.9249,
+          "lon": 18.4241
+        },
+        "endpoint_tcp": "aws-af-south-1-capetown.pog.example:7443",
+        "endpoint_udp": "aws-af-south-1-capetown.pog.example:7444",
+        "public_key_hex": "4848484848484848484848484848484848484848484848484848484848484848"
+      }
+    ]
+  },
+  "operator_signature_hex": "70e02f8ded1eb9fa4432aaed3efb106cfedefdcbeeaf49b7460b4bf38cea4305bc213a89b4e8d383ebc31dd011a519eba0437bbc88f8f2f653bb0bd3f9816b07"
+}

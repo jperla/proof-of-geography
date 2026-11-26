@@ -16,6 +16,7 @@ export interface AnchorDescriptor {
   region: string;
   city: string;
   location: LatLon;
+  endpoint_tcp?: string;
   public_key_hex: string;
 }
 
@@ -23,6 +24,48 @@ export interface AnchorGrid {
   version: string;
   grid_name: string;
   anchors: AnchorDescriptor[];
+}
+
+export interface SignedNetworkRegistry {
+  version: number;
+  network_id: string;
+  operator_name: string;
+  root_public_key_hex: string;
+  issued_at_unix_s: number;
+  expires_at_unix_s: number;
+  grid: AnchorGrid;
+  operator_signature_hex: string;
+}
+
+export interface AnchorEndorsement {
+  network_id: string;
+  anchor_id: string;
+  anchor_public_key_hex: string;
+  lat: number;
+  lon: number;
+  issued_at_unix_s: number;
+  expires_at_unix_s: number;
+  root_public_key_hex: string;
+  root_signature_hex: string;
+}
+
+export interface TrustedNetwork {
+  networkId: string;
+  pinnedRootPublicKeyHex: string;
+  signedRegistry: SignedNetworkRegistry;
+}
+
+export interface NetworkSource {
+  networkId: string;
+  registryUrl: string;
+  pinnedRootPublicKeyHex: string;
+}
+
+export interface AnchorObservedIp {
+  anchorId: string;
+  cloudProvider: string;
+  observedIp: string;
+  rttMinUs: number;
 }
 
 export interface TeeAttestationQuote {
@@ -96,9 +139,37 @@ export interface VerificationReport {
   proverPublicKeyHex: string;
   workloadMeasurementHex: string;
   hasGpuBinding: boolean;
+  /** Per-Anchor signed view of the Prover's external IP address. */
+  observedProverIps: AnchorObservedIp[];
+  /** Unique external IP addresses observed across verified Anchors. */
+  distinctObservedIps: string[];
+  /** True when all verified Anchors observed the same external IP (false flags Anycast / split egress). */
+  ipViewConsistent: boolean;
   tier1aVacuum: CoreResult;
   tier1bFiber: CoreResult;
   tier2Calibrated: CoreResult;
+}
+
+export interface FederatedVerificationReport {
+  overallValid: boolean;
+  requiredIndependentNetworks: number;
+  validIndependentNetworks: number;
+  distinctOperatorsVerified: string[];
+  proverPkConsistentAcrossNetworks: boolean;
+  observedProverIpsAcrossNetworks: string[];
+  ipConsistentAcrossNetworks: boolean;
+  consensusTier1aVacuumKm: number | null;
+  consensusTier1bFiberKm: number | null;
+  consensusTier2CalibratedKm: number | null;
+  failureReasons: string[];
+  perNetwork: Array<{
+    networkId: string;
+    operatorName: string;
+    registrySignatureValid: boolean;
+    proofValid: boolean;
+    report?: VerificationReport;
+    error?: string;
+  }>;
 }
 
 type Vec3 = [number, number, number];
@@ -334,6 +405,8 @@ export function verifyProof(
   const anchorMap = new Map(grid.anchors.map((a) => [a.anchor_id, a]));
   const seenAnchors = new Set<string>();
   const seenClouds = new Set<string>();
+  const observedProverIps: AnchorObservedIp[] = [];
+  const distinctIpSet = new Set<string>();
   const vacDisks: Disk[] = [];
   const fibDisks: Disk[] = [];
   const calDisks: Disk[] = [];
@@ -360,6 +433,13 @@ export function verifyProof(
       continue;
     }
     seenClouds.add(a.cloud_provider);
+    distinctIpSet.add(r.prover_observed_ip);
+    observedProverIps.push({
+      anchorId: r.anchor_id,
+      cloudProvider: a.cloud_provider,
+      observedIp: r.prover_observed_ip,
+      rttMinUs: r.rtt_min_us,
+    });
     const u = toUnitVec(a.location);
     const mkDisk = (rKm: number): Disk => {
       const th = Math.min(Math.PI, rKm / EARTH_RADIUS_KM);
@@ -387,6 +467,7 @@ export function verifyProof(
     );
   }
 
+  const distinctObservedIps = Array.from(distinctIpSet).sort();
   return {
     overallValid: failures.length === 0,
     failureReasons: failures,
@@ -395,8 +476,242 @@ export function verifyProof(
     proverPublicKeyHex: q.public_key_hex,
     workloadMeasurementHex: q.workload_measurement_hex,
     hasGpuBinding: Boolean(q.gpu_binding),
+    observedProverIps,
+    distinctObservedIps,
+    ipViewConsistent: distinctObservedIps.length <= 1,
     tier1aVacuum,
     tier1bFiber,
     tier2Calibrated,
+  };
+}
+
+/** Exact canonical SHA-256 digest matching `pog_proto::SignedNetworkRegistry::signing_digest()`. */
+export function signedRegistryDigest(reg: SignedNetworkRegistry): Buffer {
+  const h = createHash("sha256");
+  h.update("POG-NETWORK-REGISTRY-V1\n");
+  h.update(`${reg.network_id}\n`);
+  h.update(`${reg.operator_name}\n`);
+  h.update(`${reg.root_public_key_hex}\n`);
+  h.update(`${reg.issued_at_unix_s}\n`);
+  h.update(`${reg.expires_at_unix_s}\n`);
+  h.update(`${reg.grid.grid_name}\n`);
+  // Strict ASCII / UTF-8 code-unit sort matching Rust `Ord`, Python `sorted()`, and Go `sort.Slice`.
+  const sorted = [...reg.grid.anchors].sort((a, b) =>
+    a.anchor_id < b.anchor_id ? -1 : a.anchor_id > b.anchor_id ? 1 : 0
+  );
+  for (const a of sorted) {
+    h.update(
+      `${a.anchor_id}|${a.cloud_provider}|${a.region}|${a.location.lat.toFixed(6)}|${a.location.lon.toFixed(6)}|${a.endpoint_tcp ?? ""}|${a.public_key_hex}\n`
+    );
+  }
+  return h.digest();
+}
+
+/** Exact canonical SHA-256 digest matching `pog_proto::AnchorEndorsement::signing_digest()`. */
+export function anchorEndorsementDigest(cert: AnchorEndorsement): Buffer {
+  const h = createHash("sha256");
+  h.update(
+    `POG-ANCHOR-ENDORSEMENT-V1\n${cert.network_id}\n${cert.anchor_id}\n${cert.anchor_public_key_hex}\n${cert.lat.toFixed(6)}\n${cert.lon.toFixed(6)}\n${cert.issued_at_unix_s}\n${cert.expires_at_unix_s}\n`
+  );
+  return h.digest();
+}
+
+/** Verify a per-Anchor endorsement certificate against an operator's pinned root Ed25519 key. */
+export function verifyAnchorEndorsement(
+  cert: AnchorEndorsement,
+  pinnedRootPublicKeyHex: string,
+  nowUnixS: number = Math.floor(Date.now() / 1000)
+): { valid: boolean; error?: string } {
+  if (cert.root_public_key_hex.toLowerCase() !== pinnedRootPublicKeyHex.toLowerCase()) {
+    return { valid: false, error: `Endorsement root key mismatch for anchor ${cert.anchor_id}` };
+  }
+  if (nowUnixS > cert.expires_at_unix_s) {
+    return { valid: false, error: `Endorsement expired for anchor ${cert.anchor_id}` };
+  }
+  if (!verifyEd25519(cert.root_public_key_hex, anchorEndorsementDigest(cert), cert.root_signature_hex)) {
+    return { valid: false, error: `Invalid operator endorsement signature for anchor ${cert.anchor_id}` };
+  }
+  return { valid: true };
+}
+
+/** Verify an operator-signed Anchor network registry against a pinned Ed25519 root public key. */
+export function verifySignedRegistry(
+  reg: SignedNetworkRegistry,
+  pinnedRootPublicKeyHex?: string,
+  nowUnixS: number = Math.floor(Date.now() / 1000)
+): { valid: boolean; error?: string } {
+  if (pinnedRootPublicKeyHex && reg.root_public_key_hex.toLowerCase() !== pinnedRootPublicKeyHex.toLowerCase()) {
+    return { valid: false, error: `Root public key mismatch for network ${reg.network_id}` };
+  }
+  if (nowUnixS > reg.expires_at_unix_s) {
+    return { valid: false, error: `Signed registry expired for network ${reg.network_id}` };
+  }
+  const digest = signedRegistryDigest(reg);
+  if (!verifyEd25519(reg.root_public_key_hex, digest, reg.operator_signature_hex)) {
+    return { valid: false, error: `Invalid operator Ed25519 signature on network ${reg.network_id}` };
+  }
+  return { valid: true };
+}
+
+/** Fetch an independent operator's `SignedNetworkRegistry` over HTTPS and immediately verify its root signature. */
+export async function fetchSignedRegistry(
+  registryUrl: string,
+  pinnedRootPublicKeyHex?: string,
+  nowUnixS: number = Math.floor(Date.now() / 1000)
+): Promise<SignedNetworkRegistry> {
+  const resp = await fetch(registryUrl);
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch signed registry from ${registryUrl}: HTTP ${resp.status}`);
+  }
+  const reg = (await resp.json()) as SignedNetworkRegistry;
+  const check = verifySignedRegistry(reg, pinnedRootPublicKeyHex, nowUnixS);
+  if (!check.valid) {
+    throw new Error(check.error ?? "Invalid signed network registry");
+  }
+  return reg;
+}
+
+/**
+ * Query `X` independent operator networks (e.g. `proofofgeography.com`, Cloudflare, OVH) by fetching &
+ * verifying each operator's signed registry against its pinned root key, then running federated verification.
+ */
+export async function queryFederatedNetworks(
+  sources: NetworkSource[],
+  submissions: Array<{ networkId: string; bundleOrHeader: GeoProofBundle | string }>,
+  options: {
+    minIndependentNetworks?: number;
+    policy?: VerificationPolicy;
+    nowUnixS?: number;
+  } = {}
+): Promise<FederatedVerificationReport> {
+  const nowUnixS = options.nowUnixS ?? Math.floor(Date.now() / 1000);
+  const trusted: TrustedNetwork[] = [];
+  await Promise.all(
+    sources.map(async (src) => {
+      try {
+        const signedRegistry = await fetchSignedRegistry(
+          src.registryUrl,
+          src.pinnedRootPublicKeyHex,
+          nowUnixS
+        );
+        trusted.push({
+          networkId: src.networkId,
+          pinnedRootPublicKeyHex: src.pinnedRootPublicKeyHex,
+          signedRegistry,
+        });
+      } catch {
+        // Unreachable or tampered network simply fails to join the verified quorum.
+      }
+    })
+  );
+  return verifyFederatedProof(submissions, trusted, options);
+}
+
+/**
+ * Federated Multi-Network Verification:
+ * Query/verify proofs across `X` independent operator networks (e.g. `proofofgeography.com` + Cloudflare + OVH),
+ * verifying each operator's pinned Ed25519 root key signature, TEE identity agreement, and observed external IPs!
+ */
+export function verifyFederatedProof(
+  submissions: Array<{ networkId: string; bundleOrHeader: GeoProofBundle | string }>,
+  trustedNetworks: TrustedNetwork[],
+  options: {
+    minIndependentNetworks?: number;
+    policy?: VerificationPolicy;
+    nowUnixS?: number;
+  } = {}
+): FederatedVerificationReport {
+  const minNets = options.minIndependentNetworks ?? 2;
+  const policy = options.policy ?? {};
+  const nowUnixS = options.nowUnixS ?? Math.floor(Date.now() / 1000);
+  const netById = new Map(trustedNetworks.map((n) => [n.networkId, n]));
+  const seenNetIds = new Set<string>();
+  const seenRootKeys = new Set<string>();
+  const distinctOperators: string[] = [];
+  const proverPks = new Set<string>();
+  const allIps = new Set<string>();
+  const failureReasons: string[] = [];
+  const perNetwork: FederatedVerificationReport["perNetwork"] = [];
+
+  let minVac: number | null = null;
+  let minFib: number | null = null;
+  let minCal: number | null = null;
+
+  for (const sub of submissions) {
+    if (seenNetIds.has(sub.networkId)) {
+      failureReasons.push(`Duplicate network submission: ${sub.networkId}`);
+      continue;
+    }
+    seenNetIds.add(sub.networkId);
+    const net = netById.get(sub.networkId);
+    if (!net) {
+      perNetwork.push({
+        networkId: sub.networkId,
+        operatorName: "unknown",
+        registrySignatureValid: false,
+        proofValid: false,
+        error: "Untrusted networkId",
+      });
+      continue;
+    }
+    const rootNorm = net.pinnedRootPublicKeyHex.toLowerCase();
+    if (seenRootKeys.has(rootNorm)) {
+      failureReasons.push(`Network ${sub.networkId} shares root key with another network (not independent)`);
+      continue;
+    }
+    seenRootKeys.add(rootNorm);
+
+    const regCheck = verifySignedRegistry(net.signedRegistry, net.pinnedRootPublicKeyHex, nowUnixS);
+    if (!regCheck.valid) {
+      perNetwork.push({
+        networkId: sub.networkId,
+        operatorName: net.signedRegistry.operator_name,
+        registrySignatureValid: false,
+        proofValid: false,
+        error: regCheck.error,
+      });
+      continue;
+    }
+
+    const report = verifyProof(sub.bundleOrHeader, net.signedRegistry.grid, policy, nowUnixS);
+    if (report.overallValid) {
+      distinctOperators.push(net.signedRegistry.operator_name);
+      proverPks.add(report.proverPublicKeyHex);
+      for (const ip of report.distinctObservedIps) allIps.add(ip);
+      minVac = minVac === null ? report.tier1aVacuum.provenMaxRadiusKm : Math.min(minVac, report.tier1aVacuum.provenMaxRadiusKm);
+      minFib = minFib === null ? report.tier1bFiber.provenMaxRadiusKm : Math.min(minFib, report.tier1bFiber.provenMaxRadiusKm);
+      minCal = minCal === null ? report.tier2Calibrated.provenMaxRadiusKm : Math.min(minCal, report.tier2Calibrated.provenMaxRadiusKm);
+    }
+    perNetwork.push({
+      networkId: sub.networkId,
+      operatorName: net.signedRegistry.operator_name,
+      registrySignatureValid: true,
+      proofValid: report.overallValid,
+      report,
+    });
+  }
+
+  const proverPkConsistent = proverPks.size <= 1;
+  const ipConsistent = allIps.size <= 1;
+  if (distinctOperators.length < minNets) {
+    failureReasons.push(`Insufficient independent networks verified: ${distinctOperators.length} < ${minNets}`);
+  }
+  if (!proverPkConsistent) {
+    failureReasons.push("Prover TEE public key mismatch across independent networks");
+  }
+
+  return {
+    overallValid: failureReasons.length === 0 && distinctOperators.length >= minNets,
+    requiredIndependentNetworks: minNets,
+    validIndependentNetworks: distinctOperators.length,
+    distinctOperatorsVerified: distinctOperators,
+    proverPkConsistentAcrossNetworks: proverPkConsistent,
+    observedProverIpsAcrossNetworks: Array.from(allIps).sort(),
+    ipConsistentAcrossNetworks: ipConsistent,
+    consensusTier1aVacuumKm: minVac,
+    consensusTier1bFiberKm: minFib,
+    consensusTier2CalibratedKm: minCal,
+    failureReasons,
+    perNetwork,
   };
 }

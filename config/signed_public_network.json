@@ -1,0 +1,151 @@
+{
+  "version": 1,
+  "network_id": "proofofgeography.com",
+  "operator_name": "jperla",
+  "root_public_key_hex": "fdff6d6d0b8364e459ffbb921430e39411bd812ec3ce766c2904b39bfa996ee1",
+  "issued_at_unix_s": 1795714560,
+  "expires_at_unix_s": 1827250560,
+  "grid": {
+    "version": "1.0.0",
+    "grid_name": "pog-live-public-grid-9",
+    "description": "Live locked-down 9-node multi-cloud Proof of Geography public Anchor grid (GCP Intel TDX + AMD SEV-SNP + AWS across US, Europe & Asia)",
+    "anchors": [
+      {
+        "anchor_id": "aws-ap-northeast-1-tokyo",
+        "cloud_provider": "aws",
+        "region": "ap-northeast-1",
+        "city": "Tokyo, Japan",
+        "tee_vendor": "SoftwareDev",
+        "instance_type": "c6a.large",
+        "location": {
+          "lat": 35.6895,
+          "lon": 139.6917
+        },
+        "endpoint_tcp": "43.206.93.106:7443",
+        "endpoint_udp": "43.206.93.106:7444",
+        "public_key_hex": "0c9381592dc7285404b91e6922da37cd9935fd603abddeca7a130feb48bf5b82"
+      },
+      {
+        "anchor_id": "aws-eu-central-1-frankfurt",
+        "cloud_provider": "aws",
+        "region": "eu-central-1",
+        "city": "Frankfurt, Germany",
+        "tee_vendor": "SoftwareDev",
+        "instance_type": "c6a.large",
+        "location": {
+          "lat": 50.1167,
+          "lon": 8.6833
+        },
+        "endpoint_tcp": "3.70.234.145:7443",
+        "endpoint_udp": "3.70.234.145:7444",
+        "public_key_hex": "14c9e84889941dd7eb32a7e129afe5fad23378eebcd9c8ab46cb674110f79633"
+      },
+      {
+        "anchor_id": "aws-us-east-1-nvirginia",
+        "cloud_provider": "aws",
+        "region": "us-east-1",
+        "city": "Ashburn, VA, USA",
+        "tee_vendor": "SoftwareDev",
+        "instance_type": "c6a.large",
+        "location": {
+          "lat": 39.018,
+          "lon": -77.459
+        },
+        "endpoint_tcp": "100.26.196.197:7443",
+        "endpoint_udp": "100.26.196.197:7444",
+        "public_key_hex": "cb5dc0070c04fcc18d3a83763bf6d1eab34f572e172220064d0ad0b39765b78f"
+      },
+      {
+        "anchor_id": "aws-us-west-1-sanjose",
+        "cloud_provider": "aws",
+        "region": "us-west-1",
+        "city": "San Jose, CA, USA",
+        "tee_vendor": "SoftwareDev",
+        "instance_type": "c6a.large",
+        "location": {
+          "lat": 37.3382,
+          "lon": -121.8863
+        },
+        "endpoint_tcp": "54.241.67.28:7443",
+        "endpoint_udp": "54.241.67.28:7444",
+        "public_key_hex": "f59af7268fcf2bf046f54b58685f9c86978def2d14cae9bf0121ed56e75945df"
+      },
+      {
+        "anchor_id": "gcp-asia-southeast1-singapore",
+        "cloud_provider": "gcp",
+        "region": "asia-southeast1",
+        "city": "Jurong West, Singapore",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 1.3521,
+          "lon": 103.8198
+        },
+        "endpoint_tcp": "34.2.145.119:7443",
+        "endpoint_udp": "34.2.145.119:7444",
+        "public_key_hex": "67597ddee7127ecb2665f866fd27eec459f8f9820dfa74b09a5de72ac9d6d739"
+      },
+      {
+        "anchor_id": "gcp-europe-west3-frankfurt",
+        "cloud_provider": "gcp",
+        "region": "europe-west3",
+        "city": "Frankfurt, Germany",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 50.1109,
+          "lon": 8.6821
+        },
+        "endpoint_tcp": "35.207.136.128:7443",
+        "endpoint_udp": "35.207.136.128:7444",
+        "public_key_hex": "4650d9bed5a021eb14923af50e36217799d46178fb37bd3705ae799b03eddbce"
+      },
+      {
+        "anchor_id": "gcp-us-central1-iowa",
+        "cloud_provider": "gcp",
+        "region": "us-central1",
+        "city": "Council Bluffs, IA, USA",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 41.2619,
+          "lon": -95.8608
+        },
+        "endpoint_tcp": "35.209.22.219:7443",
+        "endpoint_udp": "35.209.22.219:7444",
+        "public_key_hex": "1ecf75fbc1db2898adc76e112dcb293df136603dc24ec97c804d5c14cfd5e4b4"
+      },
+      {
+        "anchor_id": "gcp-us-east4-ashburn",
+        "cloud_provider": "gcp",
+        "region": "us-east4",
+        "city": "Ashburn, VA, USA",
+        "tee_vendor": "IntelTdx",
+        "instance_type": "c3-standard-4",
+        "location": {
+          "lat": 39.0438,
+          "lon": -77.4874
+        },
+        "endpoint_tcp": "34.4.37.46:7443",
+        "endpoint_udp": "34.4.37.46:7444",
+        "public_key_hex": "160331479a3a9accb79f3a8fa0b3aa0c05a48a2ec5fc02d7d534cfdba0a74741"
+      },
+      {
+        "anchor_id": "gcp-us-west1-oregon",
+        "cloud_provider": "gcp",
+        "region": "us-west1",
+        "city": "The Dalles, OR, USA",
+        "tee_vendor": "IntelTdx",
+        "instance_type": "c3-standard-4",
+        "location": {
+          "lat": 45.5946,
+          "lon": -121.1787
+        },
+        "endpoint_tcp": "34.3.99.152:7443",
+        "endpoint_udp": "34.3.99.152:7444",
+        "public_key_hex": "bef6c6327793177482a6d0ae4c3ce3f82e82f94ff60d6ff8e537fe841fd6235e"
+      }
+    ]
+  },
+  "operator_signature_hex": "87bb6e8eed63905e52c7a6a09044401076c059fbf3d883bdc26d65cea3c07ccd4a6742e97320fbbc1f53bf2611e299e5a722ce6ee1f29abd718bd27cc6532d03"
+}

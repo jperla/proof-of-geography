@@ -19,13 +19,18 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Install musl-tools for 100% static Linux x86_64 binaries (Rocky 9 / RHEL / Alpine / Debian compatible)
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
       - uses: dtolnay/rust-toolchain@stable
-      - name: Build release binaries for Ubuntu 24.04 x86_64 Confidential VMs
-        run: cargo build --release --bin pog-anchor --bin pog-prover --bin pog-cli
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Build static musl release binaries for Confidential VMs
+        run: cargo build --release --target x86_64-unknown-linux-musl --bin pog-anchor --bin pog-prover --bin pog-cli
       - name: Package release tarball and SHA-256 checksum
         run: |
           mkdir -p dist
-          cp target/release/pog-anchor target/release/pog-prover target/release/pog-cli dist/
+          cp target/x86_64-unknown-linux-musl/release/pog-anchor target/x86_64-unknown-linux-musl/release/pog-prover target/x86_64-unknown-linux-musl/release/pog-cli dist/
+          file dist/pog-anchor
           tar -czf pog-linux-x86_64.tar.gz -C dist pog-anchor pog-prover pog-cli
           sha256sum pog-linux-x86_64.tar.gz > pog-linux-x86_64.tar.gz.sha256
       - name: Publish GitHub Release
@@ -38,5 +43,5 @@ jobs:
           else
             gh release create "$TAG" pog-linux-x86_64.tar.gz pog-linux-x86_64.tar.gz.sha256 \
               --title "Proof of Geography $TAG" \
-              --notes "Reproducible Linux x86_64 (Ubuntu 24.04) binaries for AMD SEV-SNP / Intel TDX / AWS Nitro Confidential VMs."
+              --notes "Static musl Linux x86_64 binaries (zero glibc dependency — Rocky Linux 9, RHEL, Debian, Alpine, COS) with operator endorsements, external observed IP reporting, and multi-network federation."
           fi

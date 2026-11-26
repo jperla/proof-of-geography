@@ -10,9 +10,9 @@ use pog_geo::{
 use pog_log::{build_router, ContinuousGeoLog};
 use pog_proto::{
     bind_low_latency_udp, compute_challenge_mac, derive_session_key, encode_udp_punch,
-    respond_once_udp, select_committee, verify_proof_bundle, AnchorDescriptor, AnchorGrid,
-    AnchorReceipt, CommitteeConfig, GeoProofBundle, Phase1InitRequest, Phase1InitResponse,
-    VerificationPolicy,
+    respond_once_udp, select_committee, verify_proof_bundle, AnchorDescriptor, AnchorEndorsement,
+    AnchorGrid, AnchorReceipt, CommitteeConfig, GeoProofBundle, Phase1InitRequest,
+    Phase1InitResponse, SignedNetworkRegistry, VerificationPolicy,
 };
 use pog_tee::{
     auto_detect_provider, AttestationPolicy, GpuAttestationBinding, SoftwareDevProvider,
@@ -155,6 +155,59 @@ enum Commands {
         #[arg(long)]
         baseline_grid: Option<PathBuf>,
     },
+    /// Manage local operator root keys, sign federated Anchor network registries, and issue per-Anchor endorsements.
+    Network {
+        #[command(subcommand)]
+        action: NetworkAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum NetworkAction {
+    /// Generate a local operator Ed25519 root private key (chmod 0600 — keep strictly on your admin workstation!).
+    Init {
+        #[arg(long, default_value = "proofofgeography.com")]
+        network_id: String,
+        #[arg(long, default_value = "operator")]
+        operator: String,
+        #[arg(long)]
+        key_out: PathBuf,
+    },
+    /// Sign a full Anchor grid JSON (e.g. 9-node or 72-node network) using your local operator root key.
+    SignRegistry {
+        #[arg(long)]
+        key: PathBuf,
+        #[arg(long)]
+        network_id: String,
+        #[arg(long)]
+        operator: String,
+        #[arg(long)]
+        grid: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, default_value_t = 90)]
+        ttl_days: u64,
+    },
+    /// Issue per-Anchor signed endorsement certificates to deliver securely to each Anchor VM.
+    EndorseAnchors {
+        #[arg(long)]
+        key: PathBuf,
+        #[arg(long)]
+        network_id: String,
+        #[arg(long)]
+        grid: PathBuf,
+        #[arg(long)]
+        out_dir: PathBuf,
+        #[arg(long, default_value_t = 90)]
+        ttl_days: u64,
+    },
+    /// Verify a published SignedNetworkRegistry JSON against an optional pinned operator root public key.
+    VerifyRegistry {
+        #[arg(long)]
+        signed_registry: PathBuf,
+        #[arg(long)]
+        pinned_root_pk: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -228,6 +281,7 @@ async fn main() -> Result<()> {
             grid,
             baseline_grid,
         } => run_audit_coverage(&grid, baseline_grid.as_ref()),
+        Commands::Network { action } => run_network_action(action),
     }
 }
 
@@ -1066,6 +1120,11 @@ async fn run_probe_live(
         bundle.receipts.len(),
         if report.verified_receipt_count == bundle.receipts.len() { "ALL VALID" } else { "PARTIAL" }
     );
+    println!(
+        "  Anchor-Observed External IP(s): {} ({})",
+        report.distinct_observed_ips.join(", "),
+        if report.ip_view_consistent { "consistent across all Anchors" } else { "WARNING: split egress / Anycast!" }
+    );
 
     if let Some(path) = out_bundle {
         std::fs::write(&path, serde_json::to_string_pretty(&bundle)?)?;
@@ -1550,6 +1609,137 @@ fn run_audit_coverage(grid_path: &PathBuf, baseline_path: Option<&PathBuf>) -> R
         );
     }
     Ok(())
+}
+
+fn load_operator_key(path: &PathBuf) -> Result<SigningKey> {
+    let text = std::fs::read_to_string(path)?;
+    let val: serde_json::Value = serde_json::from_str(&text)?;
+    let hex_str = val
+        .get("private_key_hex")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing private_key_hex in {}", path.display()))?;
+    let raw = hex::decode(hex_str)?;
+    let arr: [u8; 32] = raw
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("root private_key_hex must be 32 bytes"))?;
+    Ok(SigningKey::from_bytes(&arr))
+}
+
+fn run_network_action(action: NetworkAction) -> Result<()> {
+    match action {
+        NetworkAction::Init {
+            network_id,
+            operator,
+            key_out,
+        } => {
+            if let Some(parent) = key_out.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let sk = SigningKey::generate(&mut OsRng);
+            let pk_hex = hex::encode(sk.verifying_key().to_bytes());
+            let doc = json!({
+                "version": 1,
+                "network_id": network_id,
+                "operator_name": operator,
+                "algorithm": "Ed25519",
+                "public_key_hex": pk_hex,
+                "private_key_hex": hex::encode(sk.to_bytes()),
+                "created_at_unix_s": Utc::now().timestamp().max(0) as u64,
+                "warning": "KEEP STRICTLY LOCAL & SECRET! Never commit or upload this private key to cloud Anchor VMs."
+            });
+            std::fs::write(&key_out, serde_json::to_string_pretty(&doc)? + "\n")?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&key_out, std::fs::Permissions::from_mode(0o600))?;
+            }
+            println!("Initialized Operator Root Key for network `{network_id}` ({operator})");
+            println!("  Secret key file (0600): {}", key_out.display());
+            println!("  Pinned Root Public Key: {pk_hex}");
+            Ok(())
+        }
+        NetworkAction::SignRegistry {
+            key,
+            network_id,
+            operator,
+            grid,
+            out,
+            ttl_days,
+        } => {
+            let sk = load_operator_key(&key)?;
+            let anchor_grid = AnchorGrid::from_json_str(&std::fs::read_to_string(&grid)?)?;
+            let now = Utc::now().timestamp().max(0) as u64;
+            let signed = SignedNetworkRegistry::sign_new(
+                &network_id,
+                &operator,
+                anchor_grid,
+                now,
+                ttl_days * 86_400,
+                &sk,
+            );
+            std::fs::write(&out, serde_json::to_string_pretty(&signed)? + "\n")?;
+            println!(
+                "Signed {} Anchors for network `{}` (operator: {})",
+                signed.grid.anchors.len(),
+                signed.network_id,
+                signed.operator_name
+            );
+            println!("  Root Public Key:    {}", signed.root_public_key_hex);
+            println!("  Operator Signature: {}…", &signed.operator_signature_hex[..24]);
+            println!("  Valid TTL:          {} days", ttl_days);
+            println!("  Wrote signed file:  {}", out.display());
+            Ok(())
+        }
+        NetworkAction::EndorseAnchors {
+            key,
+            network_id,
+            grid,
+            out_dir,
+            ttl_days,
+        } => {
+            let sk = load_operator_key(&key)?;
+            let anchor_grid = AnchorGrid::from_json_str(&std::fs::read_to_string(&grid)?)?;
+            let now = Utc::now().timestamp().max(0) as u64;
+            std::fs::create_dir_all(&out_dir)?;
+            for a in &anchor_grid.anchors {
+                let cert = AnchorEndorsement::sign_new(
+                    &network_id,
+                    &a.anchor_id,
+                    &a.public_key_hex,
+                    a.location.lat,
+                    a.location.lon,
+                    now,
+                    ttl_days * 86_400,
+                    &sk,
+                );
+                let p = out_dir.join(format!("{}.endorsement.json", a.anchor_id));
+                std::fs::write(p, serde_json::to_string_pretty(&cert)? + "\n")?;
+            }
+            println!(
+                "Issued {} signed per-Anchor endorsement certs -> {}",
+                anchor_grid.anchors.len(),
+                out_dir.display()
+            );
+            Ok(())
+        }
+        NetworkAction::VerifyRegistry {
+            signed_registry,
+            pinned_root_pk,
+        } => {
+            let signed: SignedNetworkRegistry =
+                serde_json::from_str(&std::fs::read_to_string(&signed_registry)?)?;
+            let now = Utc::now().timestamp().max(0) as u64;
+            signed.verify(pinned_root_pk.as_deref(), now)?;
+            println!(
+                "VALID SignedNetworkRegistry: `{}` (operator: {}, {} Anchors, root_pk: {}…)",
+                signed.network_id,
+                signed.operator_name,
+                signed.grid.anchors.len(),
+                &signed.root_public_key_hex[..16]
+            );
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]

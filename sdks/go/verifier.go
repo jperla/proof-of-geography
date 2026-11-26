@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -31,6 +33,7 @@ type AnchorDescriptor struct {
 	Region        string `json:"region"`
 	City          string `json:"city"`
 	Location      LatLon `json:"location"`
+	EndpointTCP   string `json:"endpoint_tcp"`
 	PublicKeyHex  string `json:"public_key_hex"`
 }
 
@@ -38,6 +41,53 @@ type AnchorGrid struct {
 	Version  string             `json:"version"`
 	GridName string             `json:"grid_name"`
 	Anchors  []AnchorDescriptor `json:"anchors"`
+}
+
+type SignedNetworkRegistry struct {
+	Version              uint8      `json:"version"`
+	NetworkID            string     `json:"network_id"`
+	OperatorName         string     `json:"operator_name"`
+	RootPublicKeyHex     string     `json:"root_public_key_hex"`
+	IssuedAtUnixS        uint64     `json:"issued_at_unix_s"`
+	ExpiresAtUnixS       uint64     `json:"expires_at_unix_s"`
+	Grid                 AnchorGrid `json:"grid"`
+	OperatorSignatureHex string     `json:"operator_signature_hex"`
+}
+
+type AnchorEndorsement struct {
+	NetworkID          string  `json:"network_id"`
+	AnchorID           string  `json:"anchor_id"`
+	AnchorPublicKeyHex string  `json:"anchor_public_key_hex"`
+	Lat                float64 `json:"lat"`
+	Lon                float64 `json:"lon"`
+	IssuedAtUnixS      uint64  `json:"issued_at_unix_s"`
+	ExpiresAtUnixS     uint64  `json:"expires_at_unix_s"`
+	RootPublicKeyHex   string  `json:"root_public_key_hex"`
+	RootSignatureHex   string  `json:"root_signature_hex"`
+}
+
+type TrustedNetwork struct {
+	NetworkID              string
+	PinnedRootPublicKeyHex string
+	SignedRegistry         SignedNetworkRegistry
+}
+
+type NetworkSource struct {
+	NetworkID              string
+	RegistryURL            string
+	PinnedRootPublicKeyHex string
+}
+
+type NetworkProofSubmission struct {
+	NetworkID string
+	Bundle    GeoProofBundle
+}
+
+type AnchorObservedIP struct {
+	AnchorID      string
+	CloudProvider string
+	ObservedIP    string
+	RttMinUs      uint64
 }
 
 type GpuAttestationBinding struct {
@@ -113,9 +163,36 @@ type VerificationReport struct {
 	ProverPublicKeyHex     string
 	WorkloadMeasurementHex string
 	HasGpuBinding          bool
+	ObservedProverIPs      []AnchorObservedIP
+	DistinctObservedIPs    []string
+	IPViewConsistent       bool
 	Tier1AVacuum           CoreResult
 	Tier1BFiber            CoreResult
 	Tier2Calibrated        CoreResult
+}
+
+type PerNetworkVerification struct {
+	NetworkID              string
+	OperatorName           string
+	RegistrySignatureValid bool
+	ProofValid             bool
+	Report                 *VerificationReport
+	Error                  string
+}
+
+type FederatedVerificationReport struct {
+	OverallValid                     bool
+	RequiredIndependentNetworks      int
+	ValidIndependentNetworks         int
+	DistinctOperatorsVerified        []string
+	ProverPKConsistentAcrossNetworks bool
+	ObservedProverIPsAcrossNetworks  []string
+	IPConsistentAcrossNetworks       bool
+	ConsensusTier1AVacuumKm          *float64
+	ConsensusTier1BFiberKm           *float64
+	ConsensusTier2CalibratedKm       *float64
+	FailureReasons                   []string
+	PerNetwork                       []PerNetworkVerification
 }
 
 type vec3 struct{ x, y, z float64 }
@@ -379,6 +456,8 @@ func VerifyProof(bundle GeoProofBundle, grid AnchorGrid, policy VerificationPoli
 
 	seenAnchors := make(map[string]bool)
 	seenClouds := make(map[string]bool)
+	seenIPs := make(map[string]bool)
+	var observedIPs []AnchorObservedIP
 	var vacDisks, fibDisks, calDisks []disk
 	calV := 162000.0
 	if bundle.CalibratedVelocityKmPerS != nil {
@@ -408,6 +487,13 @@ func VerifyProof(bundle GeoProofBundle, grid AnchorGrid, policy VerificationPoli
 			continue
 		}
 		seenClouds[a.CloudProvider] = true
+		seenIPs[r.ProverObservedIP] = true
+		observedIPs = append(observedIPs, AnchorObservedIP{
+			AnchorID:      r.AnchorID,
+			CloudProvider: a.CloudProvider,
+			ObservedIP:    r.ProverObservedIP,
+			RttMinUs:      r.RttMinUs,
+		})
 		u := a.Location.toUnit()
 		mk := func(rKm float64) disk {
 			th := math.Min(math.Pi, rKm/EarthRadiusKm)
@@ -444,6 +530,12 @@ func VerifyProof(bundle GeoProofBundle, grid AnchorGrid, policy VerificationPoli
 		failures = append(failures, fmt.Sprintf("enforced tier (%s) failed: %.1f km > %.1f km", policy.EnforceTier, enforced.ProvenMaxRadiusKm, bundle.RequiredRadiusKm))
 	}
 
+	distinctIPs := make([]string, 0, len(seenIPs))
+	for ip := range seenIPs {
+		distinctIPs = append(distinctIPs, ip)
+	}
+	sort.Strings(distinctIPs)
+
 	return VerificationReport{
 		OverallValid:           len(failures) == 0,
 		FailureReasons:         failures,
@@ -452,8 +544,213 @@ func VerifyProof(bundle GeoProofBundle, grid AnchorGrid, policy VerificationPoli
 		ProverPublicKeyHex:     q.PublicKeyHex,
 		WorkloadMeasurementHex: q.WorkloadMeasurementHex,
 		HasGpuBinding:          q.GpuBinding != nil,
+		ObservedProverIPs:      observedIPs,
+		DistinctObservedIPs:    distinctIPs,
+		IPViewConsistent:       len(distinctIPs) <= 1,
 		Tier1AVacuum:           t1a,
 		Tier1BFiber:            t1b,
 		Tier2Calibrated:        t2,
 	}
+}
+
+// SignedRegistryDigest matches `pog_proto::SignedNetworkRegistry::signing_digest()` byte-for-byte.
+func SignedRegistryDigest(reg SignedNetworkRegistry) [32]byte {
+	h := sha256.New()
+	h.Write([]byte("POG-NETWORK-REGISTRY-V1\n"))
+	h.Write([]byte(reg.NetworkID + "\n"))
+	h.Write([]byte(reg.OperatorName + "\n"))
+	h.Write([]byte(reg.RootPublicKeyHex + "\n"))
+	h.Write([]byte(fmt.Sprintf("%d\n", reg.IssuedAtUnixS)))
+	h.Write([]byte(fmt.Sprintf("%d\n", reg.ExpiresAtUnixS)))
+	h.Write([]byte(reg.Grid.GridName + "\n"))
+
+	sorted := append([]AnchorDescriptor(nil), reg.Grid.Anchors...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].AnchorID < sorted[j].AnchorID })
+	for _, a := range sorted {
+		line := fmt.Sprintf("%s|%s|%s|%.6f|%.6f|%s|%s\n",
+			a.AnchorID, a.CloudProvider, a.Region, a.Location.Lat, a.Location.Lon, a.EndpointTCP, a.PublicKeyHex)
+		h.Write([]byte(line))
+	}
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out
+}
+
+func VerifySignedRegistry(reg SignedNetworkRegistry, pinnedRootPKHex string, nowUnixS uint64) error {
+	if pinnedRootPKHex != "" && !strings.EqualFold(reg.RootPublicKeyHex, pinnedRootPKHex) {
+		return fmt.Errorf("root public key mismatch for network %s", reg.NetworkID)
+	}
+	if nowUnixS > reg.ExpiresAtUnixS {
+		return fmt.Errorf("signed registry expired for network %s", reg.NetworkID)
+	}
+	pub, err := hex.DecodeString(reg.RootPublicKeyHex)
+	if err != nil || len(pub) != ed25519.PublicKeySize {
+		return fmt.Errorf("invalid root public key for network %s", reg.NetworkID)
+	}
+	sig, err := hex.DecodeString(reg.OperatorSignatureHex)
+	if err != nil || len(sig) != ed25519.SignatureSize {
+		return fmt.Errorf("invalid operator signature for network %s", reg.NetworkID)
+	}
+	digest := SignedRegistryDigest(reg)
+	if !ed25519.Verify(ed25519.PublicKey(pub), digest[:], sig) {
+		return fmt.Errorf("invalid operator Ed25519 signature on network %s", reg.NetworkID)
+	}
+	return nil
+}
+
+func FetchSignedRegistry(url string, pinnedRootPKHex string, nowUnixS uint64, client *http.Client) (SignedNetworkRegistry, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Get(url)
+	if err != nil {
+		return SignedNetworkRegistry{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return SignedNetworkRegistry{}, fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	}
+	var reg SignedNetworkRegistry
+	if err := json.NewDecoder(resp.Body).Decode(&reg); err != nil {
+		return SignedNetworkRegistry{}, err
+	}
+	if err := VerifySignedRegistry(reg, pinnedRootPKHex, nowUnixS); err != nil {
+		return SignedNetworkRegistry{}, err
+	}
+	return reg, nil
+}
+
+// VerifyFederatedProof verifies proofs obtained from `minIndependentNetworks` distinct operator networks.
+func VerifyFederatedProof(
+	submissions []NetworkProofSubmission,
+	trustedNetworks []TrustedNetwork,
+	policy VerificationPolicy,
+	minIndependentNetworks int,
+	nowUnixS uint64,
+) FederatedVerificationReport {
+	netByID := make(map[string]TrustedNetwork, len(trustedNetworks))
+	for _, n := range trustedNetworks {
+		netByID[n.NetworkID] = n
+	}
+	seenNets := make(map[string]bool)
+	seenRoots := make(map[string]bool)
+	proverPKs := make(map[string]bool)
+	allIPs := make(map[string]bool)
+	var distinctOps []string
+	var failures []string
+	var perNet []PerNetworkVerification
+	var minVac, minFib, minCal *float64
+
+	for _, sub := range submissions {
+		if seenNets[sub.NetworkID] {
+			failures = append(failures, fmt.Sprintf("duplicate network submission: %s", sub.NetworkID))
+			continue
+		}
+		seenNets[sub.NetworkID] = true
+		net, ok := netByID[sub.NetworkID]
+		if !ok {
+			perNet = append(perNet, PerNetworkVerification{
+				NetworkID:    sub.NetworkID,
+				OperatorName: "unknown",
+				Error:        "untrusted network_id",
+			})
+			continue
+		}
+		rootNorm := strings.ToLower(net.PinnedRootPublicKeyHex)
+		if seenRoots[rootNorm] {
+			failures = append(failures, fmt.Sprintf("network %s shares root key with another network (not independent)", sub.NetworkID))
+			continue
+		}
+		seenRoots[rootNorm] = true
+
+		if err := VerifySignedRegistry(net.SignedRegistry, net.PinnedRootPublicKeyHex, nowUnixS); err != nil {
+			perNet = append(perNet, PerNetworkVerification{
+				NetworkID:    sub.NetworkID,
+				OperatorName: net.SignedRegistry.OperatorName,
+				Error:        err.Error(),
+			})
+			continue
+		}
+
+		rep := VerifyProof(sub.Bundle, net.SignedRegistry.Grid, policy, nowUnixS)
+		if rep.OverallValid {
+			distinctOps = append(distinctOps, net.SignedRegistry.OperatorName)
+			proverPKs[rep.ProverPublicKeyHex] = true
+			for _, ip := range rep.DistinctObservedIPs {
+				allIPs[ip] = true
+			}
+			v, f, c := rep.Tier1AVacuum.ProvenMaxRadiusKm, rep.Tier1BFiber.ProvenMaxRadiusKm, rep.Tier2Calibrated.ProvenMaxRadiusKm
+			if minVac == nil || v < *minVac {
+				vv := v
+				minVac = &vv
+			}
+			if minFib == nil || f < *minFib {
+				ff := f
+				minFib = &ff
+			}
+			if minCal == nil || c < *minCal {
+				cc := c
+				minCal = &cc
+			}
+		}
+		repCopy := rep
+		perNet = append(perNet, PerNetworkVerification{
+			NetworkID:              sub.NetworkID,
+			OperatorName:           net.SignedRegistry.OperatorName,
+			RegistrySignatureValid: true,
+			ProofValid:             rep.OverallValid,
+			Report:                 &repCopy,
+		})
+	}
+
+	pkConsistent := len(proverPKs) <= 1
+	ipConsistent := len(allIPs) <= 1
+	if len(distinctOps) < minIndependentNetworks {
+		failures = append(failures, fmt.Sprintf("insufficient independent networks verified: %d < %d", len(distinctOps), minIndependentNetworks))
+	}
+	if !pkConsistent {
+		failures = append(failures, "prover TEE public key mismatch across independent networks")
+	}
+
+	ips := make([]string, 0, len(allIPs))
+	for ip := range allIPs {
+		ips = append(ips, ip)
+	}
+	sort.Strings(ips)
+
+	return FederatedVerificationReport{
+		OverallValid:                     len(failures) == 0 && len(distinctOps) >= minIndependentNetworks,
+		RequiredIndependentNetworks:      minIndependentNetworks,
+		ValidIndependentNetworks:         len(distinctOps),
+		DistinctOperatorsVerified:        distinctOps,
+		ProverPKConsistentAcrossNetworks: pkConsistent,
+		ObservedProverIPsAcrossNetworks:  ips,
+		IPConsistentAcrossNetworks:       ipConsistent,
+		ConsensusTier1AVacuumKm:          minVac,
+		ConsensusTier1BFiberKm:           minFib,
+		ConsensusTier2CalibratedKm:       minCal,
+		FailureReasons:                   failures,
+		PerNetwork:                       perNet,
+	}
+}
+
+func QueryFederatedNetworks(
+	sources []NetworkSource,
+	submissions []NetworkProofSubmission,
+	policy VerificationPolicy,
+	minIndependentNetworks int,
+	nowUnixS uint64,
+	client *http.Client,
+) FederatedVerificationReport {
+	var trusted []TrustedNetwork
+	for _, src := range sources {
+		if reg, err := FetchSignedRegistry(src.RegistryURL, src.PinnedRootPublicKeyHex, nowUnixS, client); err == nil {
+			trusted = append(trusted, TrustedNetwork{
+				NetworkID:              src.NetworkID,
+				PinnedRootPublicKeyHex: src.PinnedRootPublicKeyHex,
+				SignedRegistry:         reg,
+			})
+		}
+	}
+	return VerifyFederatedProof(submissions, trusted, policy, minIndependentNetworks, nowUnixS)
 }

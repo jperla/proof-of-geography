@@ -1,14 +1,19 @@
 pub mod bundle;
 pub mod committee;
+pub mod federation;
 pub mod socket;
 pub mod wire;
 
 pub use bundle::{
-    verify_proof_bundle, GeoProofBundle, ProofVerificationReport, VerificationPolicy,
-    HTTP_HEADER_POG_PROOF,
+    verify_proof_bundle, AnchorObservedIp, GeoProofBundle, ProofVerificationReport,
+    VerificationPolicy, HTTP_HEADER_POG_PROOF,
 };
 pub use committee::{
     select_committee, AnchorDescriptor, AnchorGrid, CommitteeConfig, CommitteeSelection,
+};
+pub use federation::{
+    verify_federated_proof, AnchorEndorsement, FederatedVerificationReport, NetworkProofSubmission,
+    PerNetworkVerification, SignedNetworkRegistry, TrustedNetwork,
 };
 pub use socket::{
     bind_low_latency_udp, measure_udp_round, respond_once_udp, TimestampedDatagram,

@@ -1,16 +1,28 @@
-"""Proof of Geography (PoG) offline verifier SDK for Python."""
+"""Proof of Geography (PoG) offline & federated verifier SDK for Python."""
 
 from .verifier import (
     C_FIBER_KM_PER_S,
     C_VACUUM_KM_PER_S,
     EARTH_RADIUS_KM,
     HTTP_HEADER_POG_PROOF,
+    AnchorObservedIp,
     CoreResult,
+    FederatedVerificationReport,
+    NetworkSource,
+    PerNetworkVerification,
+    TrustedNetwork,
     VerificationPolicy,
     VerificationReport,
+    anchor_endorsement_digest,
     decode_proof_header,
+    fetch_signed_registry,
+    query_federated_networks,
     receipt_signing_digest,
+    signed_registry_digest,
+    verify_anchor_endorsement,
+    verify_federated_proof,
     verify_proof,
+    verify_signed_registry,
 )
 
 __all__ = [
@@ -18,10 +30,22 @@ __all__ = [
     "C_VACUUM_KM_PER_S",
     "EARTH_RADIUS_KM",
     "HTTP_HEADER_POG_PROOF",
+    "AnchorObservedIp",
     "CoreResult",
+    "FederatedVerificationReport",
+    "NetworkSource",
+    "PerNetworkVerification",
+    "TrustedNetwork",
     "VerificationPolicy",
     "VerificationReport",
+    "anchor_endorsement_digest",
     "decode_proof_header",
+    "fetch_signed_registry",
+    "query_federated_networks",
     "receipt_signing_digest",
+    "signed_registry_digest",
+    "verify_anchor_endorsement",
+    "verify_federated_proof",
     "verify_proof",
+    "verify_signed_registry",
 ]

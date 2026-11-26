@@ -8,7 +8,8 @@ import json
 import math
 import struct
 import time
-from dataclasses import dataclass
+import urllib.request
+from dataclasses import dataclass, field
 from typing import Any
 
 from ._ed25519 import verify_ed25519
@@ -40,6 +41,14 @@ class CoreResult:
 
 
 @dataclass
+class AnchorObservedIp:
+    anchor_id: str
+    cloud_provider: str
+    observed_ip: str
+    rtt_min_us: int
+
+
+@dataclass
 class VerificationReport:
     overall_valid: bool
     failure_reasons: list[str]
@@ -48,9 +57,52 @@ class VerificationReport:
     prover_public_key_hex: str
     workload_measurement_hex: str
     has_gpu_binding: bool
+    observed_prover_ips: list[AnchorObservedIp]
+    distinct_observed_ips: list[str]
+    ip_view_consistent: bool
     tier1a_vacuum: CoreResult
     tier1b_fiber: CoreResult
     tier2_calibrated: CoreResult
+
+
+@dataclass
+class TrustedNetwork:
+    network_id: str
+    pinned_root_public_key_hex: str
+    signed_registry: dict[str, Any]
+
+
+@dataclass
+class NetworkSource:
+    network_id: str
+    registry_url: str
+    pinned_root_public_key_hex: str
+
+
+@dataclass
+class PerNetworkVerification:
+    network_id: str
+    operator_name: str
+    registry_signature_valid: bool
+    proof_valid: bool
+    report: VerificationReport | None = None
+    error: str | None = None
+
+
+@dataclass
+class FederatedVerificationReport:
+    overall_valid: bool
+    required_independent_networks: int
+    valid_independent_networks: int
+    distinct_operators_verified: list[str]
+    prover_pk_consistent_across_networks: bool
+    observed_prover_ips_across_networks: list[str]
+    ip_consistent_across_networks: bool
+    consensus_tier1a_vacuum_km: float | None
+    consensus_tier1b_fiber_km: float | None
+    consensus_tier2_calibrated_km: float | None
+    failure_reasons: list[str] = field(default_factory=list)
+    per_network: list[PerNetworkVerification] = field(default_factory=list)
 
 
 def _to_unit(lat: float, lon: float) -> Vec3:
@@ -253,6 +305,8 @@ def verify_proof(
     anchor_map = {a["anchor_id"]: a for a in grid["anchors"]}
     seen_anchors: set[str] = set()
     seen_clouds: set[str] = set()
+    observed_ips: list[AnchorObservedIp] = []
+    distinct_ip_set: set[str] = set()
     vac_disks: list[tuple[Vec3, float, float]] = []
     fib_disks: list[tuple[Vec3, float, float]] = []
     cal_disks: list[tuple[Vec3, float, float]] = []
@@ -281,6 +335,16 @@ def verify_proof(
             continue
 
         seen_clouds.add(a["cloud_provider"])
+        obs_ip = str(r["prover_observed_ip"])
+        distinct_ip_set.add(obs_ip)
+        observed_ips.append(
+            AnchorObservedIp(
+                anchor_id=aid,
+                cloud_provider=a["cloud_provider"],
+                observed_ip=obs_ip,
+                rtt_min_us=int(r["rtt_min_us"]),
+            )
+        )
         u = _to_unit(a["location"]["lat"], a["location"]["lon"])
         rtt_us = int(r["rtt_min_us"])
 
@@ -307,6 +371,7 @@ def verify_proof(
     if not enforced.contained_within_target:
         failures.append(f"enforced tier ({pol.enforce_tier}) failed: {enforced.proven_max_radius_km:.1f} km > {req_km:.1f} km")
 
+    distinct_observed = sorted(distinct_ip_set)
     return VerificationReport(
         overall_valid=len(failures) == 0,
         failure_reasons=failures,
@@ -315,7 +380,198 @@ def verify_proof(
         prover_public_key_hex=q["public_key_hex"],
         workload_measurement_hex=q["workload_measurement_hex"],
         has_gpu_binding=bool(q.get("gpu_binding")),
+        observed_prover_ips=observed_ips,
+        distinct_observed_ips=distinct_observed,
+        ip_view_consistent=len(distinct_observed) <= 1,
         tier1a_vacuum=t1a,
         tier1b_fiber=t1b,
         tier2_calibrated=t2,
     )
+
+
+def signed_registry_digest(reg: dict[str, Any]) -> bytes:
+    """Exact canonical SHA-256 digest matching `pog_proto::SignedNetworkRegistry::signing_digest()`."""
+    h = hashlib.sha256()
+    h.update(b"POG-NETWORK-REGISTRY-V1\n")
+    h.update(f"{reg['network_id']}\n".encode())
+    h.update(f"{reg['operator_name']}\n".encode())
+    h.update(f"{reg['root_public_key_hex']}\n".encode())
+    h.update(f"{int(reg['issued_at_unix_s'])}\n".encode())
+    h.update(f"{int(reg['expires_at_unix_s'])}\n".encode())
+    h.update(f"{reg['grid']['grid_name']}\n".encode())
+    anchors = sorted(reg["grid"]["anchors"], key=lambda a: a["anchor_id"])
+    for a in anchors:
+        lat = float(a["location"]["lat"])
+        lon = float(a["location"]["lon"])
+        ep = a.get("endpoint_tcp") or ""
+        line = f"{a['anchor_id']}|{a['cloud_provider']}|{a['region']}|{lat:.6f}|{lon:.6f}|{ep}|{a['public_key_hex']}\n"
+        h.update(line.encode())
+    return h.digest()
+
+
+def anchor_endorsement_digest(cert: dict[str, Any]) -> bytes:
+    """Exact canonical SHA-256 digest matching `pog_proto::AnchorEndorsement::signing_digest()`."""
+    msg = (
+        f"POG-ANCHOR-ENDORSEMENT-V1\n"
+        f"{cert['network_id']}\n"
+        f"{cert['anchor_id']}\n"
+        f"{cert['anchor_public_key_hex']}\n"
+        f"{float(cert['lat']):.6f}\n"
+        f"{float(cert['lon']):.6f}\n"
+        f"{int(cert['issued_at_unix_s'])}\n"
+        f"{int(cert['expires_at_unix_s'])}\n"
+    )
+    return hashlib.sha256(msg.encode()).digest()
+
+
+def verify_anchor_endorsement(
+    cert: dict[str, Any],
+    pinned_root_public_key_hex: str,
+    now_unix_s: int | None = None,
+) -> tuple[bool, str | None]:
+    now = int(time.time()) if now_unix_s is None else now_unix_s
+    if cert["root_public_key_hex"].lower() != pinned_root_public_key_hex.lower():
+        return False, f"endorsement root key mismatch for anchor {cert['anchor_id']}"
+    if now > int(cert["expires_at_unix_s"]):
+        return False, f"endorsement expired for anchor {cert['anchor_id']}"
+    ok = verify_ed25519(
+        bytes.fromhex(cert["root_public_key_hex"]),
+        anchor_endorsement_digest(cert),
+        bytes.fromhex(cert["root_signature_hex"]),
+    )
+    return (True, None) if ok else (False, f"invalid endorsement signature for anchor {cert['anchor_id']}")
+
+
+def verify_signed_registry(
+    reg: dict[str, Any],
+    pinned_root_public_key_hex: str | None = None,
+    now_unix_s: int | None = None,
+) -> tuple[bool, str | None]:
+    now = int(time.time()) if now_unix_s is None else now_unix_s
+    if pinned_root_public_key_hex and reg["root_public_key_hex"].lower() != pinned_root_public_key_hex.lower():
+        return False, f"root public key mismatch for network {reg['network_id']}"
+    if now > int(reg["expires_at_unix_s"]):
+        return False, f"signed registry expired for network {reg['network_id']}"
+    ok = verify_ed25519(
+        bytes.fromhex(reg["root_public_key_hex"]),
+        signed_registry_digest(reg),
+        bytes.fromhex(reg["operator_signature_hex"]),
+    )
+    if not ok:
+        return False, f"invalid operator Ed25519 signature on network {reg['network_id']}"
+    return True, None
+
+
+def fetch_signed_registry(
+    registry_url: str,
+    pinned_root_public_key_hex: str | None = None,
+    now_unix_s: int | None = None,
+    timeout_s: float = 10.0,
+) -> dict[str, Any]:
+    """Fetch an independent operator's SignedNetworkRegistry over HTTPS and verify its root signature."""
+    with urllib.request.urlopen(registry_url, timeout=timeout_s) as resp:
+        reg = json.loads(resp.read().decode("utf-8"))
+    ok, err = verify_signed_registry(reg, pinned_root_public_key_hex, now_unix_s)
+    if not ok:
+        raise ValueError(err or "invalid signed network registry")
+    return reg
+
+
+def verify_federated_proof(
+    submissions: list[tuple[str, dict[str, Any] | str]],
+    trusted_networks: list[TrustedNetwork],
+    policy: VerificationPolicy | None = None,
+    min_independent_networks: int = 2,
+    now_unix_s: int | None = None,
+) -> FederatedVerificationReport:
+    """Verify proofs across `X` independent operator networks (distinct pinned Ed25519 root keys)."""
+    now = int(time.time()) if now_unix_s is None else now_unix_s
+    net_by_id = {n.network_id: n for n in trusted_networks}
+    seen_nets: set[str] = set()
+    seen_roots: set[str] = set()
+    distinct_ops: list[str] = []
+    prover_pks: set[str] = set()
+    all_ips: set[str] = set()
+    failures: list[str] = []
+    per_network: list[PerNetworkVerification] = []
+
+    min_vac: float | None = None
+    min_fib: float | None = None
+    min_cal: float | None = None
+
+    for net_id, bundle_or_hdr in submissions:
+        if net_id in seen_nets:
+            failures.append(f"duplicate network submission: {net_id}")
+            continue
+        seen_nets.add(net_id)
+        net = net_by_id.get(net_id)
+        if not net:
+            per_network.append(PerNetworkVerification(net_id, "unknown", False, False, None, "untrusted network_id"))
+            continue
+        root_norm = net.pinned_root_public_key_hex.lower()
+        if root_norm in seen_roots:
+            failures.append(f"network {net_id} shares root key with another network (not independent)")
+            continue
+        seen_roots.add(root_norm)
+
+        ok_reg, err_reg = verify_signed_registry(net.signed_registry, net.pinned_root_public_key_hex, now)
+        if not ok_reg:
+            per_network.append(
+                PerNetworkVerification(
+                    net_id, net.signed_registry.get("operator_name", "unknown"), False, False, None, err_reg
+                )
+            )
+            continue
+
+        rep = verify_proof(bundle_or_hdr, net.signed_registry["grid"], policy, now)
+        if rep.overall_valid:
+            distinct_ops.append(net.signed_registry["operator_name"])
+            prover_pks.add(rep.prover_public_key_hex)
+            all_ips.update(rep.distinct_observed_ips)
+            min_vac = rep.tier1a_vacuum.proven_max_radius_km if min_vac is None else min(min_vac, rep.tier1a_vacuum.proven_max_radius_km)
+            min_fib = rep.tier1b_fiber.proven_max_radius_km if min_fib is None else min(min_fib, rep.tier1b_fiber.proven_max_radius_km)
+            min_cal = rep.tier2_calibrated.proven_max_radius_km if min_cal is None else min(min_cal, rep.tier2_calibrated.proven_max_radius_km)
+        per_network.append(
+            PerNetworkVerification(net_id, net.signed_registry["operator_name"], True, rep.overall_valid, rep, None)
+        )
+
+    pk_consistent = len(prover_pks) <= 1
+    ip_consistent = len(all_ips) <= 1
+    if len(distinct_ops) < min_independent_networks:
+        failures.append(f"insufficient independent networks verified: {len(distinct_ops)} < {min_independent_networks}")
+    if not pk_consistent:
+        failures.append("prover TEE public key mismatch across independent networks")
+
+    return FederatedVerificationReport(
+        overall_valid=len(failures) == 0 and len(distinct_ops) >= min_independent_networks,
+        required_independent_networks=min_independent_networks,
+        valid_independent_networks=len(distinct_ops),
+        distinct_operators_verified=distinct_ops,
+        prover_pk_consistent_across_networks=pk_consistent,
+        observed_prover_ips_across_networks=sorted(all_ips),
+        ip_consistent_across_networks=ip_consistent,
+        consensus_tier1a_vacuum_km=min_vac,
+        consensus_tier1b_fiber_km=min_fib,
+        consensus_tier2_calibrated_km=min_cal,
+        failure_reasons=failures,
+        per_network=per_network,
+    )
+
+
+def query_federated_networks(
+    sources: list[NetworkSource],
+    submissions: list[tuple[str, dict[str, Any] | str]],
+    policy: VerificationPolicy | None = None,
+    min_independent_networks: int = 2,
+    now_unix_s: int | None = None,
+    timeout_s: float = 10.0,
+) -> FederatedVerificationReport:
+    """Fetch & root-verify registries from `X` independent operator URLs, then verify federated proofs."""
+    trusted: list[TrustedNetwork] = []
+    for src in sources:
+        try:
+            reg = fetch_signed_registry(src.registry_url, src.pinned_root_public_key_hex, now_unix_s, timeout_s)
+            trusted.append(TrustedNetwork(src.network_id, src.pinned_root_public_key_hex, reg))
+        except Exception:
+            continue
+    return verify_federated_proof(submissions, trusted, policy, min_independent_networks, now_unix_s)

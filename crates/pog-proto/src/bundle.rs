@@ -7,7 +7,7 @@ use pog_geo::{
 };
 use pog_tee::{verify_quote, AttestationPolicy, TeeAttestationQuote, VerifiedTeeIdentity};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 /// Standard HTTP header / RA-TLS extension name for attaching handshake-time Proofs of Geography.
 pub const HTTP_HEADER_POG_PROOF: &str = "X-PoG-Proof";
@@ -89,6 +89,17 @@ impl Default for VerificationPolicy {
     }
 }
 
+/// External IP address observed by a specific Anchor when the Prover connected to it.
+/// Signed inside every `AnchorReceipt` so verifiers can inspect the Prover's external network
+/// appearance and detect split-egress / Anycast / NAT / proxy routing anomalies.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnchorObservedIp {
+    pub anchor_id: String,
+    pub cloud_provider: String,
+    pub observed_ip: String,
+    pub rtt_min_us: u64,
+}
+
 /// Rich multi-tier verification output showing ALL THREE tiers simultaneously:
 /// - Tier 1A: Strict Vacuum (c0 = 299,792 km/s — Starlink & microwave safe!)
 /// - Tier 1B: Silica Optical Fiber (c_fiber = 204,000 km/s)
@@ -100,6 +111,12 @@ pub struct ProofVerificationReport {
     pub verified_tee: VerifiedTeeIdentity,
     pub distinct_clouds: usize,
     pub verified_receipt_count: usize,
+    /// Per-Anchor signed view of the Prover's external IP address.
+    pub observed_prover_ips: Vec<AnchorObservedIp>,
+    /// Deduplicated set of external IP addresses observed across all verified Anchors.
+    pub distinct_observed_ips: Vec<String>,
+    /// True when all verified Anchors observed the exact same external IP (false flags split-egress / Anycast!).
+    pub ip_view_consistent: bool,
     pub tier1a_vacuum: ByzantineCoreResult,
     pub tier1b_fiber: ByzantineCoreResult,
     pub tier2_calibrated: ByzantineCoreResult,
@@ -139,6 +156,8 @@ pub fn verify_proof_bundle(
     // 3. Verify every Anchor receipt signature, freshness, workload binding, and deduplicate Anchor IDs.
     let mut seen_anchors = HashSet::new();
     let mut seen_clouds = HashSet::new();
+    let mut observed_prover_ips = Vec::new();
+    let mut distinct_ips = BTreeSet::new();
     let mut vacuum_disks = Vec::new();
     let mut fiber_disks = Vec::new();
     let mut cal_disks = Vec::new();
@@ -183,6 +202,13 @@ pub fn verify_proof_bundle(
         }
 
         seen_clouds.insert(anchor.cloud_provider.clone());
+        distinct_ips.insert(r.prover_observed_ip.clone());
+        observed_prover_ips.push(AnchorObservedIp {
+            anchor_id: anchor.anchor_id.clone(),
+            cloud_provider: anchor.cloud_provider.clone(),
+            observed_ip: r.prover_observed_ip.clone(),
+            rtt_min_us: r.rtt_min_us,
+        });
         vacuum_disks.push(DiskConstraint::from_rtt(
             &anchor.anchor_id,
             anchor.location,
@@ -282,12 +308,18 @@ pub fn verify_proof_bundle(
         800,
     );
 
+    let distinct_observed_ips: Vec<String> = distinct_ips.into_iter().collect();
+    let ip_view_consistent = distinct_observed_ips.len() <= 1;
+
     Ok(ProofVerificationReport {
         overall_valid: failure_reasons.is_empty(),
         failure_reasons,
         verified_tee,
         distinct_clouds: seen_clouds.len(),
         verified_receipt_count: vacuum_disks.len(),
+        observed_prover_ips,
+        distinct_observed_ips,
+        ip_view_consistent,
         tier1a_vacuum,
         tier1b_fiber,
         tier2_calibrated,

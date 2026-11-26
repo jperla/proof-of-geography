@@ -5,7 +5,8 @@ use clap::Parser;
 use ed25519_dalek::SigningKey;
 use pog_proto::{
     bind_low_latency_udp, compute_return_cookie, decode_udp_punch, derive_session_key,
-    measure_udp_round, AnchorReceipt, Phase1InitRequest, Phase1InitResponse, PUNCH_PACKET_SIZE,
+    measure_udp_round, AnchorEndorsement, AnchorReceipt, Phase1InitRequest, Phase1InitResponse,
+    PUNCH_PACKET_SIZE,
 };
 use pog_tee::{auto_detect_provider, verify_quote, AttestationPolicy, TeeProvider};
 use rand::rngs::OsRng;
@@ -68,6 +69,10 @@ struct Args {
     /// Optional hex seed (32 bytes) for deterministic test keypairs; random OS entropy in production.
     #[arg(long)]
     seed_hex: Option<String>,
+    /// Optional path to a signed operator AnchorEndorsement certificate (secretly provisioned per node;
+    /// also checks POG_ENDORSEMENT_PATH env var; the operator's root private key NEVER leaves the local machine).
+    #[arg(long)]
+    endorsement_path: Option<std::path::PathBuf>,
 }
 
 struct RateLimiter {
@@ -129,6 +134,7 @@ struct AnchorState {
     concurrency_sem: Arc<Semaphore>,
     rate_limiter: Mutex<RateLimiter>,
     info_cache: RwLock<Option<CachedInfo>>,
+    operator_endorsement: Option<AnchorEndorsement>,
 }
 
 /// Bind a low-latency UDP socket strictly inside `[port_min, port_max]` so cloud firewalls
@@ -213,6 +219,23 @@ async fn main() -> Result<()> {
         AttestationPolicy::production()
     };
 
+    let endorsement_path = args
+        .endorsement_path
+        .or_else(|| std::env::var("POG_ENDORSEMENT_PATH").ok().map(std::path::PathBuf::from));
+    let operator_endorsement: Option<AnchorEndorsement> = match endorsement_path {
+        Some(ref path) => {
+            let raw = std::fs::read_to_string(path)?;
+            let cert: AnchorEndorsement = serde_json::from_str(&raw)?;
+            info!(
+                network_id = %cert.network_id,
+                root_pk = %&cert.root_public_key_hex[..cert.root_public_key_hex.len().min(16)],
+                "Loaded operator AnchorEndorsement certificate"
+            );
+            Some(cert)
+        }
+        None => None,
+    };
+
     let state = Arc::new(AnchorState {
         anchor_id: args.anchor_id,
         cloud_provider: args.cloud_provider,
@@ -229,6 +252,7 @@ async fn main() -> Result<()> {
             args.max_global_per_min,
         )),
         info_cache: RwLock::new(None),
+        operator_endorsement,
     });
 
     // Spawn lightweight cached HTTP /info & /health endpoint (never hammers /dev/sev-guest!).
@@ -464,6 +488,7 @@ async fn anchor_info_handler(
         "public_key_hex": hex::encode(pk_bytes),
         "bootstrap_nonce": nonce,
         "tee_quote": quote,
+        "operator_endorsement": state.operator_endorsement,
         "udp_port_range": [state.udp_port_min, state.udp_port_max],
         "hardened": true,
     });
