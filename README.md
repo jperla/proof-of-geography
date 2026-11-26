@@ -19,6 +19,16 @@ Today, knowing *where* a server or GPU physically sits is built almost entirely 
 
 ---
 
+## Live Geolocation Result (Real 9-Node Multi-Cloud Pilot)
+
+Real-time speed-of-light geolocation of a developer laptop behind NAT measured live over the public internet against **9 isolated Anchors** across **GCP (real Intel TDX + real AMD SEV-SNP)** and **AWS** (`9/9` Ed25519 Anchor receipts verified offline identically by the Rust, Python, and TypeScript SDKs):
+
+![Live Proof of Geography Geolocation Map](docs/assets/live_geolocation_screenshot.png)
+
+*Datacenter-to-datacenter cross-cloud pairs tighten even further with zero last-mile ISP overhead: live **GCP Frankfurt (AMD SEV-SNP) <-> AWS Frankfurt** measured **1.69 ms** (**55.2 mi** calibrated / **157.7 mi** hard vacuum), and **GCP Ashburn (Intel TDX) <-> AWS Ashburn** measured **1.85 ms** (**65.3 mi** calibrated / **174.7 mi** hard vacuum). See the full 9×9 live matrix in [docs/LIVE_PILOT_RESULTS.md](docs/LIVE_PILOT_RESULTS.md).*
+
+---
+
 ## How It Works
 
 ```mermaid
