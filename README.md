@@ -1,6 +1,6 @@
 # Proof of Geography (PoG)
 
-**Cryptographic, speed-of-light physical location proofs for GPUs, confidential datacenters, and AI inference endpoints—secured by hardware TEEs and a 24-node multi-cloud Anchor network.**
+**Unspoofable, cryptographic, speed-of-light physical location proofs for GPUs, confidential datacenters, and AI inference endpoints—secured by hardware TEEs and a 24-node multi-cloud Anchor network.**
 
 ---
 
