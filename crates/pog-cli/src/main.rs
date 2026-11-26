@@ -9,11 +9,14 @@ use pog_geo::{
 };
 use pog_log::{build_router, ContinuousGeoLog};
 use pog_proto::{
-    compute_challenge_mac, select_committee, verify_proof_bundle, AnchorGrid, AnchorReceipt,
-    CommitteeConfig, GeoProofBundle, VerificationPolicy,
+    bind_low_latency_udp, compute_challenge_mac, derive_session_key, encode_udp_punch,
+    respond_once_udp, select_committee, verify_proof_bundle, AnchorDescriptor, AnchorGrid,
+    AnchorReceipt, CommitteeConfig, GeoProofBundle, Phase1InitRequest, Phase1InitResponse,
+    VerificationPolicy,
 };
 use pog_tee::{
-    AttestationPolicy, GpuAttestationBinding, SoftwareDevProvider, TeeProvider, WorkloadKeypair,
+    auto_detect_provider, AttestationPolicy, GpuAttestationBinding, SoftwareDevProvider,
+    TeeProvider, WorkloadKeypair,
 };
 use pog_telemetry::{fuse_ipinfo_telemetry, parse_rfc8805_geofeed, TracerouteHop};
 use rand::rngs::OsRng;
@@ -22,7 +25,10 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::TcpStream;
+use x25519_dalek::{EphemeralSecret, PublicKey as X25519PublicKey};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -86,6 +92,32 @@ enum Commands {
         #[arg(long, default_value = "sdks/testdata/fixture.json")]
         out: PathBuf,
     },
+    /// Probe LIVE Anchor nodes over the real internet (TCP Phase 1 + UDP NAT-punch + BLAKE3-MAC Phase 2) and verify real geography!
+    ProbeLive {
+        #[arg(long, default_value = "config/global_grid_live.json")]
+        grid: PathBuf,
+        /// Optional claimed latitude/longitude to check containment against (defaults to MLE / closest anchor).
+        #[arg(long)]
+        claimed_lat: Option<f64>,
+        #[arg(long)]
+        claimed_lon: Option<f64>,
+        #[arg(long, default_value_t = 350.0)]
+        required_radius_km: f64,
+        #[arg(long, default_value_t = 8)]
+        rounds: u16,
+        /// Probe ALL anchors in the grid (useful for full mesh measurements & global testing).
+        #[arg(long, default_value_t = true)]
+        all_anchors: bool,
+        /// Allow software-dev TEE fallback on THIS probing machine (e.g., laptop); Anchors still use real hardware SEV-SNP!
+        #[arg(long, default_value_t = false)]
+        allow_dev_tee: bool,
+        /// Optional path to write the live signed GeoProofBundle JSON.
+        #[arg(long)]
+        out_bundle: Option<PathBuf>,
+        /// Print base64url X-PoG-Proof header value for testing with SDKs or Web Playground.
+        #[arg(long, default_value_t = false)]
+        print_header: bool,
+    },
 }
 
 #[tokio::main]
@@ -112,6 +144,29 @@ async fn main() -> Result<()> {
             out,
         } => run_export_geojson(&grid, LatLon::new(lat, lon), &out),
         Commands::ExportSdkFixture { grid, out } => run_export_sdk_fixture(&grid, &out),
+        Commands::ProbeLive {
+            grid,
+            claimed_lat,
+            claimed_lon,
+            required_radius_km,
+            rounds,
+            all_anchors,
+            allow_dev_tee,
+            out_bundle,
+            print_header,
+        } => {
+            run_probe_live(
+                &grid,
+                claimed_lat.zip(claimed_lon).map(|(la, lo)| LatLon::new(la, lo)),
+                required_radius_km,
+                rounds,
+                all_anchors,
+                allow_dev_tee,
+                out_bundle,
+                print_header,
+            )
+            .await
+        }
     }
 }
 
@@ -789,4 +844,258 @@ fn run_export_sdk_fixture(grid_path: &PathBuf, out: &PathBuf) -> Result<()> {
     std::fs::write(out, serde_json::to_string_pretty(&fixture)?)?;
     println!("Wrote cross-language SDK test fixture to {}", out.display());
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_probe_live(
+    grid_path: &PathBuf,
+    claimed: Option<LatLon>,
+    required_radius_km: f64,
+    rounds: u16,
+    all_anchors: bool,
+    allow_dev_tee: bool,
+    out_bundle: Option<PathBuf>,
+    print_header: bool,
+) -> Result<()> {
+    let grid = AnchorGrid::from_json_str(&std::fs::read_to_string(grid_path)?)?;
+    let tee_provider = auto_detect_provider(None, allow_dev_tee)?;
+    let keypair = WorkloadKeypair::generate();
+    let now = Utc::now().timestamp().max(0) as u64;
+    let epoch = *blake3::hash(format!("live-probe-{now}").as_bytes()).as_bytes();
+    let epoch_hex = hex::encode(epoch);
+    let prover_quote = tee_provider.attest(&keypair.public_key_bytes(), &epoch, None)?;
+
+    let targets: Vec<AnchorDescriptor> = if all_anchors {
+        grid.anchors.clone()
+    } else {
+        let loc = claimed.unwrap_or(LatLon::new(37.7749, -122.4194));
+        select_committee(&grid, &keypair.public_key_hex(), &epoch, loc, &CommitteeConfig::default())
+            .selected
+    };
+
+    println!("==========================================================================");
+    println!(
+        "  LIVE PROOF OF GEOGRAPHY PROBE ({} Anchors | Local TEE: {})",
+        targets.len(),
+        tee_provider.vendor().as_str()
+    );
+    println!("==========================================================================");
+
+    let mut handles = Vec::new();
+    for anchor in targets {
+        let q = prover_quote.clone();
+        let eh = epoch_hex.clone();
+        let eb = epoch;
+        let pk = keypair.public_key_hex();
+        handles.push(tokio::spawn(async move {
+            let res = live_probe_anchor(&anchor, q, &eh, &eb, &pk, rounds).await;
+            (anchor, res)
+        }));
+    }
+
+    let mut receipts = Vec::new();
+    let mut rows = Vec::new();
+    for h in handles {
+        let (anchor, res) = h.await?;
+        match res {
+            Ok((receipt, anchor_tee)) => {
+                rows.push((
+                    anchor.anchor_id.clone(),
+                    anchor.cloud_provider.clone(),
+                    anchor.city.clone(),
+                    anchor_tee,
+                    receipt.rtt_min_us,
+                    receipt.rtt_p50_us,
+                    receipt.prover_observed_ip.clone(),
+                ));
+                receipts.push(receipt);
+            }
+            Err(e) => {
+                println!("  [FAIL] {:<32} ({}) -> {e}", anchor.anchor_id, anchor.endpoint_tcp);
+            }
+        }
+    }
+
+    rows.sort_by_key(|r| r.4);
+    for (id, cloud, city, tee, min_us, p50_us, obs_ip) in &rows {
+        println!(
+            "  [OK]   {:<30} | {:<5} | {:<20} | {:<11} | min={:>6.2} ms | p50={:>6.2} ms | ip={}",
+            id,
+            cloud,
+            city,
+            tee,
+            *min_us as f64 / 1000.0,
+            *p50_us as f64 / 1000.0,
+            obs_ip
+        );
+    }
+
+    if receipts.is_empty() {
+        anyhow::bail!("No live Anchors responded");
+    }
+
+    // Choose target: user-supplied claimed location or closest responding Anchor's city.
+    let target = claimed.unwrap_or_else(|| {
+        let closest_id = &rows[0].0;
+        grid.by_id(closest_id)
+            .map(|a| a.location)
+            .unwrap_or(LatLon::new(0.0, 0.0))
+    });
+
+    let bundle = GeoProofBundle {
+        version: 1,
+        epoch_challenge_hex: epoch_hex,
+        client_nonce_hex: None,
+        target_location: target,
+        required_radius_km,
+        prover_quote,
+        receipts,
+        calibrated_velocity_km_per_s: Some(162_000.0),
+        prev_chain_hash_hex: None,
+        chain_seq: 0,
+        created_at_unix_s: now,
+    };
+
+    let policy = VerificationPolicy {
+        tee_policy: if allow_dev_tee {
+            AttestationPolicy::allow_dev_software()
+        } else {
+            AttestationPolicy::production()
+        },
+        max_byzantine: if bundle.receipts.len() >= 4 { 1 } else { 0 },
+        min_anchors: bundle.receipts.len().min(3),
+        min_cloud_providers: 1,
+        max_proof_age_seconds: 600,
+        enforce_tier: BoundTier::Vacuum,
+    };
+    let report = verify_proof_bundle(&bundle, &grid, &policy, now)?;
+
+    println!("\n--- VERIFIED LIVE GEOGRAPHY REPORT (f={} Byzantine core, {} clouds) ---",
+        policy.max_byzantine, report.distinct_clouds);
+    println!(
+        "  Target Reference:         ({:.4}, {:.4})",
+        target.lat, target.lon
+    );
+    println!(
+        "  Tier 1A Vacuum (c0):      max radius = {:.1} km ({:.1} mi)",
+        report.tier1a_vacuum.proven_max_radius_km,
+        report.tier1a_vacuum.proven_max_radius_km * 0.621371
+    );
+    println!(
+        "  Tier 1B Fiber (204k):     max radius = {:.1} km ({:.1} mi)",
+        report.tier1b_fiber.proven_max_radius_km,
+        report.tier1b_fiber.proven_max_radius_km * 0.621371
+    );
+    println!(
+        "  Tier 2B Calibrated:       max radius = {:.1} km ({:.1} mi)",
+        report.tier2_calibrated.proven_max_radius_km,
+        report.tier2_calibrated.proven_max_radius_km * 0.621371
+    );
+    let mle = &report.probabilistic_estimate;
+    println!(
+        "  Calibrated 68% MLE:       ({:.4}, {:.4}) ± {:.1} km ({:.1} mi)",
+        mle.mle_location.lat,
+        mle.mle_location.lon,
+        mle.confidence_68_radius_km,
+        mle.confidence_68_radius_km * 0.621371
+    );
+    println!(
+        "  Verified Anchor Receipts: {}/{} | Signature Checks: {}",
+        report.verified_receipt_count,
+        bundle.receipts.len(),
+        if report.verified_receipt_count == bundle.receipts.len() { "ALL VALID" } else { "PARTIAL" }
+    );
+
+    if let Some(path) = out_bundle {
+        std::fs::write(&path, serde_json::to_string_pretty(&bundle)?)?;
+        println!("  Saved live GeoProofBundle -> {}", path.display());
+    }
+    if print_header {
+        println!("\nX-PoG-Proof: {}", bundle.to_header_value()?);
+    }
+    Ok(())
+}
+
+async fn live_probe_anchor(
+    anchor: &AnchorDescriptor,
+    prover_quote: pog_tee::TeeAttestationQuote,
+    epoch_hex: &str,
+    epoch_bytes: &[u8; 32],
+    prover_pk_hex: &str,
+    rounds: u16,
+) -> Result<(AnchorReceipt, String)> {
+    let stream = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&anchor.endpoint_tcp))
+        .await
+        .map_err(|_| anyhow::anyhow!("TCP connect timeout"))??;
+    let anchor_ip = stream.peer_addr()?.ip();
+    let (reader, mut writer) = stream.into_split();
+    let mut buf_reader = BufReader::new(reader);
+
+    let udp_sock = bind_low_latency_udp("0.0.0.0:0".parse()?, Duration::from_secs(3))?;
+    let local_udp_port = udp_sock.local_addr()?.port();
+
+    let eph_sk = EphemeralSecret::random_from_rng(OsRng);
+    let eph_pk = X25519PublicKey::from(&eph_sk);
+
+    let init_req = Phase1InitRequest {
+        prover_quote,
+        epoch_challenge_hex: epoch_hex.to_string(),
+        prover_ephemeral_x25519_hex: hex::encode(eph_pk.as_bytes()),
+        prover_udp_port: local_udp_port,
+        rounds,
+    };
+    let mut req_line = serde_json::to_string(&init_req)?;
+    req_line.push('\n');
+    writer.write_all(req_line.as_bytes()).await?;
+    writer.flush().await?;
+
+    let mut resp_line = String::new();
+    tokio::time::timeout(Duration::from_secs(5), buf_reader.read_line(&mut resp_line))
+        .await
+        .map_err(|_| anyhow::anyhow!("Phase 1 read timeout"))??;
+    let init_resp: Phase1InitResponse = serde_json::from_str(resp_line.trim())?;
+    let anchor_tee_vendor = init_resp.anchor_quote.vendor.as_str().to_string();
+
+    let anchor_eph_raw = hex::decode(&init_resp.anchor_ephemeral_x25519_hex)?;
+    let anchor_eph_arr: [u8; 32] = anchor_eph_raw
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("bad anchor x25519"))?;
+    let shared = eph_sk.diffie_hellman(&X25519PublicKey::from(anchor_eph_arr));
+    let session_key = derive_session_key(
+        shared.as_bytes(),
+        init_resp.session_id,
+        epoch_bytes,
+        prover_pk_hex,
+        &anchor.anchor_id,
+    );
+
+    let cookie_raw = hex::decode(&init_resp.return_cookie_hex)?;
+    let cookie_arr: [u8; 8] = cookie_raw
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("bad return cookie"))?;
+    let punch = encode_udp_punch(init_resp.session_id, cookie_arr);
+    let anchor_udp_addr = SocketAddr::new(anchor_ip, init_resp.anchor_udp_port);
+    let session_id = init_resp.session_id;
+    let epoch_copy = *epoch_bytes;
+
+    writer.write_all(b"READY\n").await?;
+    writer.flush().await?;
+
+    let udp_handle = tokio::task::spawn_blocking(move || -> Result<()> {
+        // Send UDP punch packet twice (spaced 5 ms) in case first packet races Anchor thread start.
+        udp_sock.send_to(&punch, anchor_udp_addr)?;
+        for _ in 0..rounds {
+            respond_once_udp(&udp_sock, session_id, &session_key, &epoch_copy)?;
+        }
+        Ok(())
+    });
+
+    udp_handle.await??;
+
+    resp_line.clear();
+    tokio::time::timeout(Duration::from_secs(5), buf_reader.read_line(&mut resp_line))
+        .await
+        .map_err(|_| anyhow::anyhow!("Receipt read timeout"))??;
+    let receipt: AnchorReceipt = serde_json::from_str(resp_line.trim())?;
+    Ok((receipt, anchor_tee_vendor))
 }

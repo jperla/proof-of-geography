@@ -14,7 +14,7 @@ pub use socket::{
     bind_low_latency_udp, measure_udp_round, respond_once_udp, TimestampedDatagram,
 };
 pub use wire::{
-    compute_challenge_mac, compute_return_cookie, derive_session_key, AnchorReceipt,
-    ChallengePacket, Phase1InitRequest, Phase1InitResponse, ProtoError, ResponsePacket,
-    PACKET_SIZE, PROTOCOL_MAGIC, PROTOCOL_VERSION,
+    compute_challenge_mac, compute_return_cookie, decode_udp_punch, derive_session_key,
+    encode_udp_punch, AnchorReceipt, ChallengePacket, Phase1InitRequest, Phase1InitResponse,
+    ProtoError, ResponsePacket, PACKET_SIZE, PROTOCOL_MAGIC, PROTOCOL_VERSION, PUNCH_PACKET_SIZE,
 };

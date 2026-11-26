@@ -4,9 +4,32 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const PROTOCOL_MAGIC: [u8; 4] = *b"POG1";
+pub const PUNCH_MAGIC: [u8; 4] = *b"POGP";
 pub const PROTOCOL_VERSION: u8 = 1;
 /// Exact symmetric 64-byte UDP packet size for both Challenge and Response (amplification factor = 1.0).
 pub const PACKET_SIZE: usize = 64;
+/// Compact 20-byte UDP NAT-traversal / return-routability punch packet (`POGP` + session_id + 8B cookie).
+pub const PUNCH_PACKET_SIZE: usize = 20;
+
+/// Encode a 20-byte UDP NAT-traversal punch packet sent Prover -> Anchor right before Phase 2.
+pub fn encode_udp_punch(session_id: u64, cookie: [u8; 8]) -> [u8; PUNCH_PACKET_SIZE] {
+    let mut buf = [0u8; PUNCH_PACKET_SIZE];
+    buf[0..4].copy_from_slice(&PUNCH_MAGIC);
+    buf[4..12].copy_from_slice(&session_id.to_le_bytes());
+    buf[12..20].copy_from_slice(&cookie);
+    buf
+}
+
+/// Decode and validate a 20-byte UDP NAT-traversal punch packet.
+pub fn decode_udp_punch(buf: &[u8]) -> Result<(u64, [u8; 8]), ProtoError> {
+    if buf.len() != PUNCH_PACKET_SIZE || buf[0..4] != PUNCH_MAGIC {
+        return Err(ProtoError::InvalidPacketHeader);
+    }
+    let sid = u64::from_le_bytes(buf[4..12].try_into().unwrap());
+    let mut cookie = [0u8; 8];
+    cookie.copy_from_slice(&buf[12..20]);
+    Ok((sid, cookie))
+}
 
 pub const MSG_TYPE_CHALLENGE: u8 = 0x01;
 pub const MSG_TYPE_RESPONSE: u8 = 0x02;

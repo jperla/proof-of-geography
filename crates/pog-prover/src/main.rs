@@ -9,9 +9,9 @@ use chrono::Utc;
 use clap::Parser;
 use pog_geo::LatLon;
 use pog_proto::{
-    bind_low_latency_udp, derive_session_key, respond_once_udp, select_committee, AnchorDescriptor,
-    AnchorGrid, AnchorReceipt, CommitteeConfig, GeoProofBundle, Phase1InitRequest,
-    Phase1InitResponse, HTTP_HEADER_POG_PROOF,
+    bind_low_latency_udp, derive_session_key, encode_udp_punch, respond_once_udp, select_committee,
+    AnchorDescriptor, AnchorGrid, AnchorReceipt, CommitteeConfig, GeoProofBundle,
+    Phase1InitRequest, Phase1InitResponse, HTTP_HEADER_POG_PROOF,
 };
 use pog_tee::{auto_detect_provider, TeeProvider, WorkloadKeypair};
 use rand::rngs::OsRng;
@@ -275,6 +275,7 @@ async fn probe_single_anchor(
     rounds: u16,
 ) -> Result<AnchorReceipt> {
     let stream = TcpStream::connect(&anchor.endpoint_tcp).await?;
+    let stream_peer_ip = stream.peer_addr()?.ip();
     let (reader, mut writer) = stream.into_split();
     let mut buf_reader = BufReader::new(reader);
 
@@ -314,16 +315,26 @@ async fn probe_single_anchor(
     );
 
     let session_id = init_resp.session_id;
+    let anchor_ip = stream_peer_ip;
+    let anchor_udp_addr = SocketAddr::new(anchor_ip, init_resp.anchor_udp_port);
+    let cookie_raw = hex::decode(&init_resp.return_cookie_hex)?;
+    let cookie_arr: [u8; 8] = cookie_raw
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("bad return cookie"))?;
+    let punch = encode_udp_punch(session_id, cookie_arr);
     let epoch_copy = *epoch_bytes;
+
+    writer.write_all(b"READY\n").await?;
+    writer.flush().await?;
+
     let udp_handle = tokio::task::spawn_blocking(move || -> Result<()> {
+        // Punch NAT pinhole & prove UDP return-routability to Anchor's bound UDP port.
+        udp_sock.send_to(&punch, anchor_udp_addr)?;
         for _ in 0..rounds {
             respond_once_udp(&udp_sock, session_id, &session_key, &epoch_copy)?;
         }
         Ok(())
     });
-
-    writer.write_all(b"READY\n").await?;
-    writer.flush().await?;
 
     udp_handle.await??;
 
