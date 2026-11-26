@@ -26,7 +26,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=4" />
+  <link rel="stylesheet" href="/styles.css?v=5" />
 </head>
 <body>
   <div id="map"></div>
@@ -42,9 +42,10 @@
     </div>
 
     <nav class="tabs" role="tablist">
-      <button class="tab active" data-tab="live" role="tab">⚡ Locate Me Live</button>
-      <button class="tab" data-tab="mesh" role="tab">🌐 9×9 Cloud Mesh</button>
-      <button class="tab" data-tab="verify" role="tab">🔐 Verify Proof</button>
+      <button class="tab active" data-tab="live" role="tab">⚡ Locate Me</button>
+      <button class="tab" data-tab="mesh" role="tab">🌐 9×9 Live Mesh</button>
+      <button class="tab" data-tab="grid72" role="tab">🗺️ 72-Node Rim</button>
+      <button class="tab" data-tab="verify" role="tab">🔐 Verify</button>
       <button class="tab" data-tab="cli" role="tab">💻 CLI &amp; SDKs</button>
     </nav>
 
@@ -176,6 +177,55 @@
       <div id="mesh-anchor-list" class="anchor-list"></div>
     </section>
 
+    <!-- TAB 2B: 72-NODE RIM-SURROUNDED GLOBAL GRID EXPLORER -->
+    <section class="tab-pane" id="pane-grid72">
+      <div class="hero-box compact">
+        <div class="eyebrow">72-NODE GLOBAL TOPOLOGY · 4-QUADRANT RIM SURROUND</div>
+        <h2>Surround Every Border &amp; Coastal City</h2>
+        <p class="lead">
+          <strong>26 North America</strong> (incl. Honolulu, Anchorage, Canada, Mexico &amp; Caribbean) + <strong>30 Europe &amp; Rim</strong> (incl. Iceland, Faroe Islands, Azores, Lisbon, Finland, North Africa, Middle East &amp; Eastern Border) + <strong>16 APAC / Global South</strong>. Click <strong>any city on the map</strong> or pick a border city below to see 4-direction framing in action!
+        </p>
+      </div>
+
+      <div class="section-head">
+        <span>Test Coastal &amp; Border Cities</span>
+        <span class="badge">72 Nodes · Click Map!</span>
+      </div>
+      <div class="preset-chips" style="margin-bottom:12px">
+        <button class="chip grid72-city" data-city="38.7223,-9.1393,Lisbon, PT">Lisbon, PT</button>
+        <button class="chip grid72-city" data-city="53.3498,-6.2603,Dublin, IE">Dublin, IE</button>
+        <button class="chip grid72-city" data-city="60.1699,24.9384,Helsinki, FI">Helsinki, FI</button>
+        <button class="chip grid72-city" data-city="52.2297,21.0122,Warsaw, PL">Warsaw, PL</button>
+        <button class="chip grid72-city" data-city="41.0082,28.9784,Istanbul, TR">Istanbul, TR</button>
+        <button class="chip grid72-city" data-city="37.9838,23.7275,Athens, GR">Athens, GR</button>
+        <button class="chip grid72-city" data-city="37.7749,-122.4194,San Francisco, US">San Francisco</button>
+        <button class="chip grid72-city" data-city="25.7617,-80.1918,Miami, US">Miami, FL</button>
+        <button class="chip grid72-city" data-city="49.2827,-123.1207,Vancouver, CA">Vancouver, CA</button>
+        <button class="chip grid72-city" data-city="19.4326,-99.1332,Mexico City, MX">Mexico City</button>
+        <button class="chip grid72-city" data-city="18.4655,-66.1057,San Juan, PR">San Juan, PR</button>
+        <button class="chip grid72-city" data-city="41.8781,-87.6298,Chicago, US">Chicago, IL</button>
+      </div>
+
+      <div class="metrics-grid">
+        <div class="metric-card highlight">
+          <div class="metric-label">Target City</div>
+          <div id="g72-city" class="metric-val">Lisbon, PT</div>
+          <div id="g72-quads" class="metric-sub">Quadrants: 4/4 (N·S·E·W)</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Calibrated Intersection</div>
+          <div id="g72-cal" class="metric-val mono">—</div>
+          <div id="g72-fib" class="metric-sub">Fiber: —</div>
+        </div>
+      </div>
+
+      <div class="section-head">
+        <span>Selected 6-Anchor Surrounding Committee</span>
+        <span class="badge">Multi-Cloud · f=1</span>
+      </div>
+      <div id="g72-committee-list" class="anchor-list"></div>
+    </section>
+
     <!-- TAB 3: VERIFY X-POG-PROOF -->
     <section class="tab-pane" id="pane-verify">
       <div class="hero-box compact">
@@ -278,7 +328,7 @@ console.log(report.overall_valid, report.tier1b_fiber.proven_max_radius_km);</pr
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="/geo.js?v=4"></script>
-  <script src="/app.js?v=4"></script>
+  <script src="/geo.js?v=5"></script>
+  <script src="/app.js?v=5"></script>
 </body>
 </html>

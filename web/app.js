@@ -27,6 +27,8 @@
     spoofClaim: null, // { lat, lon, label }
     meshData: null,
     selectedMeshProver: "gcp-europe-west3-frankfurt",
+    grid72Data: null,
+    grid72Target: { lat: 38.7223, lon: -9.1393, label: "Lisbon, PT" },
     verifyBundleData: null, // last verified bundle to plot
   };
 
@@ -56,6 +58,7 @@
   const raysLayer = L.layerGroup().addTo(map);
   const intersectionLayer = L.layerGroup().addTo(map);
   const anchorsLayer = L.layerGroup().addTo(map);
+  const grid72Layer = L.layerGroup().addTo(map);
   const spoofLayer = L.layerGroup().addTo(map);
 
   // --- Helpers ---
@@ -651,6 +654,177 @@
     });
   }
 
+  // --- Mode 2B: 72-Node Rim-Surrounded Global Grid Explorer ---
+  async function loadGrid72Data() {
+    try {
+      const resp = await fetch("/data/grid_72.json");
+      if (!resp.ok) return;
+      state.grid72Data = await resp.json();
+    } catch (_) {}
+  }
+
+  function bearingQuadrant(fromLat, fromLon, toLat, toLon) {
+    const dLat = toLat - fromLat;
+    let dLon = toLon - fromLon;
+    while (dLon > 180) dLon -= 360;
+    while (dLon < -180) dLon += 360;
+    if (dLat >= 0 && dLon >= 0) return "NE";
+    if (dLat < 0 && dLon >= 0) return "SE";
+    if (dLat < 0 && dLon < 0) return "SW";
+    return "NW";
+  }
+
+  function selectGrid72Committee(lat, lon) {
+    const all = state.grid72Data?.anchors || [];
+    if (!all.length) return { selected: [], quads: new Set() };
+    const scored = all
+      .map((a) => ({
+        anchor: a,
+        distKm: PogGeo.haversineKm(lat, lon, a.lat, a.lon),
+        quad: bearingQuadrant(lat, lon, a.lat, a.lon),
+      }))
+      .sort((a, b) => a.distKm - b.distKm);
+
+    const picked = [];
+    const usedIds = new Set();
+    const usedClouds = new Set();
+    const quads = new Set();
+
+    // 1. Up to 2 distinct-cloud metro Anchors (<150 km)
+    for (const s of scored) {
+      if (s.distKm > 150 || picked.length >= 2) break;
+      if (!usedClouds.has(s.anchor.cloud)) {
+        picked.push(s);
+        usedIds.add(s.anchor.id);
+        usedClouds.add(s.anchor.cloud);
+        quads.add(s.quad);
+      }
+    }
+    // 2. Surround from all 4 compass quadrants (NE, SE, SW, NW)
+    for (const q of ["NE", "SE", "SW", "NW"]) {
+      const cand = scored.find(
+        (s) => !usedIds.has(s.anchor.id) && s.quad === q && s.distKm > 40 && s.distKm < 6500
+      );
+      if (cand && picked.length < 6) {
+        picked.push(cand);
+        usedIds.add(cand.anchor.id);
+        usedClouds.add(cand.anchor.cloud);
+        quads.add(q);
+      }
+    }
+    // 3. Fill up to 6 with closest remaining distinct-cloud Anchors
+    for (const s of scored) {
+      if (picked.length >= 6) break;
+      if (!usedIds.has(s.anchor.id)) {
+        picked.push(s);
+        usedIds.add(s.anchor.id);
+        quads.add(s.quad);
+      }
+    }
+    return { selected: picked, quads };
+  }
+
+  function renderGrid72Scene(fitCamera) {
+    grid72Layer.clearLayers();
+    const all = state.grid72Data?.anchors || [];
+    if (!all.length) return;
+
+    const tgt = state.grid72Target;
+    const { selected, quads } = selectGrid72Committee(tgt.lat, tgt.lon);
+    const selIds = new Set(selected.map((s) => s.anchor.id));
+
+    // Plot all 72 global Anchors (dimmer for unselected, luminous for selected + live!)
+    const theaterColor = (a) => {
+      if (a.live) return "#2dd4bf";
+      if (a.theater === "eu_rim" || a.theater === "na_rim") return "#f472b6";
+      if (a.cloud === "aws") return "#f59e0b";
+      if (a.cloud === "gcp") return "#38bdf8";
+      return "#a78bfa";
+    };
+
+    for (const a of all) {
+      const isSel = selIds.has(a.id);
+      const col = theaterColor(a);
+      for (const shift of [-360, 0, 360]) {
+        const m = L.circleMarker([a.lat, a.lon + shift], {
+          radius: isSel ? 7 : a.live ? 5.5 : 4,
+          color: isSel ? "#ffffff" : "#050914",
+          weight: isSel ? 2.2 : 1.3,
+          fillColor: col,
+          fillOpacity: isSel ? 1 : a.live ? 0.92 : 0.65,
+        });
+        m.bindPopup(`
+          <div style="min-width:190px">
+            <div style="font-weight:800;font-size:13px">${a.city}</div>
+            <div style="color:#94a3b8;font-family:var(--mono);font-size:10.5px;margin:2px 0 6px">${a.id}</div>
+            <div><strong>Role:</strong> ${a.role}</div>
+            <div><strong>Provider:</strong> ${a.cloud.toUpperCase()} · ${a.tee}</div>
+            <div><strong>Status:</strong> ${a.live ? "🟢 Live Public Grid Now" : "🗺️ 72-Node Rim Topology"}</div>
+          </div>
+        `);
+        m.addTo(grid72Layer);
+      }
+    }
+
+    // Build realistic simulated RTT measurements (1.38x empirical fiber stretch + 0.8 ms overhead)
+    const measurements = selected.map((s) => {
+      const rttMs = Math.max(0.5, (2.0 * s.distKm * 1.38) / 204.0 + 0.8);
+      return {
+        anchor: {
+          id: s.anchor.id,
+          city: s.anchor.city,
+          cloud: s.anchor.cloud,
+          defaultTee: s.anchor.tee,
+          lat: s.anchor.lat,
+          lon: s.anchor.lon,
+          color: theaterColor(s.anchor),
+        },
+        rttMs,
+        quad: s.quad,
+        distKm: s.distKm,
+        role: s.anchor.role,
+        live: s.anchor.live,
+      };
+    });
+
+    const solCal = PogGeo.solveLocation(measurements, "calibrated", 0, 1);
+    const solFib = PogGeo.solveLocation(measurements, "fiber", 0, 1);
+
+    document.getElementById("g72-city").textContent = tgt.label;
+    document.getElementById("g72-quads").textContent = `Quadrants: ${quads.size}/4 (${Array.from(quads).sort().join("·")})`;
+    document.getElementById("g72-cal").textContent = `± ${fmtDist(solCal.maxRadiusKm)}`;
+    document.getElementById("g72-fib").textContent = `Fiber: ± ${fmtDist(solFib.maxRadiusKm)}`;
+
+    document.getElementById("g72-committee-list").innerHTML = measurements
+      .map((m) => {
+        const radKm = PogGeo.rttToRadiusKm(m.rttMs, state.tier, 0);
+        return `
+          <div class="anchor-row">
+            <div class="anchor-top">
+              <div class="anchor-name">
+                <i class="dot" style="background:${m.anchor.color}"></i>
+                <span>${m.anchor.city}</span>
+              </div>
+              <div class="anchor-rtt">${m.rttMs.toFixed(1)} ms</div>
+            </div>
+            <div class="anchor-meta">
+              <span class="tee-tag tee-tdx">${m.quad} · ${m.anchor.cloud.toUpperCase()}</span>
+              <span>${m.role} · r ≤ ${fmtDist(radKm)}</span>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+
+    renderGeoScene({
+      measurements,
+      extraOverheadMs: 0,
+      truePin: Object.assign([tgt.lat, tgt.lon], { label: `${tgt.label} (${quads.size}/4 Quads)` }),
+      spoofClaim: null,
+      fitCamera,
+    });
+  }
+
   // --- Mode 3: Verify X-PoG-Proof Header via Live Rust Backend ---
   async function verifyHeaderInput() {
     const headerVal = document.getElementById("verify-input").value.trim();
@@ -718,6 +892,9 @@
 
   // --- Central Redraw Dispatcher ---
   function redrawActiveScene(fitCamera = false) {
+    if (state.tab !== "grid72") {
+      grid72Layer.clearLayers();
+    }
     if (state.tab === "live") {
       const res = renderGeoScene({
         measurements: state.liveMeasurements,
@@ -730,6 +907,8 @@
       updateSpoofVerdict(res?.spoofEval || null);
     } else if (state.tab === "mesh") {
       renderMeshScene(fitCamera);
+    } else if (state.tab === "grid72") {
+      renderGrid72Scene(fitCamera);
     } else if (state.tab === "verify") {
       renderVerifyScene(fitCamera);
     }
@@ -742,7 +921,7 @@
       document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === btn));
       document.querySelectorAll(".tab-pane").forEach((p) => p.classList.toggle("active", p.id === `pane-${state.tab}`));
       state.focusedAnchorId = null;
-      redrawActiveScene(state.tab === "mesh");
+      redrawActiveScene(state.tab === "mesh" || state.tab === "grid72");
     });
   });
 
@@ -784,13 +963,24 @@
   });
 
   map.on("click", (ev) => {
+    let lon = ev.latlng.lng;
+    while (lon > 180) lon -= 360;
+    while (lon < -180) lon += 360;
     if (state.tab === "live" && state.spoofMode && state.liveMeasurements.length > 0) {
-      let lon = ev.latlng.lng;
-      while (lon > 180) lon -= 360;
-      while (lon < -180) lon += 360;
       state.spoofClaim = { lat: ev.latlng.lat, lon, label: `Clicked (${fmtCoord(ev.latlng.lat, lon)})` };
       redrawActiveScene(false);
+    } else if (state.tab === "grid72") {
+      state.grid72Target = { lat: ev.latlng.lat, lon, label: fmtCoord(ev.latlng.lat, lon) };
+      redrawActiveScene(false);
     }
+  });
+
+  document.querySelectorAll(".grid72-city").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const [latStr, lonStr, ...labelParts] = btn.dataset.city.split(",");
+      state.grid72Target = { lat: parseFloat(latStr), lon: parseFloat(lonStr), label: labelParts.join(",") };
+      redrawActiveScene(true);
+    });
   });
 
   document.querySelectorAll("#tier-switcher .seg-btn").forEach((btn) => {
@@ -839,4 +1029,5 @@
   renderLiveAnchorList([], null);
   refreshAnchorInfos();
   loadMeshData();
+  loadGrid72Data();
 })();

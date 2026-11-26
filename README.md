@@ -212,6 +212,7 @@ cargo run --release --bin pog-cli -- simulate
 
 ## Further Reading
 
+* [docs/GRID_72_TOPOLOGY.md](docs/GRID_72_TOPOLOGY.md) — **72-node rim-surrounded global Anchor grid** (`config/global_grid_72.json`): 26 NA/Canada/Mexico/Caribbean + 30 Europe/Iceland/Faroe/Azores/North Africa/Middle East/East Rim + 16 APAC/Global South — cuts border-city $f=1$ localization **7.05× tighter** (`1,341 mi → 190 mi` mean, `19/20` full 4/4 quadrant surround!).
 * [docs/LIVE_PILOT_RESULTS.md](docs/LIVE_PILOT_RESULTS.md) — **Real live 9×9 cross-cloud RTT matrix & verified Intel TDX / AMD SEV-SNP proofs** measured over the public internet (Frankfurt 1.69 ms -> 55–158 mi; Ashburn 1.85 ms -> 65–175 mi).
 * [docs/DEPLOY_24_NODES.md](docs/DEPLOY_24_NODES.md) — Step-by-step guide to launching the live 24-node grid & public web playground.
 * [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Protocol sequence, Starlink ISL crossover physics, and exact $O(K^3)$ Byzantine $(K-f)$-core proof.

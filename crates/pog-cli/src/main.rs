@@ -148,6 +148,13 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         allow_dev_tee: bool,
     },
+    /// Audit global localization precision & 4-quadrant border-city coverage across an Anchor grid (optionally comparing against a baseline grid).
+    AuditCoverage {
+        #[arg(long, default_value = "config/global_grid_72.json")]
+        grid: PathBuf,
+        #[arg(long)]
+        baseline_grid: Option<PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -217,6 +224,10 @@ async fn main() -> Result<()> {
             run_traceroute,
             allow_dev_tee,
         ),
+        Commands::AuditCoverage {
+            grid,
+            baseline_grid,
+        } => run_audit_coverage(&grid, baseline_grid.as_ref()),
     }
 }
 
@@ -1385,6 +1396,159 @@ fn run_inspect_telemetry(
     );
 
     println!("{}", serde_json::to_string_pretty(&assessment)?);
+    Ok(())
+}
+
+/// Evaluate 4-quadrant surround & realistic calibrated/fiber localization precision on 20 global
+/// interior & border/coastal cities (comparing e.g. 72-node rim-surrounded grid vs 24-node starter).
+fn run_audit_coverage(grid_path: &PathBuf, baseline_path: Option<&PathBuf>) -> Result<()> {
+    let grid = AnchorGrid::from_json_str(&std::fs::read_to_string(grid_path)?)?;
+    let baseline = match baseline_path {
+        Some(p) => Some(AnchorGrid::from_json_str(&std::fs::read_to_string(p)?)?),
+        None => None,
+    };
+
+    let cities: &[(&str, f64, f64)] = &[
+        // North America + Canada + Mexico + Caribbean (coastal, border & interior)
+        ("San Francisco, US (Pacific)", 37.7749, -122.4194),
+        ("Seattle, US (Pacific NW)", 47.6062, -122.3321),
+        ("Vancouver, CA (NW Border)", 49.2827, -123.1207),
+        ("Chicago, US (Midwest)", 41.8781, -87.6298),
+        ("New York, US (Atlantic)", 40.7128, -74.0060),
+        ("Miami, US (Caribbean Rim)", 25.7617, -80.1918),
+        ("Montreal, CA (NE Border)", 45.5017, -73.5673),
+        ("Mexico City, MX (South Rim)", 19.4326, -99.1332),
+        ("San Juan, PR (Caribbean)", 18.4655, -66.1057),
+        // Europe + Atlantic Rim + North Africa + Middle East + East Border
+        ("Lisbon, PT (Far W Europe)", 38.7223, -9.1393),
+        ("Dublin, IE (NW Atlantic)", 53.3498, -6.2603),
+        ("London, UK (West Europe)", 51.5074, -0.1278),
+        ("Paris, FR (West Europe)", 48.8566, 2.3522),
+        ("Frankfurt, DE (Central EU)", 50.1109, 8.6821),
+        ("Madrid, ES (SW Europe)", 40.4168, -3.7038),
+        ("Helsinki, FI (Far N / RU)", 60.1699, 24.9384),
+        ("Warsaw, PL (East EU Rim)", 52.2297, 21.0122),
+        ("Athens, GR (SE Med Rim)", 37.9838, 23.7275),
+        ("Istanbul, TR (Black Sea)", 41.0082, 28.9784),
+        ("Cairo, EG (North Africa)", 30.0444, 31.2357),
+    ];
+
+    let eval_city = |g: &AnchorGrid, lat: f64, lon: f64| -> (usize, f64, f64) {
+        let target = LatLon::new(lat, lon);
+        let cfg = CommitteeConfig {
+            committee_size: 6,
+            min_cloud_providers: 2,
+            max_metro_anchors: 2,
+            metro_radius_km: 150.0,
+            max_regional_km: 6_500.0,
+        };
+        let sel = select_committee(g, "audit_prover_pk", b"audit_epoch_v1_00000000000000000", target, &cfg);
+
+        // Realistic internet propagation: 1.38x fiber stretch + 0.8 ms datacenter overhead
+        let make_disks = |tier: BoundTier| -> Vec<DiskConstraint> {
+            sel.selected
+                .iter()
+                .map(|a| {
+                    let dist_km = target.distance_km(a.location);
+                    let rtt_s = (2.0 * dist_km * 1.38 / C_FIBER_KM_PER_S) + 0.0008;
+                    let rtt_us = (rtt_s * 1e6).round().max(400.0) as u64;
+                    DiskConstraint::from_rtt(
+                        a.anchor_id.clone(),
+                        a.location,
+                        rtt_us,
+                        tier,
+                        a.cloud_provider.clone(),
+                    )
+                })
+                .collect()
+        };
+
+        let cal_disks = make_disks(BoundTier::CalibratedLinear {
+            effective_km_per_s: 156_000.0,
+            fixed_overhead_us: 650,
+        });
+        let fib_disks = make_disks(BoundTier::Fiber);
+
+        let cal_res = pog_geo::verify_byzantine_core(&cal_disks, 1, target, 1000.0, None);
+        let fib_res = pog_geo::verify_byzantine_core(&fib_disks, 1, target, 1000.0, None);
+
+        let cal_mi = cal_res
+            .map(|r| r.proven_max_radius_km * 0.621371)
+            .unwrap_or(9999.0);
+        let fib_mi = fib_res
+            .map(|r| r.proven_max_radius_km * 0.621371)
+            .unwrap_or(9999.0);
+        (sel.distinct_quadrants, cal_mi, fib_mi)
+    };
+
+    println!("============================================================================================");
+    println!(
+        "  COVERAGE & BORDER-CITY GDOP AUDIT: {} ({} nodes){}",
+        grid.grid_name,
+        grid.anchors.len(),
+        baseline
+            .as_ref()
+            .map(|b| format!(" vs {} ({} nodes)", b.grid_name, b.anchors.len()))
+            .unwrap_or_default()
+    );
+    println!("============================================================================================");
+    if baseline.is_some() {
+        println!(
+            "  {:<28} | {:^6} | {:>10} | {:>10} || {:^6} | {:>10} | {:>9}",
+            "City / Border Theater", "72-Q", "72 Cal mi", "72 Fib mi", "24-Q", "24 Cal mi", "Tightening"
+        );
+    } else {
+        println!(
+            "  {:<28} | {:^6} | {:>10} | {:>10}",
+            "City / Border Theater", "Quads", "Cal mi", "Fiber mi"
+        );
+    }
+    println!("--------------------------------------------------------------------------------------------");
+
+    let mut sum72 = 0.0;
+    let mut sum24 = 0.0;
+    let mut q4_72 = 0usize;
+    let mut q4_24 = 0usize;
+
+    for &(name, lat, lon) in cities {
+        let (q72, c72, f72) = eval_city(&grid, lat, lon);
+        sum72 += c72;
+        if q72 == 4 {
+            q4_72 += 1;
+        }
+        if let Some(ref base) = baseline {
+            let (q24, c24, _f24) = eval_city(base, lat, lon);
+            sum24 += c24;
+            if q24 == 4 {
+                q4_24 += 1;
+            }
+            let ratio = if c72 > 0.1 { c24 / c72 } else { 1.0 };
+            println!(
+                "  {:<28} |  {}/4   | {:7.1} mi | {:7.1} mi ||  {}/4   | {:7.1} mi |  {:5.2}x",
+                name, q72, c72, f72, q24, c24, ratio
+            );
+        } else {
+            println!("  {:<28} |  {}/4   | {:7.1} mi | {:7.1} mi", name, q72, c72, f72);
+        }
+    }
+    println!("--------------------------------------------------------------------------------------------");
+    let n = cities.len() as f64;
+    if baseline.is_some() {
+        println!(
+            "  SUMMARY (f=1 Byzantine): 72-node mean Calibrated = {:.1} mi ({}/20 full 4/4 quadrant surround) vs 24-node mean = {:.1} mi ({}/20 4/4) -> {:.2}x tighter!",
+            sum72 / n,
+            q4_72,
+            sum24 / n,
+            q4_24,
+            sum24 / sum72.max(1.0)
+        );
+    } else {
+        println!(
+            "  SUMMARY (f=1 Byzantine): mean Calibrated = {:.1} mi | full 4/4 quadrant surround = {}/20 cities",
+            sum72 / n,
+            q4_72
+        );
+    }
     Ok(())
 }
 
