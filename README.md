@@ -3,7 +3,7 @@
 **Unspoofable, cryptographic, speed-of-light physical location proofs for GPUs, confidential datacenters, and AI inference endpoints—secured by hardware TEEs and a multi-cloud Anchor network.**
 
 > 🌐 **Try the Live Interactive Speed-of-Light Visualizer:** **[https://proofofgeography.com](https://proofofgeography.com)**
-> Watch 9 live multi-cloud Anchors (GCP Intel TDX, GCP AMD SEV-SNP & AWS) locate your browser in real time, simulate spoofing / inference-cloud lies, explore our 9×9 cross-cloud datacenter mesh, and cryptographically verify `X-PoG-Proof` headers online!
+> Watch 9 live multi-cloud Anchors (GCP Intel TDX, GCP AMD SEV-SNP & AWS) locate your browser in real time, simulate spoofing / inference-cloud lies, explore our **72-Node Rim-Surrounded Global Grid** (4-quadrant framing across North America, Canada, Mexico, Caribbean, Europe, Iceland, Faroe Islands, Azores, North Africa & Middle East), and cryptographically verify `X-PoG-Proof` headers online!
 
 ---
 
@@ -127,18 +127,19 @@ Run locally via `cargo run --release --bin pog-cli -- simulate`:
 
 ---
 
-## Global 24-Node Multi-Cloud Anchor Grid
+## 72-Node Rim-Surrounded Global Anchor Grid (vs. 24-Node Starter)
 
-Defined in [config/global_grid_24.json](config/global_grid_24.json) and provisioned via [infra/terraform/](infra/terraform/):
+Coastal and border cities (e.g., Lisbon, Dublin, Helsinki, Istanbul, San Francisco, Miami, Vancouver, Mexico City) suffer severe **GDOP** if nearby Anchors sit inland on only one side. Our canonical **[72-Node Rim-Surrounded Grid](config/global_grid_72.json)** ([docs/GRID_72_TOPOLOGY.md](docs/GRID_72_TOPOLOGY.md) · [infra/terraform/grid_72](infra/terraform/grid_72/main.tf)) surrounds both **North America** and **Europe** from all four compass quadrants (`N / S / E / W`):
 
-| Cloud Provider | Nodes | Regions | Hardware TEE Stack |
+| Global Theater | Nodes | Core Multi-Cloud Hubs | Outer Rim Perimeter Anchors (Kills Coastal & Border GDOP) |
 | :--- | :---: | :--- | :--- |
-| **Google Cloud (GCP)** | 8 | Ashburn, Iowa, Oregon, Frankfurt, London, Tokyo, Taiwan, Singapore | AMD SEV-SNP (`c3d-standard-4`, Secure TSC) & Intel TDX (`c3-standard-4`) |
-| **Amazon Web Services (AWS)** | 8 | N. Virginia, Oregon, San Jose, Frankfurt, Stockholm, Tokyo, Seoul, Sydney | EC2 AMD SEV-SNP (`c6a.large`, direct ENA) & Nitro Enclaves (`c6i.xlarge`) |
-| **Microsoft Azure** | 4 | Texas, Toronto, Amsterdam, São Paulo | Confidential VM SEV-SNP (`Standard_DC2as_v5`) & Intel TDX (`DC2es_v5`) |
-| **OVHcloud (EU Sovereign)** | 2 | Gravelines (FR), Warsaw (PL) | AMD SEV-SNP sovereign EU nodes outside US hyperscalers |
-| **ByteDance (BytePlus / Volcengine)** | 1 | Singapore / Johor Edge | Confidential ECS Intel TDX (`ecs.c3t.large`) |
-| **Tencent Cloud** | 1 | Hong Kong | Confidential CVM AMD SEV-SNP (`S6.MEDIUM4`) |
+| **North America + Canada + Mexico + Caribbean** | **26** | Ashburn (×2), NYC/Newark, Columbus, Chicago, Iowa, Dallas, Salt Lake City, Phoenix, LA, San Jose, Oregon (×2), Toronto, Montreal (×2) | **Honolulu (`HI`)**, **Anchorage (`AK`)**, **Vancouver**, **Calgary**, **Halifax (`NS`)**, **Miami**, **Querétaro / Mexico City** (GCP + AWS), **San Juan (`PR`)**, **Panama City** |
+| **Europe + North Atlantic + North Africa + Middle East + East Rim** | **30** | London (×2), Frankfurt (×2), Paris, Amsterdam, Zurich, Dublin, Madrid, Milan, Marseille | **Reykjavík (Iceland)**, **Tórshavn (Faroe Islands)**, **Ponta Delgada (Azores)**, **Lisbon**, **Oslo**, **Stockholm**, **Hamina (Finland)**, **Casablanca (Morocco)**, **Cairo (Egypt)**, **Tel Aviv**, **Athens**, **Warsaw (×2)**, **Bucharest**, **Istanbul**, **Dubai**, **Doha**, **Almaty**, optional Moscow IXP |
+| **Asia-Pacific, Oceania, LatAm & Africa** | **16** | Tokyo (×2), Seoul, Taiwan, Hong Kong, Singapore (×2), Mumbai (×2), Jakarta, Sydney, São Paulo, Santiago, Johannesburg | **Auckland (`NZ`)**, **Cape Town (`ZA`)** |
+
+**Verified Rust GDOP Audit (`pog-cli audit-coverage --grid config/global_grid_72.json --baseline-grid config/global_grid_24.json`, $f=1$ Byzantine):**
+* **7.05× tighter border & coastal localization:** 20-city mean calibrated bound drops from **`1,341 mi` → `190 mi`**, jumping from **1/20 → 19/20** cities with full **4/4 compass-quadrant surround** (e.g., Lisbon `2,043 → 211 mi`, Miami `1,918 → 186 mi`, San Francisco `1,039 → 159 mi`, Istanbul `2,392 → 135 mi`, Helsinki `1,176 → 292 mi`, Mexico City `3,034 → 240 mi`, Warsaw `806 → 11 mi`).
+* **Starter 24-node config** remains available in [config/global_grid_24.json](config/global_grid_24.json) alongside our live locked-down **9-node public grid** in [config/public_anchors.json](config/public_anchors.json).
 
 ---
 
@@ -197,15 +198,18 @@ cargo run --release --bin pog-cli -- export-sdk-fixture
 (cd sdks/go && go test -v ./...)
 (cd sdks/python && PYTHONPATH=. python3 -m unittest discover -v tests)
 
-# 2. Run the 6-scenario red-team & physics simulation suite
+# 2. Run the 6-scenario red-team simulation & 72-node border-city GDOP audit
 cargo run --release --bin pog-cli -- simulate
+cargo run --release --bin pog-cli -- audit-coverage --grid config/global_grid_72.json --baseline-grid config/global_grid_24.json
+cargo run --release --bin pog-cli -- calibrate-mesh --grid config/public_anchors.json --mesh-json web/data/live_mesh_summary.json
 
-# 3. Try the live local 4-Anchor network + interactive Web Playground (http://127.0.0.1:8090)
-./scripts/live_smoke_test.sh
+# 3. Run the drop-in Prover TEE reverse-proxy sidecar (auto-injects X-PoG-Proof on every API response)
+cargo run --release --bin pog-prover -- --grid-path config/public_anchors.json \
+  --claimed-lat 37.3382 --claimed-lon=-121.8863 --upstream http://127.0.0.1:8000 --log-url http://127.0.0.1:8090 --allow-dev-tee
 
-# 4. Deploy the real 24-node global grid on GCP + AWS + Azure (+ OVH/ByteDance/Tencent)
-#    See docs/DEPLOY_24_NODES.md for step-by-step cloud deployment
-./scripts/deploy_24_grid.sh <YOUR_GCP_PROJECT> <YOUR_AZURE_SUBSCRIPTION_ID>
+# 4. Build & verify reproducible SHA-256 TEE workload measurements from source
+./infra/reproducible/build_reproducible.sh
+./infra/reproducible/verify_measurement.sh dist/reproducible/measurement_manifest.json dist/reproducible
 ```
 
 ---
