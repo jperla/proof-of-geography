@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "network_id": "proofofgeography.com",
+  "operator_name": "jperla",
+  "root_public_key_hex": "fdff6d6d0b8364e459ffbb921430e39411bd812ec3ce766c2904b39bfa996ee1",
+  "issued_at_unix_s": 1795820622,
+  "expires_at_unix_s": 1827356622,
+  "grid": {
+    "version": "2.0.0",
+    "grid_name": "pog-live-hw-tee-grid-7",
+    "description": "Live locked-down 7-node GCP Hardware Confidential Computing TEE Anchor grid (2 Intel TDX + 5 AMD SEV-SNP on Rocky Linux 9, SELinux Enforcing)",
+    "anchors": [
+      {
+        "anchor_id": "gcp-asia-southeast1-singapore",
+        "cloud_provider": "gcp",
+        "region": "asia-southeast1",
+        "city": "Jurong West, Singapore",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 1.3521,
+          "lon": 103.8198
+        },
+        "endpoint_tcp": "34.2.145.119:7443",
+        "endpoint_udp": "34.2.145.119:7444",
+        "public_key_hex": "bcd76893365b4188515aabf49eee7a9ca15f91eb52f70102e77bb2ab53a8b39d",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "gcp-europe-west2-london",
+        "cloud_provider": "gcp",
+        "region": "europe-west2",
+        "city": "London, UK",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 51.5074,
+          "lon": -0.1278
+        },
+        "endpoint_tcp": "35.214.10.90:7443",
+        "endpoint_udp": "35.214.10.90:7444",
+        "public_key_hex": "de6807be8adbd501941e68ec603959724f9b55d46c0d93b6ba31f4d9d58eea27",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "gcp-europe-west3-frankfurt",
+        "cloud_provider": "gcp",
+        "region": "europe-west3",
+        "city": "Frankfurt, Germany",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 50.1109,
+          "lon": 8.6821
+        },
+        "endpoint_tcp": "35.207.136.128:7443",
+        "endpoint_udp": "35.207.136.128:7444",
+        "public_key_hex": "a57733ff38786797432ebc8e4a47cda45e049031427d7b933d807ea61e7e2918",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "gcp-europe-west4-netherlands",
+        "cloud_provider": "gcp",
+        "region": "europe-west4",
+        "city": "Amsterdam, Netherlands",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 52.3676,
+          "lon": 4.9041
+        },
+        "endpoint_tcp": "35.214.132.111:7443",
+        "endpoint_udp": "35.214.132.111:7444",
+        "public_key_hex": "0ca4809b6bbdb2f4b661aa4e4c7b4db25876d3558c894c1deebb02e17047eecf",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "gcp-us-central1-iowa",
+        "cloud_provider": "gcp",
+        "region": "us-central1",
+        "city": "Council Bluffs, IA, USA",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": {
+          "lat": 41.2619,
+          "lon": -95.8608
+        },
+        "endpoint_tcp": "35.209.22.219:7443",
+        "endpoint_udp": "35.209.22.219:7444",
+        "public_key_hex": "b97bd3fb0f9d46da6e81f0bfe6cfd659278432fb33b986d55d32d2fc05be667c",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "gcp-us-east4-ashburn",
+        "cloud_provider": "gcp",
+        "region": "us-east4",
+        "city": "Ashburn, VA, USA",
+        "tee_vendor": "IntelTdx",
+        "instance_type": "c3-standard-4",
+        "location": {
+          "lat": 39.0438,
+          "lon": -77.4874
+        },
+        "endpoint_tcp": "34.4.37.46:7443",
+        "endpoint_udp": "34.4.37.46:7444",
+        "public_key_hex": "33bf96e5aa6f1ecc59c2194a6f878698d46f6e37caae9f612358657342d249e5",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "gcp-us-west1-oregon",
+        "cloud_provider": "gcp",
+        "region": "us-west1",
+        "city": "The Dalles, OR, USA",
+        "tee_vendor": "IntelTdx",
+        "instance_type": "c3-standard-4",
+        "location": {
+          "lat": 45.5946,
+          "lon": -121.1787
+        },
+        "endpoint_tcp": "34.3.99.152:7443",
+        "endpoint_udp": "34.3.99.152:7444",
+        "public_key_hex": "54f20c9461726f608009d72fd3a67074379c85fdc389b67d78a4c01ead78589a",
+        "coordinate_basis": null
+      }
+    ]
+  },
+  "operator_signature_hex": "3e01565aff935781decac62ab3b41edf2ab95e25029e2fc4f073dcd031a86fbce315436dde9c47a2f1dd26a1fcb2df7d6e8cc778fae1cd67f7cf5105bbd99b03"
+}

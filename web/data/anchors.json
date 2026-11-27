@@ -2,9 +2,9 @@
   "network_id": "proofofgeography.com",
   "operator_name": "Proof of Geography",
   "official": true,
-  "count": 42,
-  "hw_tee_count": 0,
-  "gcp_count": 14,
+  "count": 49,
+  "hw_tee_count": 7,
+  "gcp_count": 21,
   "aws_count": 14,
   "azure_count": 14,
   "os_standard": "Rocky Linux 9 (SELinux Enforcing, Latest Kernel)",
@@ -387,6 +387,19 @@
       "kernel": "5.14.0-687.66.1+2.1.el9_8_ciq.x86_64"
     },
     {
+      "id": "gcp-asia-southeast1-singapore",
+      "slug": "sin-gcp",
+      "city": "Jurong West, Singapore",
+      "cloud": "gcp",
+      "region": "asia-southeast1",
+      "defaultTee": "AmdSevSnp",
+      "lat": 1.3521,
+      "lon": 103.8198,
+      "color": "#818cf8",
+      "os": "Rocky Linux release 9.9 (Blue Onyx)",
+      "kernel": "5.14.0-687.66.1+2.1.el9_8_ciq.x86_64"
+    },
+    {
       "id": "gcp-europe-central2-warsaw",
       "slug": "waw-gcp",
       "city": "Warsaw, Poland",
@@ -422,6 +435,45 @@
       "lat": 40.4168,
       "lon": -3.7038,
       "color": "#38bdf8",
+      "os": "Rocky Linux release 9.9 (Blue Onyx)",
+      "kernel": "5.14.0-687.66.1+2.1.el9_8_ciq.x86_64"
+    },
+    {
+      "id": "gcp-europe-west2-london",
+      "slug": "lhr-gcp",
+      "city": "London, UK",
+      "cloud": "gcp",
+      "region": "europe-west2",
+      "defaultTee": "AmdSevSnp",
+      "lat": 51.5074,
+      "lon": -0.1278,
+      "color": "#818cf8",
+      "os": "Rocky Linux release 9.9 (Blue Onyx)",
+      "kernel": "5.14.0-687.66.1+2.1.el9_8_ciq.x86_64"
+    },
+    {
+      "id": "gcp-europe-west3-frankfurt",
+      "slug": "fra-gcp",
+      "city": "Frankfurt, Germany",
+      "cloud": "gcp",
+      "region": "europe-west3",
+      "defaultTee": "AmdSevSnp",
+      "lat": 50.1109,
+      "lon": 8.6821,
+      "color": "#818cf8",
+      "os": "Rocky Linux release 9.9 (Blue Onyx)",
+      "kernel": "5.14.0-687.66.1+2.1.el9_8_ciq.x86_64"
+    },
+    {
+      "id": "gcp-europe-west4-netherlands",
+      "slug": "ams-gcp",
+      "city": "Amsterdam, Netherlands",
+      "cloud": "gcp",
+      "region": "europe-west4",
+      "defaultTee": "AmdSevSnp",
+      "lat": 52.3676,
+      "lon": 4.9041,
+      "color": "#818cf8",
       "os": "Rocky Linux release 9.9 (Blue Onyx)",
       "kernel": "5.14.0-687.66.1+2.1.el9_8_ciq.x86_64"
     },
@@ -491,6 +543,19 @@
       "kernel": "5.14.0-687.66.1+2.1.el9_8_ciq.x86_64"
     },
     {
+      "id": "gcp-us-central1-iowa",
+      "slug": "dsm-gcp",
+      "city": "Council Bluffs, IA, USA",
+      "cloud": "gcp",
+      "region": "us-central1",
+      "defaultTee": "AmdSevSnp",
+      "lat": 41.2619,
+      "lon": -95.8608,
+      "color": "#818cf8",
+      "os": "Rocky Linux release 9.9 (Blue Onyx)",
+      "kernel": "5.14.0-687.66.1+2.1.el9_8_ciq.x86_64"
+    },
+    {
       "id": "gcp-us-east1-sc",
       "slug": "chs-gcp",
       "city": "Moncks Corner, SC, USA",
@@ -504,6 +569,19 @@
       "kernel": "5.14.0-687.66.1+2.1.el9_8_ciq.x86_64"
     },
     {
+      "id": "gcp-us-east4-ashburn",
+      "slug": "iad-gcp",
+      "city": "Ashburn, VA, USA",
+      "cloud": "gcp",
+      "region": "us-east4",
+      "defaultTee": "IntelTdx",
+      "lat": 39.0438,
+      "lon": -77.4874,
+      "color": "#38bdf8",
+      "os": "Rocky Linux release 9.9 (Blue Onyx)",
+      "kernel": "5.14.0-687.66.1+2.1.el9_8_ciq.x86_64"
+    },
+    {
       "id": "gcp-us-south1-dallas",
       "slug": "dfw-gcp",
       "city": "Dallas, TX, USA",
@@ -512,6 +590,19 @@
       "defaultTee": "SoftwareDev",
       "lat": 32.7767,
       "lon": -96.797,
+      "color": "#38bdf8",
+      "os": "Rocky Linux release 9.9 (Blue Onyx)",
+      "kernel": "5.14.0-687.66.1+2.1.el9_8_ciq.x86_64"
+    },
+    {
+      "id": "gcp-us-west1-oregon",
+      "slug": "pdx-gcp",
+      "city": "The Dalles, OR, USA",
+      "cloud": "gcp",
+      "region": "us-west1",
+      "defaultTee": "IntelTdx",
+      "lat": 45.5946,
+      "lon": -121.1787,
       "color": "#38bdf8",
       "os": "Rocky Linux release 9.9 (Blue Onyx)",
       "kernel": "5.14.0-687.66.1+2.1.el9_8_ciq.x86_64"
