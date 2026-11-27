@@ -215,10 +215,7 @@ pub fn parse_http_unix_body(raw_resp: &[u8]) -> Result<String, TeeError> {
 
 fn decode_chunked_body(mut input: &[u8]) -> Result<Vec<u8>, TeeError> {
     let mut out = Vec::new();
-    loop {
-        let Some(pos) = input.windows(2).position(|w| w == b"\r\n") else {
-            break;
-        };
+    while let Some(pos) = input.windows(2).position(|w| w == b"\r\n") {
         let len_str = std::str::from_utf8(&input[..pos])
             .map_err(|_| TeeError::GenerationFailed("Bad chunk header".into()))?
             .split(';')
@@ -708,12 +705,30 @@ mod tests {
     }
 
     fn generate_test_rsa_keypair() -> (RsaKeyPair, RsaJwk) {
-        let out = std::process::Command::new("openssl")
-            .args(["genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048", "-outform", "DER"])
-            .output()
-            .expect("openssl required for RSA-2048 unit test keygen");
-        assert!(out.status.success(), "openssl genpkey failed");
-        let kp = RsaKeyPair::from_pkcs8(&out.stdout).expect("ring parse pkcs8 RSA-2048");
+        let child = std::process::Command::new("openssl")
+            .args(["genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("openssl genpkey spawn failed");
+        let pem_out = child.wait_with_output().expect("openssl genpkey failed");
+        assert!(pem_out.status.success(), "openssl genpkey failed");
+        let mut pk8 = std::process::Command::new("openssl")
+            .args(["pkcs8", "-topk8", "-nocrypt", "-outform", "DER"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("openssl pkcs8 spawn failed");
+        {
+            use std::io::Write;
+            pk8.stdin.as_mut().unwrap().write_all(&pem_out.stdout).unwrap();
+        }
+        let der_out = pk8.wait_with_output().expect("openssl pkcs8 failed");
+        assert!(der_out.status.success(), "openssl pkcs8 failed");
+        let kp = RsaKeyPair::from_pkcs8(&der_out.stdout)
+            .or_else(|_| RsaKeyPair::from_der(&der_out.stdout))
+            .expect("ring parse pkcs8/der RSA-2048");
         let (n_bytes, e_bytes) = parse_pkcs1_rsa_pub_ne(kp.public().as_ref());
         let jwk = RsaJwk {
             kty: "RSA".into(),
@@ -832,11 +847,11 @@ mod tests {
             "cs-test-kid-1",
             &make_claims("GCP_INTEL_TDX", "disabled-since-boot", vec!["STABLE"], &image_digest, vec![], vec![pk_hex.clone(), nonce_hex.clone()], now - 1),
         );
-        assert!(verify_gcp_confidential_space_jwt(&expired_jwt, &[jwk.clone()], GCP_CS_DEFAULT_AUDIENCE, &pk_hex, &nonce_hex, &pol, now).is_err());
+        assert!(verify_gcp_confidential_space_jwt(&expired_jwt, std::slice::from_ref(&jwk), GCP_CS_DEFAULT_AUDIENCE, &pk_hex, &nonce_hex, &pol, now).is_err());
 
         // 4. Stale / mismatched nonce OR stale key MUST FAIL!
-        assert!(verify_gcp_confidential_space_jwt(&good_jwt, &[jwk.clone()], GCP_CS_DEFAULT_AUDIENCE, &pk_hex, &"aa".repeat(32), &pol, now).is_err());
-        assert!(verify_gcp_confidential_space_jwt(&good_jwt, &[jwk.clone()], GCP_CS_DEFAULT_AUDIENCE, &"bb".repeat(32), &nonce_hex, &pol, now).is_err());
+        assert!(verify_gcp_confidential_space_jwt(&good_jwt, std::slice::from_ref(&jwk), GCP_CS_DEFAULT_AUDIENCE, &pk_hex, &"aa".repeat(32), &pol, now).is_err());
+        assert!(verify_gcp_confidential_space_jwt(&good_jwt, std::slice::from_ref(&jwk), GCP_CS_DEFAULT_AUDIENCE, &"bb".repeat(32), &nonce_hex, &pol, now).is_err());
 
         // 5. Debug Confidential Space image MUST FAIL (dbgstat != disabled-since-boot OR DEBUG attr)!
         let dbg_jwt = sign_cs_jwt(
@@ -844,7 +859,7 @@ mod tests {
             "cs-test-kid-1",
             &make_claims("GCP_INTEL_TDX", "enabled", vec!["DEBUG"], &image_digest, vec![], vec![pk_hex.clone(), nonce_hex.clone()], now + 3600),
         );
-        assert!(verify_gcp_confidential_space_jwt(&dbg_jwt, &[jwk.clone()], GCP_CS_DEFAULT_AUDIENCE, &pk_hex, &nonce_hex, &pol, now).is_err());
+        assert!(verify_gcp_confidential_space_jwt(&dbg_jwt, std::slice::from_ref(&jwk), GCP_CS_DEFAULT_AUDIENCE, &pk_hex, &nonce_hex, &pol, now).is_err());
 
         // 6. Boot-time cmd_override (`--allow-dev-tee`) MUST FAIL!
         let cmd_jwt = sign_cs_jwt(
@@ -852,7 +867,7 @@ mod tests {
             "cs-test-kid-1",
             &make_claims("GCP_INTEL_TDX", "disabled-since-boot", vec!["STABLE"], &image_digest, vec!["--allow-dev-tee"], vec![pk_hex.clone(), nonce_hex.clone()], now + 3600),
         );
-        assert!(verify_gcp_confidential_space_jwt(&cmd_jwt, &[jwk.clone()], GCP_CS_DEFAULT_AUDIENCE, &pk_hex, &nonce_hex, &pol, now).is_err());
+        assert!(verify_gcp_confidential_space_jwt(&cmd_jwt, std::slice::from_ref(&jwk), GCP_CS_DEFAULT_AUDIENCE, &pk_hex, &nonce_hex, &pol, now).is_err());
 
         // 7. Non-TDX hwmodel (e.g. Gen-1 SEV downgrade) MUST FAIL!
         let sev_jwt = sign_cs_jwt(
@@ -860,6 +875,6 @@ mod tests {
             "cs-test-kid-1",
             &make_claims("GCP_AMD_SEV", "disabled-since-boot", vec!["STABLE"], &image_digest, vec![], vec![pk_hex.clone(), nonce_hex.clone()], now + 3600),
         );
-        assert!(verify_gcp_confidential_space_jwt(&sev_jwt, &[jwk], GCP_CS_DEFAULT_AUDIENCE, &pk_hex, &nonce_hex, &pol, now).is_err());
+        assert!(verify_gcp_confidential_space_jwt(&sev_jwt, std::slice::from_ref(&jwk), GCP_CS_DEFAULT_AUDIENCE, &pk_hex, &nonce_hex, &pol, now).is_err());
     }
 }

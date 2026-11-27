@@ -68,6 +68,7 @@ pub enum HostToEnclaveMsg {
 /// Messages sent from the Nitro Enclave back to the untrusted parent EC2 relay over `AF_VSOCK`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[allow(clippy::large_enum_variant)]
 pub enum EnclaveToHostMsg {
     /// Enclave `/info` payload containing NSM hardware COSE_Sign1 quote and enclave-resident public key.
     InfoResponse {

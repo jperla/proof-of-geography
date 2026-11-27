@@ -769,13 +769,28 @@ mod tests {
         let vcek_kp = KeyPair::generate_for(&PKCS_ECDSA_P384_SHA384).unwrap();
         let vcek_c = vcek_p.signed_by(&vcek_kp, &ask_c, &ask_kp).unwrap();
 
-        // 2. Generate ephemeral vTPM AK RSA-2048 keypair
-        let ak_der = std::process::Command::new("openssl")
-            .args(["genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048", "-outform", "DER"])
+        // 2. Generate ephemeral vTPM AK RSA-2048 keypair (canonical PKCS#8 DER across OpenSSL 3 / LibreSSL)
+        let pem_out = std::process::Command::new("openssl")
+            .args(["genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048"])
+            .stderr(std::process::Stdio::null())
             .output()
-            .unwrap()
-            .stdout;
-        let ak_kp = RsaKeyPair::from_pkcs8(&ak_der).unwrap();
+            .unwrap();
+        assert!(pem_out.status.success());
+        let mut pk8 = std::process::Command::new("openssl")
+            .args(["pkcs8", "-topk8", "-nocrypt", "-outform", "DER"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        {
+            use std::io::Write;
+            pk8.stdin.as_mut().unwrap().write_all(&pem_out.stdout).unwrap();
+        }
+        let ak_der = pk8.wait_with_output().unwrap().stdout;
+        let ak_kp = RsaKeyPair::from_pkcs8(&ak_der)
+            .or_else(|_| RsaKeyPair::from_der(&ak_der))
+            .unwrap();
         let (ak_n, ak_e) = parse_pkcs1_rsa_pub_ne(ak_kp.public().as_ref());
         let ak_jwk = RsaJwk {
             kty: "RSA".into(),
