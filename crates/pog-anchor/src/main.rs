@@ -230,6 +230,14 @@ fn build_fresh_attest_payload(
     state: &AnchorState,
     caller_nonce_hex: &str,
 ) -> Result<serde_json::Value, String> {
+    build_fresh_attest_payload_with_id(state, caller_nonce_hex, &state.anchor_id)
+}
+
+fn build_fresh_attest_payload_with_id(
+    state: &AnchorState,
+    caller_nonce_hex: &str,
+    effective_anchor_id: &str,
+) -> Result<serde_json::Value, String> {
     let nonce_bytes = parse_caller_nonce_hex(caller_nonce_hex)?;
     let norm_nonce_hex = hex::encode(&nonce_bytes);
     let pk_bytes = state.signing_key.verifying_key().to_bytes();
@@ -239,18 +247,22 @@ fn build_fresh_attest_payload(
         .tee_provider
         .attest(&pk_bytes, &nonce_bytes, None)
         .map_err(|e| format!("hardware attestation failed: {e}"))?;
-    let pop_msg = attest_pop_message(&state.anchor_id, &norm_nonce_hex, &quote.workload_measurement_hex);
+    let pop_msg = attest_pop_message(
+        effective_anchor_id,
+        &norm_nonce_hex,
+        &quote.workload_measurement_hex,
+    );
     let pop_sig_hex = hex::encode(state.signing_key.sign(&pop_msg).to_bytes());
     let (operator_endorsement, endorsement_status) = load_verified_endorsement(
         &state.endorsement_path,
-        &state.anchor_id,
+        effective_anchor_id,
         &pk_hex,
         state.operator_root_pk_hex.as_deref(),
         now,
     );
     let vendor = state.tee_provider.vendor();
     Ok(serde_json::json!({
-        "anchor_id": state.anchor_id,
+        "anchor_id": effective_anchor_id,
         "cloud_provider": state.cloud_provider,
         "tee_vendor": vendor,
         "hardware_tee_device": vendor.is_production_hardware_tee(),
@@ -273,6 +285,14 @@ fn build_fresh_attest_payload(
 }
 
 fn build_info_payload(state: &AnchorState, bootstrap_nonce: String) -> serde_json::Value {
+    build_info_payload_with_id(state, bootstrap_nonce, &state.anchor_id)
+}
+
+fn build_info_payload_with_id(
+    state: &AnchorState,
+    bootstrap_nonce: String,
+    effective_anchor_id: &str,
+) -> serde_json::Value {
     let pk_bytes = state.signing_key.verifying_key().to_bytes();
     let pk_hex = hex::encode(pk_bytes);
     let now = Utc::now().timestamp().max(0) as u64;
@@ -282,14 +302,14 @@ fn build_info_payload(state: &AnchorState, bootstrap_nonce: String) -> serde_jso
         .ok();
     let (operator_endorsement, endorsement_status) = load_verified_endorsement(
         &state.endorsement_path,
-        &state.anchor_id,
+        effective_anchor_id,
         &pk_hex,
         state.operator_root_pk_hex.as_deref(),
         now,
     );
     let vendor = state.tee_provider.vendor();
     serde_json::json!({
-        "anchor_id": state.anchor_id,
+        "anchor_id": effective_anchor_id,
         "cloud_provider": state.cloud_provider,
         "tee_vendor": vendor,
         "hardware_tee_device": vendor.is_production_hardware_tee(),
@@ -518,13 +538,29 @@ fn handle_enclave_session_stream<S: Read + Write>(
 ) -> Result<()> {
     let first: HostToEnclaveMsg = read_vsock_frame(stream)?;
     match first {
-        HostToEnclaveMsg::GetInfo { bootstrap_nonce } => {
-            let payload = build_info_payload(state, bootstrap_nonce);
+        HostToEnclaveMsg::GetInfo {
+            bootstrap_nonce,
+            anchor_id,
+        } => {
+            let effective_id = anchor_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&state.anchor_id);
+            let payload = build_info_payload_with_id(state, bootstrap_nonce, effective_id);
             write_vsock_frame(stream, &EnclaveToHostMsg::InfoResponse { payload })?;
             Ok(())
         }
-        HostToEnclaveMsg::AttestFresh { caller_nonce_hex } => {
-            match build_fresh_attest_payload(state, &caller_nonce_hex) {
+        HostToEnclaveMsg::AttestFresh {
+            caller_nonce_hex,
+            anchor_id,
+        } => {
+            let effective_id = anchor_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&state.anchor_id);
+            match build_fresh_attest_payload_with_id(state, &caller_nonce_hex, effective_id) {
                 Ok(payload) => {
                     write_vsock_frame(stream, &EnclaveToHostMsg::AttestResponse { payload })?;
                     Ok(())
@@ -539,7 +575,14 @@ fn handle_enclave_session_stream<S: Read + Write>(
             peer_ip,
             host_udp_port,
             init_req,
+            anchor_id,
         } => {
+            let effective_id = anchor_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&state.anchor_id)
+                .to_string();
             if init_req.epoch_challenge_hex.len() > 128
                 || init_req.prover_quote.raw_quote_b64.len() > 24_000
             {
@@ -569,7 +612,7 @@ fn handle_enclave_session_stream<S: Read + Write>(
                 session_id,
                 &epoch_bytes,
                 &verified_prover.public_key_hex,
-                &state.anchor_id,
+                &effective_id,
             );
             let cookie = compute_return_cookie(&state.cookie_secret, session_id, &peer_ip);
             let anchor_pk_bytes = state.signing_key.verifying_key().to_bytes();
@@ -579,7 +622,7 @@ fn handle_enclave_session_stream<S: Read + Write>(
 
             let init_resp = Phase1InitResponse {
                 session_id,
-                anchor_id: state.anchor_id.clone(),
+                anchor_id: effective_id.clone(),
                 anchor_quote,
                 anchor_ephemeral_x25519_hex: hex::encode(anchor_eph_pk.as_bytes()),
                 return_cookie_hex: hex::encode(cookie),
@@ -619,7 +662,7 @@ fn handle_enclave_session_stream<S: Read + Write>(
             let rtt_p50_us = sorted[sorted.len() / 2];
 
             let mut receipt = AnchorReceipt {
-                anchor_id: state.anchor_id.clone(),
+                anchor_id: effective_id,
                 cloud_provider: state.cloud_provider.clone(),
                 prover_pk_hex: verified_prover.public_key_hex,
                 workload_measurement_hex: verified_prover.workload_measurement_hex,
@@ -731,7 +774,10 @@ async fn run_nitro_host_relay(args: Args, enclave_cid: u32) -> Result<()> {
                             let mut vs = pog_proto::vsock::connect_nitro_vsock(enclave_cid, enclave_port)?;
                             vs.set_read_timeout(Some(Duration::from_secs(5)))?;
                             vs.set_write_timeout(Some(Duration::from_secs(5)))?;
-                            write_vsock_frame(&mut vs, &HostToEnclaveMsg::GetInfo { bootstrap_nonce: nonce })?;
+                            write_vsock_frame(&mut vs, &HostToEnclaveMsg::GetInfo {
+                                bootstrap_nonce: nonce,
+                                anchor_id: Some(aid.clone()),
+                            })?;
                             match read_vsock_frame::<_, EnclaveToHostMsg>(&mut vs)? {
                                 EnclaveToHostMsg::InfoResponse { mut payload } => {
                                     // Attach parent-host `/etc/pog/endorsement.json` ONLY if it strictly matches
@@ -778,7 +824,10 @@ async fn run_nitro_host_relay(args: Args, enclave_cid: u32) -> Result<()> {
                                 let mut vs = pog_proto::vsock::connect_nitro_vsock(enclave_cid, enclave_port)?;
                                 vs.set_read_timeout(Some(Duration::from_secs(5)))?;
                                 vs.set_write_timeout(Some(Duration::from_secs(5)))?;
-                                write_vsock_frame(&mut vs, &HostToEnclaveMsg::AttestFresh { caller_nonce_hex: nonce_hex })?;
+                                write_vsock_frame(&mut vs, &HostToEnclaveMsg::AttestFresh {
+                                    caller_nonce_hex: nonce_hex,
+                                    anchor_id: Some(aid.clone()),
+                                })?;
                                 match read_vsock_frame::<_, EnclaveToHostMsg>(&mut vs)? {
                                     EnclaveToHostMsg::AttestResponse { mut payload } => {
                                         if let Some(pk) = payload.get("public_key_hex").and_then(|v| v.as_str()).map(|s| s.to_string()) {
@@ -825,6 +874,7 @@ async fn run_nitro_host_relay(args: Args, enclave_cid: u32) -> Result<()> {
         let udp_ip = args.udp_bind.ip();
         let pmin = args.udp_port_min;
         let pmax = args.udp_port_max;
+        let aid_tcp = anchor_id.clone();
         tokio::spawn(async move {
             let _permit = permit;
             let _ = tokio::time::timeout(SESSION_TOTAL_TIMEOUT, async move {
@@ -846,6 +896,7 @@ async fn run_nitro_host_relay(args: Args, enclave_cid: u32) -> Result<()> {
                         peer_ip: peer_ip_str,
                         host_udp_port,
                         init_req,
+                        anchor_id: Some(aid_tcp),
                     })?;
                     match read_vsock_frame::<_, EnclaveToHostMsg>(&mut vs)? {
                         EnclaveToHostMsg::Phase1Ready { init_resp, return_cookie_hex } => {
@@ -1171,7 +1222,7 @@ mod tests {
         let anchor_sk = SigningKey::generate(&mut OsRng);
         let anchor_pk_hex = hex::encode(anchor_sk.verifying_key().to_bytes());
         let state = Arc::new(AnchorState {
-            anchor_id: "aws-nitro-canary".into(),
+            anchor_id: "local-anchor-01".into(),
             cloud_provider: "aws".into(),
             signing_key: anchor_sk,
             cookie_secret: [0x33u8; 32],
@@ -1186,6 +1237,38 @@ mod tests {
             endorsement_path: PathBuf::from("/nonexistent/endorsement.json"),
             operator_root_pk_hex: None,
         });
+
+        // 1. Verify AttestFresh binds the per-region anchor_id supplied by the host relay (shared EIF!)
+        {
+            let (mut enc_s, mut host_s) = UnixStream::pair().unwrap();
+            let st_c = Arc::clone(&state);
+            let t = thread::spawn(move || {
+                handle_enclave_session_stream(&mut enc_s, &st_c).unwrap();
+            });
+            let nonce = "55".repeat(32);
+            write_vsock_frame(
+                &mut host_s,
+                &HostToEnclaveMsg::AttestFresh {
+                    caller_nonce_hex: nonce.clone(),
+                    anchor_id: Some("aws-us-east-1-nvirginia".into()),
+                },
+            )
+            .unwrap();
+            let EnclaveToHostMsg::AttestResponse { payload } =
+                read_vsock_frame(&mut host_s).unwrap()
+            else {
+                panic!("expected AttestResponse");
+            };
+            assert_eq!(payload["anchor_id"], "aws-us-east-1-nvirginia");
+            let q_meas = payload["tee_quote"]["workload_measurement_hex"]
+                .as_str()
+                .unwrap();
+            let pop_sig =
+                hex::decode(payload["proof_of_possession_sig_hex"].as_str().unwrap()).unwrap();
+            let pop_msg = attest_pop_message("aws-us-east-1-nvirginia", &nonce, q_meas);
+            assert!(WorkloadKeypair::verify_with_hex(&anchor_pk_hex, &pop_msg, &pop_sig).is_ok());
+            t.join().unwrap();
+        }
 
         let (mut enclave_stream, mut host_stream) = UnixStream::pair().unwrap();
         let st_clone = Arc::clone(&state);
@@ -1207,6 +1290,7 @@ mod tests {
             &HostToEnclaveMsg::Phase1Start {
                 peer_ip: "198.51.100.77".into(),
                 host_udp_port: 40123,
+                anchor_id: Some("aws-nitro-canary".into()),
                 init_req: Phase1InitRequest {
                     prover_quote,
                     epoch_challenge_hex: hex::encode(epoch),
@@ -1223,6 +1307,7 @@ mod tests {
         else {
             panic!("expected Phase1Ready");
         };
+        assert_eq!(init_resp.anchor_id, "aws-nitro-canary");
         assert_eq!(init_resp.anchor_quote.public_key_hex, anchor_pk_hex);
 
         let anchor_eph_arr: [u8; 32] = hex::decode(&init_resp.anchor_ephemeral_x25519_hex)

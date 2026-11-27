@@ -42,17 +42,23 @@ pub enum HostToEnclaveMsg {
     /// Request the enclave's cached/fresh NSM-attested `/info` metadata payload.
     GetInfo {
         bootstrap_nonce: String,
+        #[serde(default)]
+        anchor_id: Option<String>,
     },
     /// Request a fresh uncached hardware attestation bound to a public verifier's random hex nonce,
     /// paired with an Ed25519 proof-of-possession signature by the enclave's live probe key.
     AttestFresh {
         caller_nonce_hex: String,
+        #[serde(default)]
+        anchor_id: Option<String>,
     },
     /// Forward a Prover's Phase 1 initialization request (observed peer IP recorded by relay).
     Phase1Start {
         peer_ip: String,
         host_udp_port: u16,
         init_req: Phase1InitRequest,
+        #[serde(default)]
+        anchor_id: Option<String>,
     },
     /// Signal that the Prover sent TCP `READY` and verified UDP `PUNCH` to the parent relay.
     Phase2Start {

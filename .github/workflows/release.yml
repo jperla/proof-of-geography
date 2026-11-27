@@ -54,22 +54,94 @@ jobs:
         run: cargo build --release --target x86_64-unknown-linux-musl --bin pog-anchor --bin pog-prover --bin pog-cli
       - name: Package release tarball and SHA-256 checksum
         run: |
-          mkdir -p dist
-          cp target/x86_64-unknown-linux-musl/release/pog-anchor target/x86_64-unknown-linux-musl/release/pog-prover target/x86_64-unknown-linux-musl/release/pog-cli dist/
-          file dist/pog-anchor
-          tar -czf pog-linux-x86_64.tar.gz -C dist pog-anchor pog-prover pog-cli
-          sha256sum pog-linux-x86_64.tar.gz > pog-linux-x86_64.tar.gz.sha256
-      - name: Publish GitHub Release (Binaries Only — NOT Production Constellation Promotion)
+          mkdir -p dist/x86_64 release-assets
+          cp target/x86_64-unknown-linux-musl/release/pog-anchor target/x86_64-unknown-linux-musl/release/pog-prover target/x86_64-unknown-linux-musl/release/pog-cli dist/x86_64/
+          file dist/x86_64/pog-anchor
+          tar -czf release-assets/pog-linux-x86_64.tar.gz -C dist/x86_64 pog-anchor pog-prover pog-cli
+          (cd release-assets && sha256sum pog-linux-x86_64.tar.gz > pog-linux-x86_64.tar.gz.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-x86_64
+          path: release-assets/
+
+  build-linux-aarch64-nitro:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install musl-tools for 100% static Linux aarch64 binaries (Amazon Linux 2023 / Rocky 9 Graviton)
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build static aarch64 musl release binaries (host relay, prover, CLI)
+        run: cargo build --release --target aarch64-unknown-linux-musl --bin pog-anchor --bin pog-prover --bin pog-cli
+      - name: Package aarch64 release tarball and SHA-256 checksum
+        run: |
+          mkdir -p dist/aarch64 release-assets
+          cp target/aarch64-unknown-linux-musl/release/pog-anchor target/aarch64-unknown-linux-musl/release/pog-prover target/aarch64-unknown-linux-musl/release/pog-cli dist/aarch64/
+          file dist/aarch64/pog-anchor
+          tar -czf release-assets/pog-linux-aarch64.tar.gz -C dist/aarch64 pog-anchor pog-prover pog-cli
+          (cd release-assets && sha256sum pog-linux-aarch64.tar.gz > pog-linux-aarch64.tar.gz.sha256)
+      - name: Build real non-debug ARM64 AWS Nitro Enclave Image File (.eif) & verify non-zero PCR0/PCR1/PCR2
+        run: |
+          set -euo pipefail
+          docker build --no-cache -f infra/images/Dockerfile.anchor --target runtime --build-arg TARGETARCH=arm64 -t pog-anchor-nitro-arm64:release .
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${PWD}/release-assets:/out" \
+            public.ecr.aws/amazonlinux/amazonlinux:2023 \
+            bash -euo pipefail -c '
+              dnf install -y -q aws-nitro-enclaves-cli aws-nitro-enclaves-cli-devel
+              export NITRO_CLI_ARTIFACTS=/tmp/nitro-artifacts
+              mkdir -p /tmp/nitro-artifacts /var/log/nitro_enclaves
+              nitro-cli --version
+              nitro-cli build-enclave \
+                --docker-uri pog-anchor-nitro-arm64:release \
+                --output-file /out/pog-anchor-arm64.eif | tee /out/nitro-arm64-build.log
+              (cd /out && sha256sum pog-anchor-arm64.eif > pog-anchor-arm64.eif.sha256)
+            '
+          python3 - release-assets/nitro-arm64-build.log release-assets/pog-anchor-arm64.eif.measurements.json <<'PY'
+          import json, sys
+          raw = open(sys.argv[1]).read()
+          start = raw.find("{")
+          end = raw.rfind("}")
+          assert start != -1 and end > start, f"No JSON block found in nitro-cli output:\n{raw}"
+          doc = json.loads(raw[start : end + 1])
+          open(sys.argv[2], "w").write(json.dumps(doc, indent=2) + "\n")
+          print("Extracted ARM64 Nitro EIF measurements:")
+          print(json.dumps(doc, indent=2))
+          PY
+          rm -f release-assets/nitro-arm64-build.log
+          python3 scripts/release_gate.py --lint --eif-measurements release-assets/pog-anchor-arm64.eif.measurements.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-aarch64-nitro
+          path: release-assets/
+
+  publish-github-release:
+    needs: [ build-linux-x86_64, build-linux-aarch64-nitro ]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-linux-*
+          path: all-assets
+          merge-multiple: true
+      - name: Publish GitHub Release (x86_64 + aarch64 Static musl & Non-Debug ARM64 AWS Nitro EIF)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          ls -la all-assets/
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" pog-linux-x86_64.tar.gz pog-linux-x86_64.tar.gz.sha256 --clobber
+            gh release upload "$TAG" all-assets/* --clobber
           else
-            gh release create "$TAG" pog-linux-x86_64.tar.gz pog-linux-x86_64.tar.gz.sha256 \
+            gh release create "$TAG" all-assets/* \
               --title "Proof of Geography $TAG" \
-              --notes "Static musl Linux x86_64 binaries (zero glibc dependency) with fresh /attest?nonce= PoP, pinned vendor silicon roots, and fail-closed production promotion gate. Note: binary release does NOT promote the production constellation — promotion requires the separate promote-production-constellation gate."
+              --notes "Static musl Linux x86_64 & aarch64 binaries + non-debug ARM64 AWS Nitro Enclave Image File (.eif) with pinned PCR0/PCR1/PCR2 measurements, multi-region anchor_id vsock support, fresh /attest?nonce= PoP, and pinned vendor silicon roots."
           fi
 
   promote-production-constellation:
