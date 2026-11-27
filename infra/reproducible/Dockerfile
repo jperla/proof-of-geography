@@ -1,9 +1,13 @@
 # syntax=docker/dockerfile:1.7
-# Reproducible, Deterministic Proof of Geography TEE Binary & Measurement Builder
-# Anyone can run this Dockerfile to reproduce the exact SHA-256 / BLAKE3 binary digests
-# used to verify AMD SEV-SNP, Intel TDX, and AWS Nitro workload measurements.
+# Reproducible, Deterministic Proof of Geography TEE Binary & Zero-SSH Measurement Builder
+# Anyone can run this Dockerfile to reproduce the exact SHA-256 digests used to verify
+# AMD SEV-SNP, Intel TDX, and AWS Nitro workload measurements.
+#
+# Zero-SSH / Zero-Shell Invariant:
+# - Final runtime stage uses `gcr.io/distroless/cc-debian12:nonroot` (NO sshd, NO /bin/sh,
+#   NO interactive admin shell, NO cloud metadata remote-exec agent, NO package manager).
 
-FROM rust:1.83-bookworm AS builder
+FROM rust:1.94-bookworm AS builder
 
 ENV SOURCE_DATE_EPOCH=1700000000 \
     TZ=UTC \
@@ -15,6 +19,7 @@ ENV SOURCE_DATE_EPOCH=1700000000 \
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY config ./config
 
 RUN cargo build --release --locked --bins \
     && mkdir -p /out \
@@ -23,7 +28,7 @@ RUN cargo build --release --locked --bins \
     && cd /out \
     && sha256sum pog-anchor pog-prover pog-cli > SHA256SUMS
 
-# Minimal immutable runtime image (zero shell/package-manager bloat inside TEE!)
+# Minimal immutable non-root runtime image (ZERO sshd, ZERO /bin/sh, ZERO interactive admin shell!)
 FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
 
 COPY --from=builder /out/pog-anchor /usr/local/bin/pog-anchor

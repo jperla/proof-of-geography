@@ -185,13 +185,17 @@ impl ContinuousGeoLog {
                         ))
                     })
                     .collect();
+                let (centroid, proven_radius_km) = match e.report.tier1a_vacuum.as_ref() {
+                    Some(v) => (v.witness_centroid, v.proven_max_radius_km),
+                    None => (e.bundle.target_location, pog_geo::HALF_CIRCUMFERENCE_KM),
+                };
                 TimedGeoSnapshot {
                     seq: e.bundle.chain_seq,
                     timestamp_unix_s: e.bundle.created_at_unix_s,
                     target: e.bundle.target_location,
                     disks,
-                    centroid: e.report.tier1a_vacuum.witness_centroid,
-                    proven_radius_km: e.report.tier1a_vacuum.proven_max_radius_km,
+                    centroid,
+                    proven_radius_km,
                 }
             })
             .collect();

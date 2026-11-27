@@ -1,23 +1,15 @@
 use crate::bundle::{
     verify_proof_bundle, GeoProofBundle, ProofVerificationReport, VerificationPolicy,
 };
-use crate::committee::AnchorGrid;
+use crate::committee::{AnchorDescriptor, AnchorGrid};
 use crate::wire::ProtoError;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use pog_tee::{verify_quote, AttestationPolicy, TeeAttestationQuote, TeeVendor};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashSet};
 
-/// Cryptographically signed Anchor network registry published by an independent operator
-/// (e.g., `proofofgeography.com`, Cloudflare, OVH, EFF, or an enterprise consortium).
-///
-/// The operator's master Ed25519 root private key stays strictly offline / on the operator's
-/// admin workstation (or HSM) and signs:
-///   1. This `SignedNetworkRegistry` (authorizing the operator's Anchor list & TEE public keys).
-///   2. Optional per-Anchor `AnchorEndorsement` certs delivered securely to each Anchor node.
-///
-/// Clients pin ONLY each trusted operator's `root_public_key_hex` and can require quorum across
-/// `X` independent networks in `verify_federated_proof(...)`!
+/// Cryptographically signed Anchor network registry published by an independent operator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedNetworkRegistry {
     pub version: u8,
@@ -32,7 +24,6 @@ pub struct SignedNetworkRegistry {
 
 impl SignedNetworkRegistry {
     /// Deterministic, cross-language canonical SHA-256 signing digest.
-    /// Identical across Rust, TypeScript, Python, and Go without JSON key-ordering ambiguity.
     pub fn signing_digest(&self) -> [u8; 32] {
         let mut h = Sha256::new();
         h.update(b"POG-NETWORK-REGISTRY-V1\n");
@@ -67,7 +58,6 @@ impl SignedNetworkRegistry {
         h.finalize().into()
     }
 
-    /// Sign a network registry using the operator's local root Ed25519 signing key.
     #[allow(clippy::too_many_arguments)]
     pub fn sign_new(
         network_id: impl Into<String>,
@@ -92,6 +82,112 @@ impl SignedNetworkRegistry {
         let sig = root_key.sign(&digest);
         reg.operator_signature_hex = hex::encode(sig.to_bytes());
         reg
+    }
+
+    /// Fail-closed check: reject any production registry containing `SoftwareDev` anchors.
+    pub fn validate_production_membership(&self) -> Result<(), ProtoError> {
+        let dev_anchors: Vec<&str> = self
+            .grid
+            .anchors
+            .iter()
+            .filter(|a| !a.is_production_hardware_tee())
+            .map(|a| a.anchor_id.as_str())
+            .collect();
+        if !dev_anchors.is_empty() {
+            return Err(ProtoError::SignatureError(format!(
+                "Production registry `{}` contains {} SoftwareDev anchors (forbidden): {}",
+                self.network_id,
+                dev_anchors.len(),
+                dev_anchors.join(", ")
+            )));
+        }
+        Ok(())
+    }
+
+    /// Fail-closed production registry hygiene: rejects empty grids, `SoftwareDev` members,
+    /// duplicate IDs or keys, placeholder repeated-byte keys (e.g. `0101...`), and
+    /// simulated/example/loopback endpoints (e.g. `*.pog.example`, `localhost`, `127.0.0.1`).
+    pub fn validate_production_hygiene(&self) -> Result<(), ProtoError> {
+        if self.grid.anchors.is_empty() {
+            return Err(ProtoError::SignatureError(format!(
+                "Production registry `{}` contains 0 anchors",
+                self.network_id
+            )));
+        }
+        self.validate_production_membership()?;
+
+        let mut seen_ids = HashSet::new();
+        let mut seen_pks = HashSet::new();
+        for a in &self.grid.anchors {
+            if !seen_ids.insert(a.anchor_id.clone()) {
+                return Err(ProtoError::SignatureError(format!(
+                    "Duplicate anchor_id `{}` in registry `{}`",
+                    a.anchor_id, self.network_id
+                )));
+            }
+            let pk_bytes = hex::decode(&a.public_key_hex).map_err(|e| {
+                ProtoError::SignatureError(format!(
+                    "Anchor `{}` has invalid public_key_hex: {e}",
+                    a.anchor_id
+                ))
+            })?;
+            if pk_bytes.len() != 32 {
+                return Err(ProtoError::SignatureError(format!(
+                    "Anchor `{}` public_key_hex must be 32 bytes (got {})",
+                    a.anchor_id,
+                    pk_bytes.len()
+                )));
+            }
+            if pk_bytes.iter().all(|&b| b == pk_bytes[0]) {
+                return Err(ProtoError::SignatureError(format!(
+                    "Anchor `{}` uses a placeholder repeated-byte public_key_hex (`{:02x}`×32)",
+                    a.anchor_id, pk_bytes[0]
+                )));
+            }
+            if !seen_pks.insert(a.public_key_hex.to_ascii_lowercase()) {
+                return Err(ProtoError::SignatureError(format!(
+                    "Duplicate public_key_hex shared across multiple anchors (including `{}`)",
+                    a.anchor_id
+                )));
+            }
+            let is_placeholder_host = |ep: &str| -> bool {
+                let lower = ep.trim().to_ascii_lowercase();
+                let host = lower
+                    .strip_prefix("https://")
+                    .or_else(|| lower.strip_prefix("http://"))
+                    .unwrap_or(&lower)
+                    .split('/')
+                    .next()
+                    .unwrap_or("")
+                    .split(':')
+                    .next()
+                    .unwrap_or("");
+                host.is_empty()
+                    || host.ends_with(".example")
+                    || host.ends_with(".example.com")
+                    || host.ends_with(".example.org")
+                    || host == "example.com"
+                    || host == "example.org"
+                    || host == "localhost"
+                    || host == "127.0.0.1"
+                    || host == "0.0.0.0"
+            };
+            if is_placeholder_host(&a.endpoint_tcp) || is_placeholder_host(&a.endpoint_udp) {
+                return Err(ProtoError::SignatureError(format!(
+                    "Anchor `{}` has placeholder/non-production endpoint `{}` / `{}`",
+                    a.anchor_id, a.endpoint_tcp, a.endpoint_udp
+                )));
+            }
+            if let Some(ref url) = a.https_url {
+                if !url.starts_with("https://") || is_placeholder_host(url) {
+                    return Err(ProtoError::SignatureError(format!(
+                        "Anchor `{}` has invalid or placeholder https_url `{}`",
+                        a.anchor_id, url
+                    )));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Verify the operator's Ed25519 root signature and optional pinned root public key & expiry.
@@ -134,8 +230,7 @@ impl SignedNetworkRegistry {
     }
 }
 
-/// Per-Anchor cryptographic endorsement certificate signed by the network operator's local root key
-/// and delivered securely to an Anchor node (so the root key itself NEVER leaves the operator's machine!).
+/// Per-Anchor cryptographic endorsement certificate signed by the network operator's local root key.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnchorEndorsement {
     pub network_id: String,
@@ -215,7 +310,388 @@ impl AnchorEndorsement {
     }
 }
 
-/// An independent operator network trusted by a relying-party client (e.g. jperla + Cloudflare + OVH).
+/// Live `/info` JSON payload returned by an Anchor node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnchorLiveInfo {
+    pub anchor_id: String,
+    pub cloud_provider: String,
+    pub tee_vendor: TeeVendor,
+    pub public_key_hex: String,
+    pub bootstrap_nonce: String,
+    pub tee_quote: Option<TeeAttestationQuote>,
+    pub operator_endorsement: Option<AnchorEndorsement>,
+    #[serde(default)]
+    pub endorsement_status: Option<String>,
+    #[serde(default)]
+    pub hardened: bool,
+}
+
+/// Strict live-anchor identity & hardware-TEE audit result (reports every dimension separately).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnchorIdentityAuditResult {
+    pub anchor_id: String,
+    pub configured: bool,
+    pub reachable: bool,
+    pub hardware_tee_attested: bool,
+    pub key_matches_published_registry: bool,
+    pub endorsement_matches_live_key: bool,
+    pub endorsement_signature_valid: bool,
+    pub proof_eligible: bool,
+    pub failure_reasons: Vec<String>,
+}
+
+/// Strictly verify a live Anchor's `/info` response against its published registry entry,
+/// pinned operator root key, and `AttestationPolicy`.
+///
+/// Rejects:
+/// - `anchor_id` mismatch
+/// - live `public_key_hex` != published registry `public_key_hex`
+/// - stale/old endorsement from a previous boot (`endorsement.anchor_public_key_hex != info.public_key_hex`)
+/// - expired or invalidly signed endorsement
+/// - `SoftwareDev` or unverified TEE quote under production policy
+/// - `tee_quote.public_key_hex != info.public_key_hex` (enclave key custody mismatch!)
+pub fn verify_anchor_info_identity(
+    info: &AnchorLiveInfo,
+    published: &AnchorDescriptor,
+    pinned_root_pk_hex: &str,
+    tee_policy: &AttestationPolicy,
+    now_unix_s: u64,
+) -> AnchorIdentityAuditResult {
+    let mut failures = Vec::new();
+
+    if info.anchor_id != published.anchor_id {
+        failures.push(format!(
+            "anchor_id mismatch: live={} != published={}",
+            info.anchor_id, published.anchor_id
+        ));
+    }
+
+    let key_matches_published = info
+        .public_key_hex
+        .eq_ignore_ascii_case(&published.public_key_hex);
+    if !key_matches_published {
+        failures.push(format!(
+            "live signing key {} does not match published registry key {} (node restarted without re-enrollment or key tampered)",
+            &info.public_key_hex[..info.public_key_hex.len().min(16)],
+            &published.public_key_hex[..published.public_key_hex.len().min(16)]
+        ));
+    }
+
+    let mut endorsement_matches_live = false;
+    let mut endorsement_sig_valid = false;
+    match &info.operator_endorsement {
+        None => {
+            failures.push("missing operator_endorsement on live /info".into());
+        }
+        Some(cert) => {
+            if cert.anchor_id != published.anchor_id {
+                failures.push(format!(
+                    "endorsement anchor_id {} != {}",
+                    cert.anchor_id, published.anchor_id
+                ));
+            }
+            endorsement_matches_live = cert
+                .anchor_public_key_hex
+                .eq_ignore_ascii_case(&info.public_key_hex);
+            if !endorsement_matches_live {
+                failures.push(
+                    "stale/mismatched endorsement: endorsement.anchor_public_key_hex != live public_key_hex (old endorsement rejected on restart/rotation)"
+                        .into(),
+                );
+            }
+            match cert.verify(pinned_root_pk_hex, now_unix_s) {
+                Ok(()) => endorsement_sig_valid = true,
+                Err(e) => failures.push(format!("endorsement verification failed: {e}")),
+            }
+        }
+    }
+
+    let mut hardware_tee_attested = false;
+    if !info.tee_vendor.is_production_hardware_tee() && !tee_policy.allow_software_dev {
+        failures.push(format!(
+            "live anchor reports {} (hardware TEE required in production)",
+            info.tee_vendor.as_str()
+        ));
+    }
+    match &info.tee_quote {
+        None => {
+            failures.push("live /info missing tee_quote".into());
+        }
+        Some(quote) => {
+            if quote.vendor != info.tee_vendor {
+                failures.push("tee_quote.vendor != info.tee_vendor".into());
+            }
+            if !quote.public_key_hex.eq_ignore_ascii_case(&info.public_key_hex) {
+                failures.push(
+                    "enclave-generated tee_quote.public_key_hex != live signing public_key_hex"
+                        .into(),
+                );
+            }
+            match verify_quote(quote, info.bootstrap_nonce.as_bytes(), tee_policy, now_unix_s) {
+                Ok(verified) => {
+                    hardware_tee_attested = verified.hardware_attested;
+                    if !verified.hardware_attested && !tee_policy.allow_software_dev {
+                        failures.push("TEE quote did not pass hardware vendor-chain attestation".into());
+                    }
+                }
+                Err(e) => {
+                    failures.push(format!("live TEE quote verification failed: {e}"));
+                }
+            }
+        }
+    }
+
+    let proof_eligible = failures.is_empty()
+        && key_matches_published
+        && endorsement_matches_live
+        && endorsement_sig_valid
+        && (hardware_tee_attested || tee_policy.allow_software_dev);
+
+    AnchorIdentityAuditResult {
+        anchor_id: published.anchor_id.clone(),
+        configured: true,
+        reachable: true,
+        hardware_tee_attested,
+        key_matches_published_registry: key_matches_published,
+        endorsement_matches_live_key: endorsement_matches_live,
+        endorsement_signature_valid: endorsement_sig_valid,
+        proof_eligible,
+        failure_reasons: failures,
+    }
+}
+
+/// Live `/attest?nonce=<64-hex>` response returned by an Anchor node proving fresh caller-nonce
+/// hardware attestation + Ed25519 Proof-of-Possession + live-key-bound operator endorsement.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnchorFreshAttestResponse {
+    pub anchor_id: String,
+    pub cloud_provider: String,
+    pub tee_vendor: TeeVendor,
+    #[serde(default)]
+    pub fresh_caller_nonce: bool,
+    pub caller_nonce_hex: String,
+    pub public_key_hex: String,
+    pub proof_of_possession_sig_hex: String,
+    pub tee_quote: Option<TeeAttestationQuote>,
+    pub operator_endorsement: Option<AnchorEndorsement>,
+    #[serde(default)]
+    pub endorsement_status: Option<String>,
+    #[serde(default)]
+    pub hardened: bool,
+}
+
+/// Authoritative fail-closed verification result for a fresh `/attest?nonce=...` response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnchorFreshAttestAuditResult {
+    pub anchor_id: String,
+    pub tee_vendor: TeeVendor,
+    pub public_key_hex: String,
+    pub workload_measurement_hex: Option<String>,
+    pub fresh_caller_nonce_verified: bool,
+    pub proof_of_possession_verified: bool,
+    pub hardware_tee_attested: bool,
+    pub key_matches_published_registry: bool,
+    pub endorsement_matches_live_key: bool,
+    pub endorsement_signature_valid: bool,
+    pub endorsement_coords_match_registry: bool,
+    pub proof_eligible: bool,
+    pub failure_reasons: Vec<String>,
+}
+
+/// Canonical Ed25519 Proof-of-Possession signing payload matching `pog-anchor` `/attest?nonce=`.
+pub fn attest_pop_signing_message(
+    anchor_id: &str,
+    caller_nonce_hex: &str,
+    workload_measurement_hex: &str,
+) -> Vec<u8> {
+    format!(
+        "POG-ATTEST-POP-V1\n{}\n{}\n{}\n",
+        anchor_id,
+        caller_nonce_hex.to_ascii_lowercase(),
+        workload_measurement_hex
+    )
+    .into_bytes()
+}
+
+/// Strictly verify a live Anchor's fresh `/attest?nonce=<64-hex>` response against:
+/// 1. The published `AnchorDescriptor` in the operator-signed registry,
+/// 2. The pinned operator root Ed25519 public key (`pinned_root_pk_hex`),
+/// 3. The caller's fresh random 32-byte nonce (`expected_caller_nonce_hex`),
+/// 4. The Ed25519 Proof-of-Possession signature binding the ephemeral enclave key to the nonce & measurement,
+/// 5. Full hardware TEE vendor verification (`pog_tee::verify_quote` with pinned AWS/AMD/Intel Root CAs & measurement allowlist).
+pub fn verify_anchor_fresh_attestation(
+    resp: &AnchorFreshAttestResponse,
+    published: &AnchorDescriptor,
+    pinned_root_pk_hex: &str,
+    expected_caller_nonce_hex: &str,
+    tee_policy: &AttestationPolicy,
+    now_unix_s: u64,
+) -> AnchorFreshAttestAuditResult {
+    let mut failures = Vec::new();
+    let expected_nonce_norm = expected_caller_nonce_hex.trim().to_ascii_lowercase();
+    let expected_nonce_bytes = match hex::decode(&expected_nonce_norm) {
+        Ok(b) if b.len() >= 16 => b,
+        _ => {
+            failures.push("expected_caller_nonce_hex must be valid hex of at least 16 bytes".into());
+            Vec::new()
+        }
+    };
+
+    if resp.anchor_id != published.anchor_id {
+        failures.push(format!(
+            "anchor_id mismatch: live={} != published={}",
+            resp.anchor_id, published.anchor_id
+        ));
+    }
+
+    let fresh_nonce_matched = resp.fresh_caller_nonce
+        && !expected_nonce_bytes.is_empty()
+        && resp.caller_nonce_hex.eq_ignore_ascii_case(&expected_nonce_norm);
+    if !fresh_nonce_matched {
+        failures.push(format!(
+            "fresh caller nonce mismatch (fresh_caller_nonce={}, live={}, expected={})",
+            resp.fresh_caller_nonce, resp.caller_nonce_hex, expected_nonce_norm
+        ));
+    }
+
+    let key_matches_published = resp
+        .public_key_hex
+        .eq_ignore_ascii_case(&published.public_key_hex);
+    if !key_matches_published {
+        failures.push(format!(
+            "live signing key {} does not match signed registry key {}",
+            &resp.public_key_hex[..resp.public_key_hex.len().min(16)],
+            &published.public_key_hex[..published.public_key_hex.len().min(16)]
+        ));
+    }
+
+    if resp.tee_vendor != published.tee_vendor {
+        failures.push(format!(
+            "live tee_vendor {:?} does not match signed registry tee_vendor {:?}",
+            resp.tee_vendor, published.tee_vendor
+        ));
+    }
+
+    let mut endorsement_matches_live = false;
+    let mut endorsement_sig_valid = false;
+    let mut endorsement_coords_match = false;
+    match &resp.operator_endorsement {
+        None => failures.push("missing operator_endorsement on /attest response".into()),
+        Some(cert) => {
+            if cert.anchor_id != published.anchor_id {
+                failures.push(format!(
+                    "endorsement anchor_id {} != {}",
+                    cert.anchor_id, published.anchor_id
+                ));
+            }
+            endorsement_matches_live = cert
+                .anchor_public_key_hex
+                .eq_ignore_ascii_case(&resp.public_key_hex);
+            if !endorsement_matches_live {
+                failures.push(
+                    "stale/mismatched endorsement: endorsement.anchor_public_key_hex != live public_key_hex"
+                        .into(),
+                );
+            }
+            endorsement_coords_match = (cert.lat - published.location.lat).abs() <= 0.001
+                && (cert.lon - published.location.lon).abs() <= 0.001;
+            if !endorsement_coords_match {
+                failures.push(format!(
+                    "endorsement coordinates ({:.5},{:.5}) drift from registry ({:.5},{:.5})",
+                    cert.lat, cert.lon, published.location.lat, published.location.lon
+                ));
+            }
+            match cert.verify(pinned_root_pk_hex, now_unix_s) {
+                Ok(()) => endorsement_sig_valid = true,
+                Err(e) => failures.push(format!("endorsement signature verification failed: {e}")),
+            }
+        }
+    }
+
+    let mut hardware_tee_attested = false;
+    let mut pop_verified = false;
+    let mut workload_measurement_hex = None;
+
+    if !resp.tee_vendor.is_production_hardware_tee() && !tee_policy.allow_software_dev {
+        failures.push(format!(
+            "live anchor reports {} (hardware TEE required in production)",
+            resp.tee_vendor.as_str()
+        ));
+    }
+
+    match &resp.tee_quote {
+        None => failures.push("missing tee_quote on /attest response".into()),
+        Some(quote) => {
+            workload_measurement_hex = Some(quote.workload_measurement_hex.clone());
+            if quote.vendor != resp.tee_vendor {
+                failures.push("tee_quote.vendor != resp.tee_vendor".into());
+            }
+            if !quote.public_key_hex.eq_ignore_ascii_case(&resp.public_key_hex) {
+                failures.push("enclave-generated tee_quote.public_key_hex != live public_key_hex".into());
+            }
+
+            // Verify Ed25519 Proof-of-Possession binding live key -> (anchor_id, caller_nonce, measurement)
+            let pop_msg = attest_pop_signing_message(
+                &resp.anchor_id,
+                &expected_nonce_norm,
+                &quote.workload_measurement_hex,
+            );
+            let pk_res = hex::decode(&resp.public_key_hex)
+                .ok()
+                .and_then(|b| <[u8; 32]>::try_from(b).ok())
+                .and_then(|arr| VerifyingKey::from_bytes(&arr).ok());
+            let sig_res = hex::decode(&resp.proof_of_possession_sig_hex)
+                .ok()
+                .and_then(|b| <[u8; 64]>::try_from(b).ok())
+                .map(|arr| Signature::from_bytes(&arr));
+            match (pk_res, sig_res) {
+                (Some(vk), Some(sig)) if vk.verify(&pop_msg, &sig).is_ok() => {
+                    pop_verified = true;
+                }
+                _ => failures.push("Ed25519 Proof-of-Possession signature verification failed".into()),
+            }
+
+            if !expected_nonce_bytes.is_empty() {
+                match verify_quote(quote, &expected_nonce_bytes, tee_policy, now_unix_s) {
+                    Ok(verified) => {
+                        hardware_tee_attested = verified.hardware_attested;
+                        if !verified.hardware_attested && !tee_policy.allow_software_dev {
+                            failures.push("TEE quote did not pass hardware vendor-chain attestation".into());
+                        }
+                    }
+                    Err(e) => failures.push(format!("fresh TEE quote verification failed: {e}")),
+                }
+            }
+        }
+    }
+
+    let proof_eligible = failures.is_empty()
+        && fresh_nonce_matched
+        && pop_verified
+        && key_matches_published
+        && endorsement_matches_live
+        && endorsement_sig_valid
+        && endorsement_coords_match
+        && (hardware_tee_attested || tee_policy.allow_software_dev);
+
+    AnchorFreshAttestAuditResult {
+        anchor_id: published.anchor_id.clone(),
+        tee_vendor: resp.tee_vendor,
+        public_key_hex: resp.public_key_hex.clone(),
+        workload_measurement_hex,
+        fresh_caller_nonce_verified: fresh_nonce_matched && pop_verified && (hardware_tee_attested || tee_policy.allow_software_dev),
+        proof_of_possession_verified: pop_verified,
+        hardware_tee_attested,
+        key_matches_published_registry: key_matches_published,
+        endorsement_matches_live_key: endorsement_matches_live,
+        endorsement_signature_valid: endorsement_sig_valid,
+        endorsement_coords_match_registry: endorsement_coords_match,
+        proof_eligible,
+        failure_reasons: failures,
+    }
+}
+
+/// An independent operator network trusted by a relying-party client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrustedNetwork {
     pub network_id: String,
@@ -257,10 +733,7 @@ pub struct FederatedVerificationReport {
     pub per_network: Vec<PerNetworkVerification>,
 }
 
-/// Verify proofs obtained from multiple INDEPENDENT Proof of Geography networks
-/// (e.g. `proofofgeography.com` + `cloudflare-pog` + `ovh-pog`), requiring at least
-/// `min_independent_networks` distinct root-key-signed networks to agree on the Prover's
-/// hardware identity and physical location!
+/// Verify proofs obtained from multiple INDEPENDENT Proof of Geography networks.
 pub fn verify_federated_proof(
     submissions: &[NetworkProofSubmission],
     trusted_networks: &[TrustedNetwork],
@@ -297,7 +770,6 @@ pub fn verify_federated_proof(
             continue;
         };
 
-        // Prevent counting two aliases backed by the same operator root key as independent networks!
         let root_key_norm = net.pinned_root_public_key_hex.to_lowercase();
         if !seen_root_keys.insert(root_key_norm) {
             failure_reasons.push(format!(
@@ -331,15 +803,21 @@ pub fn verify_federated_proof(
                     for ip in &report.distinct_observed_ips {
                         all_ips.insert(ip.clone());
                     }
-                    min_vac = Some(min_vac.map_or(report.tier1a_vacuum.proven_max_radius_km, |v| {
-                        v.min(report.tier1a_vacuum.proven_max_radius_km)
-                    }));
-                    min_fib = Some(min_fib.map_or(report.tier1b_fiber.proven_max_radius_km, |v| {
-                        v.min(report.tier1b_fiber.proven_max_radius_km)
-                    }));
-                    min_cal = Some(min_cal.map_or(report.tier2_calibrated.proven_max_radius_km, |v| {
-                        v.min(report.tier2_calibrated.proven_max_radius_km)
-                    }));
+                    if let Some(ref c) = report.tier1a_vacuum {
+                        min_vac = Some(min_vac.map_or(c.proven_max_radius_km, |v| {
+                            v.min(c.proven_max_radius_km)
+                        }));
+                    }
+                    if let Some(ref c) = report.tier1b_fiber {
+                        min_fib = Some(min_fib.map_or(c.proven_max_radius_km, |v| {
+                            v.min(c.proven_max_radius_km)
+                        }));
+                    }
+                    if let Some(ref c) = report.tier2_calibrated {
+                        min_cal = Some(min_cal.map_or(c.proven_max_radius_km, |v| {
+                            v.min(c.proven_max_radius_km)
+                        }));
+                    }
                 }
                 per_network.push(PerNetworkVerification {
                     network_id: sub.network_id.clone(),
@@ -399,7 +877,7 @@ mod tests {
     use super::*;
     use crate::committee::AnchorDescriptor;
     use pog_geo::LatLon;
-    use pog_tee::TeeVendor;
+    use pog_tee::{SoftwareDevProvider, TeeProvider, TeeVendor};
     use rand::rngs::OsRng;
 
     #[test]
@@ -420,7 +898,9 @@ mod tests {
                 location: LatLon::new(50.1109, 8.6821),
                 endpoint_tcp: "35.207.136.128:7443".into(),
                 endpoint_udp: "35.207.136.128:7444".into(),
+                https_url: None,
                 public_key_hex: "aa".repeat(32),
+                coordinate_basis: None,
             }],
         };
 
@@ -433,12 +913,11 @@ mod tests {
             &root_sk,
         );
         assert!(signed.verify(Some(&root_pk_hex), 1_700_001_000).is_ok());
+        assert!(signed.validate_production_membership().is_ok());
 
-        // Tampering with an anchor coordinate MUST fail operator signature verification!
         signed.grid.anchors[0].location.lat += 1.0;
         assert!(signed.verify(Some(&root_pk_hex), 1_700_001_000).is_err());
 
-        // Endorsement cert roundtrip
         let cert = AnchorEndorsement::sign_new(
             "proofofgeography.com",
             "gcp-fra",
@@ -450,5 +929,175 @@ mod tests {
             &root_sk,
         );
         assert!(cert.verify(&root_pk_hex, 1_700_001_000).is_ok());
+    }
+
+    #[test]
+    fn test_rejects_stale_endorsement_after_restart_and_software_dev_in_prod() {
+        let root_sk = SigningKey::generate(&mut OsRng);
+        let root_pk_hex = hex::encode(root_sk.verifying_key().to_bytes());
+        let old_sk = SigningKey::generate(&mut OsRng);
+        let new_sk = SigningKey::generate(&mut OsRng);
+        let old_pk = hex::encode(old_sk.verifying_key().to_bytes());
+        let new_pk = hex::encode(new_sk.verifying_key().to_bytes());
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let published = AnchorDescriptor {
+            anchor_id: "aws-fra".into(),
+            cloud_provider: "aws".into(),
+            region: "eu-central-1".into(),
+            city: "Frankfurt".into(),
+            tee_vendor: TeeVendor::AwsNitro,
+            instance_type: "c6i.xlarge".into(),
+            location: LatLon::new(50.11, 8.68),
+            endpoint_tcp: "1.2.3.4:7443".into(),
+            endpoint_udp: "1.2.3.4:7444".into(),
+            https_url: None,
+            public_key_hex: old_pk.clone(),
+            coordinate_basis: None,
+        };
+        let old_cert = AnchorEndorsement::sign_new(
+            "proofofgeography.com",
+            "aws-fra",
+            &old_pk,
+            50.11,
+            8.68,
+            now - 100,
+            86_400,
+            &root_sk,
+        );
+        let dev_quote = SoftwareDevProvider::new("cc".repeat(32))
+            .attest(&new_sk.verifying_key().to_bytes(), b"boot-nonce", None)
+            .unwrap();
+
+        let live_info = AnchorLiveInfo {
+            anchor_id: "aws-fra".into(),
+            cloud_provider: "aws".into(),
+            tee_vendor: TeeVendor::SoftwareDev,
+            public_key_hex: new_pk,
+            bootstrap_nonce: "boot-nonce".into(),
+            tee_quote: Some(dev_quote),
+            operator_endorsement: Some(old_cert),
+            endorsement_status: None,
+            hardened: true,
+        };
+
+        let audit = verify_anchor_info_identity(
+            &live_info,
+            &published,
+            &root_pk_hex,
+            &AttestationPolicy::production(),
+            now,
+        );
+        assert!(!audit.proof_eligible);
+        assert!(!audit.key_matches_published_registry);
+        assert!(!audit.endorsement_matches_live_key);
+        assert!(!audit.hardware_tee_attested);
+    }
+
+    #[test]
+    fn test_fresh_attestation_verification_and_production_hygiene() {
+        let root_sk = SigningKey::generate(&mut OsRng);
+        let root_pk_hex = hex::encode(root_sk.verifying_key().to_bytes());
+        let node_sk = SigningKey::generate(&mut OsRng);
+        let node_pk_bytes = node_sk.verifying_key().to_bytes();
+        let node_pk_hex = hex::encode(node_pk_bytes);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let nonce_bytes = [0x42u8; 32];
+        let nonce_hex = hex::encode(nonce_bytes);
+        let meas_hex = "ab".repeat(48);
+
+        // Placeholder simulated grid MUST fail validate_production_hygiene()!
+        let sim_grid = AnchorGrid {
+            version: "2.0.0".into(),
+            grid_name: "sim-grid".into(),
+            description: "simulated".into(),
+            anchors: vec![AnchorDescriptor {
+                anchor_id: "edge-us-hnl".into(),
+                cloud_provider: "edge".into(),
+                region: "us-hi".into(),
+                city: "Honolulu".into(),
+                tee_vendor: TeeVendor::AmdSevSnp,
+                instance_type: "baremetal".into(),
+                location: LatLon::new(21.3, -157.8),
+                endpoint_tcp: "edge-us-hnl.pog.example:7443".into(),
+                endpoint_udp: "edge-us-hnl.pog.example:7444".into(),
+                https_url: None,
+                public_key_hex: "01".repeat(32),
+                coordinate_basis: None,
+            }],
+        };
+        let sim_signed = SignedNetworkRegistry::sign_new("proofofgeography.com", "jperla", sim_grid, now, 86_400, &root_sk);
+        assert!(sim_signed.validate_production_hygiene().is_err());
+
+        // Real-key / real-IP descriptor + fresh /attest response
+        let published = AnchorDescriptor {
+            anchor_id: "gcp-europe-west3-frankfurt".into(),
+            cloud_provider: "gcp".into(),
+            region: "europe-west3".into(),
+            city: "Frankfurt".into(),
+            tee_vendor: TeeVendor::SoftwareDev,
+            instance_type: "n2d-standard-2".into(),
+            location: LatLon::new(50.1109, 8.6821),
+            endpoint_tcp: "35.207.136.128:7443".into(),
+            endpoint_udp: "35.207.136.128:7444".into(),
+            https_url: Some("https://fra-gcp.a.proofofgeography.com".into()),
+            public_key_hex: node_pk_hex.clone(),
+            coordinate_basis: None,
+        };
+        let cert = AnchorEndorsement::sign_new(
+            "proofofgeography.com",
+            &published.anchor_id,
+            &node_pk_hex,
+            published.location.lat,
+            published.location.lon,
+            now - 10,
+            86_400,
+            &root_sk,
+        );
+        let quote = SoftwareDevProvider::new(meas_hex.clone())
+            .attest(&node_pk_bytes, &nonce_bytes, None)
+            .unwrap();
+        let pop_msg = attest_pop_signing_message(&published.anchor_id, &nonce_hex, &meas_hex);
+        let pop_sig = hex::encode(node_sk.sign(&pop_msg).to_bytes());
+        let resp = AnchorFreshAttestResponse {
+            anchor_id: published.anchor_id.clone(),
+            cloud_provider: "gcp".into(),
+            tee_vendor: TeeVendor::SoftwareDev,
+            fresh_caller_nonce: true,
+            caller_nonce_hex: nonce_hex.clone(),
+            public_key_hex: node_pk_hex,
+            proof_of_possession_sig_hex: pop_sig,
+            tee_quote: Some(quote),
+            operator_endorsement: Some(cert),
+            endorsement_status: Some("verified".into()),
+            hardened: true,
+        };
+
+        // 1. Production policy MUST reject SoftwareDev fail-closed!
+        let prod_res = verify_anchor_fresh_attestation(&resp, &published, &root_pk_hex, &nonce_hex, &AttestationPolicy::production(), now);
+        assert!(!prod_res.proof_eligible);
+        assert!(!prod_res.hardware_tee_attested);
+
+        // 2. Under dev policy with matching measurement allowlist -> passes; wrong measurement or wrong nonce -> fails!
+        let mut dev_pol = AttestationPolicy::allow_dev_software();
+        dev_pol.allowed_measurements = vec![meas_hex.clone()];
+        let ok_res = verify_anchor_fresh_attestation(&resp, &published, &root_pk_hex, &nonce_hex, &dev_pol, now);
+        assert!(ok_res.proof_eligible, "failures: {:?}", ok_res.failure_reasons);
+        assert!(ok_res.proof_of_possession_verified);
+        assert!(ok_res.endorsement_coords_match_registry);
+
+        let wrong_nonce = "99".repeat(32);
+        let bad_nonce_res = verify_anchor_fresh_attestation(&resp, &published, &root_pk_hex, &wrong_nonce, &dev_pol, now);
+        assert!(!bad_nonce_res.proof_eligible);
+
+        dev_pol.allowed_measurements = vec!["ff".repeat(48)];
+        let bad_meas_res = verify_anchor_fresh_attestation(&resp, &published, &root_pk_hex, &nonce_hex, &dev_pol, now);
+        assert!(!bad_meas_res.proof_eligible);
     }
 }

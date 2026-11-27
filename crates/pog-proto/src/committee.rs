@@ -3,6 +3,55 @@ use pog_tee::TeeVendor;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+/// Explicit, separate provenance basis for an Anchor's published physical coordinates.
+///
+/// Product Invariant:
+/// **Hardware TEE identity does NOT prove physical coordinates.**
+/// A hardware TEE proves *what measured binary generated the ephemeral signing key*,
+/// whereas physical coordinates require a separate, independently audited basis
+/// (cloud facility audit + cross-cloud anchor-to-anchor speed-of-light calibration mesh).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoordinateBasis {
+    /// Source of published coordinates (e.g., "cloud_region_facility_audit", "operator_declared_unverified").
+    pub source: String,
+    /// Conservative geographic uncertainty radius (km) folded into outer physics bounds.
+    pub uncertainty_km: f64,
+    /// Unix timestamp of the most recent independent coordinate / mesh consistency audit (None if unaudited).
+    #[serde(default)]
+    pub audited_at_unix_s: Option<u64>,
+    /// Explicit invariant marker — always false.
+    #[serde(default)]
+    pub hardware_identity_proves_coordinates: bool,
+    /// Human-readable audit notes or anomalies (e.g., region-vs-city discrepancy).
+    #[serde(default)]
+    pub audit_note: Option<String>,
+}
+
+impl Default for CoordinateBasis {
+    fn default() -> Self {
+        Self {
+            source: "operator_declared_region_centroid".into(),
+            uncertainty_km: 35.0,
+            audited_at_unix_s: None,
+            hardware_identity_proves_coordinates: false,
+            audit_note: Some(
+                "Hardware TEE identity proves workload & key custody, NOT physical coordinates."
+                    .into(),
+            ),
+        }
+    }
+}
+
+/// Separate operational readiness dimensions (never conflated into a single count).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnchorEligibility {
+    pub configured: bool,
+    pub reachable: bool,
+    pub attested_hardware_tee: bool,
+    pub enrolled_key_matches_published: bool,
+    pub proof_eligible: bool,
+}
+
 /// Metadata describing a registered multi-cloud Anchor TEE node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnchorDescriptor {
@@ -15,7 +64,29 @@ pub struct AnchorDescriptor {
     pub location: LatLon,
     pub endpoint_tcp: String,
     pub endpoint_udp: String,
+    /// Optional operator-hosted HTTPS base URL serving `/info`, `/attest`, and `/ping`
+    /// for independent/self-hosted constellations (never routed through proofofgeography.com).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub https_url: Option<String>,
     pub public_key_hex: String,
+    /// Separate audited physical location provenance (never conflated with TEE attestation).
+    #[serde(default)]
+    pub coordinate_basis: Option<CoordinateBasis>,
+}
+
+impl AnchorDescriptor {
+    /// Conservative anchor coordinate uncertainty (km) for outer-bound geometry.
+    pub fn location_uncertainty_km(&self) -> f64 {
+        self.coordinate_basis
+            .as_ref()
+            .map(|c| c.uncertainty_km.max(0.0))
+            .unwrap_or(35.0)
+    }
+
+    /// True iff this descriptor declares a production hardware TEE (not `SoftwareDev`).
+    pub fn is_production_hardware_tee(&self) -> bool {
+        self.tee_vendor.is_production_hardware_tee()
+    }
 }
 
 /// Top-level JSON Anchor registry (DNS-style public grid configuration).
@@ -35,22 +106,34 @@ impl AnchorGrid {
     pub fn by_id(&self, id: &str) -> Option<&AnchorDescriptor> {
         self.anchors.iter().find(|a| a.anchor_id == id)
     }
+
+    /// Return a filtered grid containing ONLY anchors declaring production hardware TEEs
+    /// (excludes all `SoftwareDev` entries). Fail-closed membership filter.
+    pub fn production_hardware_only(&self) -> Self {
+        Self {
+            version: self.version.clone(),
+            grid_name: self.grid_name.clone(),
+            description: self.description.clone(),
+            anchors: self
+                .anchors
+                .iter()
+                .filter(|a| a.is_production_hardware_tee())
+                .cloned()
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitteeConfig {
-    /// Total anchors to select (e.g., 6).
     pub committee_size: usize,
-    /// Minimum distinct cloud providers required (e.g., 2 or 3).
     pub min_cloud_providers: usize,
-    /// Up to how many distinct-cloud metro Anchors (< `metro_radius_km`) to include.
-    /// Setting this to `f + 1` (e.g., 2 for f=1 Byzantine tolerance) ensures that even if
-    /// one metro Anchor is compromised, an independent cloud's metro Anchor still bounds the hub!
     pub max_metro_anchors: usize,
-    /// Distance threshold (km) below which an anchor counts as a "same-metro" anchor.
     pub metro_radius_km: f64,
-    /// Maximum distance (km) for regional orthogonal framing candidates.
     pub max_regional_km: f64,
+    /// Fail-closed default: exclude `SoftwareDev` anchors from committee selection unless dev mode enabled.
+    #[serde(default)]
+    pub allow_software_dev_anchors: bool,
 }
 
 impl Default for CommitteeConfig {
@@ -61,6 +144,7 @@ impl Default for CommitteeConfig {
             max_metro_anchors: 2,
             metro_radius_km: 150.0,
             max_regional_km: 5_500.0,
+            allow_software_dev_anchors: false,
         }
     }
 }
@@ -74,14 +158,7 @@ pub struct CommitteeSelection {
 }
 
 /// Deterministic, anti-cherry-picking committee selection around `claimed_location`.
-///
-/// Strategy:
-/// 1. Score each anchor deterministically using `BLAKE3("pog-committee-v1" || prover_pk || epoch_challenge || anchor_id)`
-///    mixed with proximity tier so the Prover cannot freely pick friendly/colluding anchors.
-/// 2. Pick up to 1 same-metro anchor (< `metro_radius_km`) for tightest single-circle precision.
-/// 3. Pick 1 anchor from each of the 4 orthogonal compass quadrants (NE, SE, SW, NW) prioritizing
-///    cloud-provider diversity and proximity.
-/// 4. Fill remaining slots up to `committee_size` prioritizing unseen cloud providers and silicon vendors.
+/// Excludes `SoftwareDev` anchors by default (`cfg.allow_software_dev_anchors == false`).
 pub fn select_committee(
     grid: &AnchorGrid,
     prover_pk_hex: &str,
@@ -104,10 +181,10 @@ pub fn select_committee(
         u64::from_le_bytes(out.as_bytes()[0..8].try_into().unwrap())
     };
 
-    // Distance-annotated candidates.
     let mut candidates: Vec<(&AnchorDescriptor, f64, CompassQuadrant, u64)> = grid
         .anchors
         .iter()
+        .filter(|a| cfg.allow_software_dev_anchors || a.is_production_hardware_tee())
         .map(|a| {
             let d = claimed_location.distance_km(a.location);
             let q = claimed_location.quadrant_of(a.location);
@@ -116,17 +193,15 @@ pub fn select_committee(
         })
         .collect();
 
-    // Sort nearby candidates with deterministic jitter within 250 km buckets so selection is
-    // both geographically optimal AND unpredictable/un-cherry-pickable per epoch!
-    let rank_key = |dist_km: f64, tb: u64, cloud_novel: bool, vendor_novel: bool| -> (u8, u8, u64, u64) {
-        let cloud_pen = if cloud_novel { 0 } else { 1 };
-        let vendor_pen = if vendor_novel { 0 } else { 1 };
-        let bucket = (dist_km / 350.0) as u64;
-        (cloud_pen, vendor_pen, bucket, tb)
-    };
+    let rank_key =
+        |dist_km: f64, tb: u64, cloud_novel: bool, vendor_novel: bool| -> (u8, u8, u64, u64) {
+            let cloud_pen = if cloud_novel { 0 } else { 1 };
+            let vendor_pen = if vendor_novel { 0 } else { 1 };
+            let bucket = (dist_km / 350.0) as u64;
+            (cloud_pen, vendor_pen, bucket, tb)
+        };
 
-    // Step 1: Select up to `max_metro_anchors` (f+1 = 2) co-located metro anchors from DISTINCT clouds!
-    // This guarantees tight metro-level precision (~100-170 mi hard vacuum bound) even under f=1 Byzantine fault!
+    // Step 1: Up to `max_metro_anchors` co-located metro anchors from distinct clouds.
     let mut metro: Vec<_> = candidates
         .iter()
         .filter(|(_, d, _, _)| *d <= cfg.metro_radius_km)
@@ -148,9 +223,8 @@ pub fn select_committee(
         }
     }
 
-    // Step 2: Select 1 anchor per compass quadrant (NE, SE, SW, NW) outside metro radius for orthogonal framing.
+    // Step 2: 1 anchor per compass quadrant outside metro radius.
     let mut quad_order = CompassQuadrant::ALL;
-    // Rotate quadrant scan order deterministically per epoch.
     let rot = (det_tiebreak("quad-rot") as usize) % 4;
     quad_order.rotate_left(rot);
 
@@ -184,8 +258,7 @@ pub fn select_committee(
         }
     }
 
-    // Step 3: Fill remaining slots up to `committee_size`, strictly preferring nearby regional
-    // anchors (never reaching across continents just to add a 5th cloud once min_cloud_providers is met).
+    // Step 3: Fill remaining slots up to `committee_size`.
     while picked.len() < cfg.committee_size {
         candidates.sort_by_key(|(a, d, _, tb)| {
             let need_cloud = seen_clouds.len() < cfg.min_cloud_providers
@@ -193,7 +266,11 @@ pub fn select_committee(
             let out_of_region: u8 = if *d <= cfg.max_regional_km { 0 } else { 1 };
             let cloud_tier: u8 = if need_cloud { 0 } else { 1 };
             let bucket = (*d / 350.0) as u64;
-            let novel_tiebreak: u8 = if !seen_clouds.contains(&a.cloud_provider) { 0 } else { 1 };
+            let novel_tiebreak: u8 = if !seen_clouds.contains(&a.cloud_provider) {
+                0
+            } else {
+                1
+            };
             (out_of_region, cloud_tier, bucket, novel_tiebreak, *tb)
         });
         let next = candidates
@@ -236,7 +313,6 @@ mod tests {
         let grid = AnchorGrid::from_json_str(json).unwrap();
         assert_eq!(grid.anchors.len(), 24);
 
-        // Select committee for a GPU cluster claiming Tokyo.
         let sel = select_committee(
             &grid,
             "aabbccdd",
@@ -245,7 +321,38 @@ mod tests {
             &CommitteeConfig::default(),
         );
         assert_eq!(sel.selected.len(), 6);
-        assert!(sel.distinct_clouds >= 3, "Expected >=3 clouds, got {}", sel.distinct_clouds);
-        assert!(sel.distinct_quadrants >= 3, "Expected >=3 quadrants, got {}", sel.distinct_quadrants);
+        assert!(sel.distinct_clouds >= 3);
+        assert!(sel.distinct_quadrants >= 3);
+    }
+
+    #[test]
+    fn test_committee_excludes_software_dev_by_default() {
+        let grid = AnchorGrid {
+            version: "1".into(),
+            grid_name: "mixed".into(),
+            description: "test".into(),
+            anchors: vec![AnchorDescriptor {
+                anchor_id: "dev-1".into(),
+                cloud_provider: "aws".into(),
+                region: "us-east-1".into(),
+                city: "Ashburn".into(),
+                tee_vendor: TeeVendor::SoftwareDev,
+                instance_type: "c6a.large".into(),
+                location: LatLon::new(39.0, -77.5),
+                endpoint_tcp: "1.2.3.4:7443".into(),
+                endpoint_udp: "1.2.3.4:7444".into(),
+                https_url: None,
+                public_key_hex: "aa".repeat(32),
+                coordinate_basis: None,
+            }],
+        };
+        let sel = select_committee(
+            &grid,
+            "pk",
+            b"epoch",
+            LatLon::new(39.0, -77.5),
+            &CommitteeConfig::default(),
+        );
+        assert!(sel.selected.is_empty(), "SoftwareDev anchor MUST be excluded by default");
     }
 }

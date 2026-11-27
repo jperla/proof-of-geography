@@ -1,4 +1,4 @@
-name: Release Linux Static Binaries
+name: Release Linux Static Binaries & Fail-Closed Production Promotion
 
 on:
   push:
@@ -7,9 +7,22 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g., v0.1.0)"
+        description: "Release tag (e.g., v0.2.0)"
         required: true
-        default: "v0.1.0"
+        default: "v0.2.0"
+      promote_production:
+        description: "Run fail-closed production constellation promotion (requires real HW TEE attestation, measured manifest & separate coordinate audit)"
+        type: boolean
+        required: false
+        default: false
+      measured_manifest:
+        description: "Path to measured software manifest JSON for promotion"
+        required: false
+        default: "config/production_measured_manifest.json"
+      coordinate_audit:
+        description: "Path to separately audited physical coordinates JSON for promotion"
+        required: false
+        default: "config/production_coordinate_audit.json"
 
 permissions:
   contents: write
@@ -24,7 +37,20 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
-      - name: Build static musl release binaries for Confidential VMs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run unit tests, web geometry tests & static release-gate lint (lint only)
+        run: |
+          cargo test --workspace
+          cargo build --release --bin pog-cli
+          node --test web/test_geo.mjs
+          python3 scripts/release_gate.py --self-test
+          python3 scripts/release_gate.py --lint
+      - name: Build static musl release binaries for Confidential VMs & Nitro Enclaves
         run: cargo build --release --target x86_64-unknown-linux-musl --bin pog-anchor --bin pog-prover --bin pog-cli
       - name: Package release tarball and SHA-256 checksum
         run: |
@@ -33,7 +59,7 @@ jobs:
           file dist/pog-anchor
           tar -czf pog-linux-x86_64.tar.gz -C dist pog-anchor pog-prover pog-cli
           sha256sum pog-linux-x86_64.tar.gz > pog-linux-x86_64.tar.gz.sha256
-      - name: Publish GitHub Release
+      - name: Publish GitHub Release (Binaries Only — NOT Production Constellation Promotion)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -43,5 +69,34 @@ jobs:
           else
             gh release create "$TAG" pog-linux-x86_64.tar.gz pog-linux-x86_64.tar.gz.sha256 \
               --title "Proof of Geography $TAG" \
-              --notes "Static musl Linux x86_64 binaries (zero glibc dependency — Rocky Linux 9, RHEL, Debian, Alpine, COS) with operator endorsements, external observed IP reporting, and multi-network federation."
+              --notes "Static musl Linux x86_64 binaries (zero glibc dependency) with fresh /attest?nonce= PoP, pinned vendor silicon roots, and fail-closed production promotion gate. Note: binary release does NOT promote the production constellation — promotion requires the separate promote-production-constellation gate."
           fi
+
+  promote-production-constellation:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.promote_production == 'true' }}
+    needs: [ build-linux-x86_64 ]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build real pog-cli cryptographic verifier
+        run: cargo build --release --bin pog-cli
+      - name: Fail-Closed Production Promotion (Real Verifier + Trust Root + Measured Software + Fresh Key Binding + Separate Coordinate Audit)
+        run: |
+          python3 scripts/promote_production.py \
+            --signed-registry config/signed_public_network.json \
+            --web-roster web/data/anchors.json \
+            --pinned-root-pk fdff6d6d0b8364e459ffbb921430e39411bd812ec3ce766c2904b39bfa996ee1 \
+            --expected-network-id proofofgeography.com \
+            --measured-manifest "${{ github.event.inputs.measured_manifest }}" \
+            --coordinate-audit "${{ github.event.inputs.coordinate_audit }}" \
+            --pog-cli target/release/pog-cli \
+            --stage-dir dist/promoted-production
+      - name: Upload Authorized Production Promotion Bundle & Receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: promoted-production-constellation
+          path: dist/promoted-production/

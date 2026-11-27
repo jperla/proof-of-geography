@@ -16,10 +16,12 @@ import (
 )
 
 const (
-	EarthRadiusKm      = 6371.0088
-	CVacuumKmPerS      = 299792.458
-	CFiberKmPerS       = 204000.0
-	HTTPHeaderPoGProof = "X-PoG-Proof"
+	EarthRadiusKm              = 6371.0088
+	WGS84MinCurvatureRadiusKm  = 6335.439327
+	HalfCircumferenceKm        = math.Pi * EarthRadiusKm
+	CVacuumKmPerS              = 299792.458
+	CFiberKmPerS               = 204000.0
+	HTTPHeaderPoGProof         = "X-PoG-Proof"
 )
 
 type LatLon struct {
@@ -27,14 +29,24 @@ type LatLon struct {
 	Lon float64 `json:"lon"`
 }
 
+type CoordinateBasis struct {
+	Source                            string  `json:"source"`
+	UncertaintyKm                     float64 `json:"uncertainty_km"`
+	AuditedAtUnixS                    *uint64 `json:"audited_at_unix_s,omitempty"`
+	HardwareIdentityProvesCoordinates bool    `json:"hardware_identity_proves_coordinates"`
+	AuditNote                         string  `json:"audit_note,omitempty"`
+}
+
 type AnchorDescriptor struct {
-	AnchorID      string `json:"anchor_id"`
-	CloudProvider string `json:"cloud_provider"`
-	Region        string `json:"region"`
-	City          string `json:"city"`
-	Location      LatLon `json:"location"`
-	EndpointTCP   string `json:"endpoint_tcp"`
-	PublicKeyHex  string `json:"public_key_hex"`
+	AnchorID        string           `json:"anchor_id"`
+	CloudProvider   string           `json:"cloud_provider"`
+	Region          string           `json:"region"`
+	City            string           `json:"city"`
+	TeeVendor       string           `json:"tee_vendor,omitempty"`
+	Location        LatLon           `json:"location"`
+	EndpointTCP     string           `json:"endpoint_tcp"`
+	PublicKeyHex    string           `json:"public_key_hex"`
+	CoordinateBasis *CoordinateBasis `json:"coordinate_basis,omitempty"`
 }
 
 type AnchorGrid struct {
@@ -90,6 +102,11 @@ type AnchorObservedIP struct {
 	RttMinUs      uint64
 }
 
+type UnverifiedReceipt struct {
+	AnchorID string
+	Reason   string
+}
+
 type GpuAttestationBinding struct {
 	GpuModel             string `json:"gpu_model"`
 	GpuUUID              string `json:"gpu_uuid"`
@@ -126,26 +143,31 @@ type AnchorReceipt struct {
 }
 
 type GeoProofBundle struct {
-	Version                   uint8               `json:"version"`
-	EpochChallengeHex         string              `json:"epoch_challenge_hex"`
-	ClientNonceHex            *string             `json:"client_nonce_hex"`
-	TargetLocation            LatLon              `json:"target_location"`
-	RequiredRadiusKm          float64             `json:"required_radius_km"`
-	ProverQuote               TeeAttestationQuote `json:"prover_quote"`
-	Receipts                  []AnchorReceipt     `json:"receipts"`
-	CalibratedVelocityKmPerS  *float64            `json:"calibrated_velocity_km_per_s"`
-	PrevChainHashHex          *string             `json:"prev_chain_hash_hex"`
-	ChainSeq                  uint64              `json:"chain_seq"`
-	CreatedAtUnixS            uint64              `json:"created_at_unix_s"`
+	Version                  uint8               `json:"version"`
+	EpochChallengeHex        string              `json:"epoch_challenge_hex"`
+	ClientNonceHex           *string             `json:"client_nonce_hex"`
+	TargetLocation           LatLon              `json:"target_location"`
+	RequiredRadiusKm         float64             `json:"required_radius_km"`
+	ProverQuote              TeeAttestationQuote `json:"prover_quote"`
+	Receipts                 []AnchorReceipt     `json:"receipts"`
+	CalibratedVelocityKmPerS *float64            `json:"calibrated_velocity_km_per_s"`
+	PrevChainHashHex         *string             `json:"prev_chain_hash_hex"`
+	ChainSeq                 uint64              `json:"chain_seq"`
+	CreatedAtUnixS           uint64              `json:"created_at_unix_s"`
 }
 
 type VerificationPolicy struct {
-	AllowSoftwareDev   bool
-	MaxByzantine       int
-	MinAnchors         int
-	MinCloudProviders  int
-	MaxProofAgeSeconds uint64
-	EnforceTier        string // "vacuum" | "fiber" | "calibrated"
+	AllowSoftwareDev            bool
+	MaxByzantine                int
+	MinAnchors                  int
+	MinCloudProviders           int
+	MaxProofAgeSeconds          uint64
+	MaxFutureSkewSeconds        uint64
+	EnforceTier                 string // "vacuum" | "fiber" | "calibrated"
+	ClockResolutionUs           uint64
+	ClockSlewPpm                uint32
+	AnchorLocationUncertaintyKm float64
+	DisableChordCorrection      bool
 }
 
 type CoreResult struct {
@@ -153,11 +175,16 @@ type CoreResult struct {
 	ProvenMaxRadiusMiles  float64
 	ContainedWithinTarget bool
 	WitnessCentroid       LatLon
+	WholeEarth            bool
+	Feasible              bool
 }
 
 type VerificationReport struct {
 	OverallValid           bool
+	ProofStatus            string
+	HardwareAttested       bool
 	FailureReasons         []string
+	UnverifiedReceipts     []UnverifiedReceipt
 	DistinctClouds         int
 	VerifiedReceipts       int
 	ProverPublicKeyHex     string
@@ -241,22 +268,64 @@ type disk struct {
 	cosTheta float64
 }
 
+func EffectiveOuterRadiusKm(rttUs uint64, tier string, policy VerificationPolicy, anchorUncOverrideKm float64, calV float64) float64 {
+	clockRes := policy.ClockResolutionUs
+	if clockRes == 0 {
+		clockRes = 50
+	}
+	slew := policy.ClockSlewPpm
+	if slew == 0 {
+		slew = 500
+	}
+	uncKm := policy.AnchorLocationUncertaintyKm
+	if uncKm <= 0 {
+		uncKm = 35.0
+	}
+	if anchorUncOverrideKm > uncKm {
+		uncKm = anchorUncOverrideKm
+	}
+	if tier == "vacuum" {
+		tUpperS := float64(rttUs+clockRes) * (1.0 + float64(slew)*1e-6) * 1e-6
+		oneWayKm := 0.5 * CVacuumKmPerS * tUpperS
+		refR := WGS84MinCurvatureRadiusKm
+		var propAng float64
+		if !policy.DisableChordCorrection {
+			sinHalf := oneWayKm / (2.0 * refR)
+			if sinHalf >= 1.0 {
+				propAng = math.Pi
+			} else {
+				propAng = 2.0 * math.Asin(sinHalf)
+			}
+		} else {
+			propAng = math.Min(math.Pi, oneWayKm/refR)
+		}
+		return math.Min(math.Pi, propAng+uncKm/refR) * EarthRadiusKm
+	}
+	if tier == "fiber" {
+		tUpperS := float64(rttUs+clockRes) * (1.0 + float64(slew)*1e-6) * 1e-6
+		oneWayKm := 0.5 * CFiberKmPerS * tUpperS
+		return math.Min(math.Pi, (oneWayKm+uncKm)/WGS84MinCurvatureRadiusKm) * EarthRadiusKm
+	}
+	adjUs := uint64(0)
+	if rttUs > 350 {
+		adjUs = rttUs - 350
+	}
+	v := math.Max(50000.0, math.Min(CVacuumKmPerS, calV))
+	return math.Min(HalfCircumferenceKm, 0.5*v*float64(adjUs)*1e-6)
+}
+
 func intersectTwoCircles(u1 vec3, c1 float64, u2 vec3, c2 float64) []vec3 {
-	d := u1.dot(u2)
-	denom := 1.0 - d*d
-	if denom < 1e-12 {
+	n := u1.cross(u2)
+	nSq := n.dot(n)
+	if nSq < 1e-24 {
 		return nil
 	}
-	a := (c1 - c2*d) / denom
-	b := (c2 - c1*d) / denom
+	d := u1.dot(u2)
+	a := (c1 - c2*d) / nSq
+	b := (c2 - c1*d) / nSq
 	p := u1.scale(a).add(u2.scale(b))
 	pSq := p.dot(p)
 	if pSq > 1.0+1e-11 {
-		return nil
-	}
-	n := u1.cross(u2)
-	nSq := n.dot(n)
-	if nSq < 1e-15 {
 		return nil
 	}
 	t := math.Sqrt(math.Max(0, 1.0-pSq) / nSq)
@@ -276,28 +345,86 @@ func intersectTwoCircles(u1 vec3, c1 float64, u2 vec3, c2 float64) []vec3 {
 	return out
 }
 
-func furthestOnCircle(u vec3, theta float64, target vec3) vec3 {
+func furthestPointsOnCircle(u vec3, theta float64, target vec3) []vec3 {
 	if theta >= math.Pi-1e-12 {
-		return target.scale(-1)
+		return []vec3{target.scale(-1)}
+	}
+	if theta <= 1e-12 {
+		return []vec3{u}
 	}
 	negT := target.scale(-1)
 	proj := negT.sub(u.scale(negT.dot(u)))
-	dir, ok := proj.normalize()
-	if !ok {
-		basis := vec3{1, 0, 0}
-		if math.Abs(u.x) >= 0.9 {
-			basis = vec3{0, 1, 0}
-		}
-		dir, _ = u.cross(basis).normalize()
+	if dir, ok := proj.normalize(); ok {
+		res, _ := u.scale(math.Cos(theta)).add(dir.scale(math.Sin(theta))).normalize()
+		return []vec3{res}
 	}
-	res, _ := u.scale(math.Cos(theta)).add(dir.scale(math.Sin(theta))).normalize()
-	return res
+	basis := vec3{1, 0, 0}
+	if math.Abs(u.x) >= 0.9 {
+		basis = vec3{0, 1, 0}
+	}
+	e1, _ := u.cross(basis).normalize()
+	e2, _ := u.cross(e1).normalize()
+	dirs := []vec3{e1, e1.scale(-1), e2, e2.scale(-1)}
+	out := make([]vec3, 0, 4)
+	for _, dv := range dirs {
+		res, _ := u.scale(math.Cos(theta)).add(dv.scale(math.Sin(theta))).normalize()
+		out = append(out, res)
+	}
+	return out
+}
+
+func isWholeEarthCore(disks []disk, f int) bool {
+	exclReq := f + 1
+	const strictEps = 1e-11
+	type compCap struct {
+		cu     vec3
+		cosCth float64
+	}
+	var comp []compCap
+	for _, d := range disks {
+		if d.theta < math.Pi-1e-12 {
+			cth := math.Pi - d.theta
+			comp = append(comp, compCap{cu: d.u.scale(-1), cosCth: math.Cos(cth)})
+		}
+	}
+	if len(comp) < exclReq {
+		return true
+	}
+	countExcl := func(x vec3) int {
+		c := 0
+		for _, cc := range comp {
+			if cc.cu.dot(x) > cc.cosCth+strictEps {
+				c++
+			}
+		}
+		return c
+	}
+	for _, cc := range comp {
+		if countExcl(cc.cu) >= exclReq {
+			return false
+		}
+	}
+	for i := 0; i < len(comp); i++ {
+		for j := i + 1; j < len(comp); j++ {
+			if mid, ok := comp[i].cu.add(comp[j].cu).normalize(); ok && countExcl(mid) >= exclReq {
+				return false
+			}
+			for _, pt := range intersectTwoCircles(comp[i].cu, comp[i].cosCth, comp[j].cu, comp[j].cosCth) {
+				if inward, ok := comp[i].cu.add(comp[j].cu).normalize(); ok {
+					if nudged, ok2 := pt.add(inward.scale(1e-7)).normalize(); ok2 && countExcl(nudged) >= exclReq {
+						return false
+					}
+				}
+			}
+		}
+	}
+	return true
 }
 
 func solveByzantineCore(disks []disk, maxByzantine int, target LatLon, reqKm float64) CoreResult {
 	k := len(disks)
 	if k == 0 {
-		return CoreResult{ProvenMaxRadiusKm: math.Inf(1), ProvenMaxRadiusMiles: math.Inf(1)}
+		return CoreResult{ProvenMaxRadiusKm: math.Inf(1), ProvenMaxRadiusMiles: math.Inf(1), WitnessCentroid: target, Feasible: false}
 	}
 	f := maxByzantine
 	if f >= k {
@@ -306,6 +433,7 @@ func solveByzantineCore(disks []disk, maxByzantine int, target LatLon, reqKm flo
 	req := k - f
 	const eps = 1e-9
 	targetU := target.toUnit()
+	wholeEarth := isWholeEarthCore(disks, f)
 	countIn := func(x vec3) int {
 		c := 0
 		for _, d := range disks {
@@ -327,20 +455,59 @@ func solveByzantineCore(disks []disk, maxByzantine int, target LatLon, reqKm flo
 		}
 	}
 	for i := 0; i < k; i++ {
-		far := furthestOnCircle(disks[i].u, disks[i].theta, targetU)
-		if countIn(far) >= req {
-			pts = append(pts, far)
+		for _, far := range furthestPointsOnCircle(disks[i].u, disks[i].theta, targetU) {
+			if countIn(far) >= req {
+				pts = append(pts, far)
+			}
 		}
 	}
 	anti := targetU.scale(-1)
 	if countIn(anti) >= req {
 		pts = append(pts, anti)
 	}
+
+	interiorCands := make([]vec3, 0, k+2)
+	interiorCands = append(interiorCands, targetU)
+	for _, d := range disks {
+		interiorCands = append(interiorCands, d.u)
+	}
+	if len(pts) > 0 {
+		var s vec3
+		for _, p := range pts {
+			s = s.add(p)
+		}
+		if avg, ok := s.normalize(); ok {
+			interiorCands = append(interiorCands, avg)
+		}
+	}
+	var witnessU vec3
+	hasWitness := false
+	for _, c := range interiorCands {
+		if countIn(c) >= req {
+			witnessU = c
+			hasWitness = true
+			break
+		}
+	}
+	if !hasWitness && len(pts) > 0 {
+		witnessU = pts[0]
+		hasWitness = true
+	}
+	if !hasWitness {
+		return CoreResult{ProvenMaxRadiusKm: math.Inf(1), ProvenMaxRadiusMiles: math.Inf(1), WitnessCentroid: target, Feasible: false}
+	}
 	if len(pts) == 0 {
-		return CoreResult{ProvenMaxRadiusKm: math.Inf(1), ProvenMaxRadiusMiles: math.Inf(1), WitnessCentroid: target}
+		if wholeEarth || countIn(anti) >= req {
+			pts = append(pts, anti)
+		} else {
+			pts = append(pts, witnessU)
+		}
 	}
 
 	worst := 0.0
+	if wholeEarth {
+		worst = HalfCircumferenceKm
+	}
 	var sum vec3
 	for _, p := range pts {
 		if d := geodesicKm(targetU, p); d > worst {
@@ -349,14 +516,16 @@ func solveByzantineCore(disks []disk, maxByzantine int, target LatLon, reqKm flo
 		sum = sum.add(p)
 	}
 	cent, ok := sum.normalize()
-	if !ok {
-		cent = pts[0]
+	if !ok || countIn(cent) < req {
+		cent = witnessU
 	}
 	return CoreResult{
 		ProvenMaxRadiusKm:     worst,
 		ProvenMaxRadiusMiles:  worst * 0.621371,
 		ContainedWithinTarget: worst <= reqKm,
 		WitnessCentroid:       cent.toLatLon(),
+		WholeEarth:            wholeEarth,
+		Feasible:              true,
 	}
 }
 
@@ -414,17 +583,25 @@ func VerifyProof(bundle GeoProofBundle, grid AnchorGrid, policy VerificationPoli
 	if policy.MaxProofAgeSeconds == 0 {
 		policy.MaxProofAgeSeconds = 3900
 	}
+	if policy.MaxFutureSkewSeconds == 0 {
+		policy.MaxFutureSkewSeconds = 300
+	}
 	if policy.EnforceTier == "" {
 		policy.EnforceTier = "vacuum"
 	}
 
 	var failures []string
+	var unverified []UnverifiedReceipt
 	if nowUnixS > bundle.CreatedAtUnixS+policy.MaxProofAgeSeconds {
 		failures = append(failures, "proof expired")
 	}
+	if bundle.CreatedAtUnixS > nowUnixS+policy.MaxFutureSkewSeconds {
+		failures = append(failures, "proof timestamp in future")
+	}
 
 	q := bundle.ProverQuote
-	if q.Vendor == "SoftwareDev" && !policy.AllowSoftwareDev {
+	proverIsHw := q.Vendor != "SoftwareDev"
+	if !proverIsHw && !policy.AllowSoftwareDev {
 		failures = append(failures, "SoftwareDev TEE quotes forbidden in production policy")
 	}
 	if !q.MigrationDisabled {
@@ -434,7 +611,6 @@ func VerifyProof(bundle GeoProofBundle, grid AnchorGrid, policy VerificationPoli
 		failures = append(failures, "TEE debug mode enabled")
 	}
 
-	// Verify hardware SHA-512 report_data binding.
 	pkBytes, _ := hex.DecodeString(q.PublicKeyHex)
 	epochBytes, _ := hex.DecodeString(bundle.EpochChallengeHex)
 	rd := sha512.New()
@@ -459,31 +635,61 @@ func VerifyProof(bundle GeoProofBundle, grid AnchorGrid, policy VerificationPoli
 	seenIPs := make(map[string]bool)
 	var observedIPs []AnchorObservedIP
 	var vacDisks, fibDisks, calDisks []disk
-	calV := 162000.0
+	calV := 152000.0
 	if bundle.CalibratedVelocityKmPerS != nil {
 		calV = *bundle.CalibratedVelocityKmPerS
 	}
+	allAnchorsHw := true
 
 	for _, r := range bundle.Receipts {
 		if seenAnchors[r.AnchorID] {
-			failures = append(failures, fmt.Sprintf("duplicate anchor %s", r.AnchorID))
+			msg := fmt.Sprintf("duplicate anchor %s", r.AnchorID)
+			unverified = append(unverified, UnverifiedReceipt{AnchorID: r.AnchorID, Reason: msg})
+			failures = append(failures, msg)
 			continue
 		}
 		seenAnchors[r.AnchorID] = true
 		a, ok := anchors[r.AnchorID]
 		if !ok {
-			failures = append(failures, fmt.Sprintf("unknown anchor %s", r.AnchorID))
+			msg := fmt.Sprintf("unknown anchor %s", r.AnchorID)
+			unverified = append(unverified, UnverifiedReceipt{AnchorID: r.AnchorID, Reason: msg})
+			failures = append(failures, msg)
 			continue
+		}
+		if a.TeeVendor == "SoftwareDev" {
+			allAnchorsHw = false
+			if !policy.AllowSoftwareDev {
+				msg := fmt.Sprintf("anchor %s reports SoftwareDev (hardware TEE required)", r.AnchorID)
+				unverified = append(unverified, UnverifiedReceipt{AnchorID: r.AnchorID, Reason: msg})
+				failures = append(failures, msg)
+				continue
+			}
 		}
 		aPub, err1 := hex.DecodeString(a.PublicKeyHex)
 		sig, err2 := hex.DecodeString(r.AnchorSignatureHex)
 		digest := ReceiptSigningDigest(r)
 		if err1 != nil || err2 != nil || len(aPub) != ed25519.PublicKeySize || !ed25519.Verify(ed25519.PublicKey(aPub), digest[:], sig) {
-			failures = append(failures, fmt.Sprintf("invalid Ed25519 signature from %s", r.AnchorID))
+			msg := fmt.Sprintf("invalid Ed25519 signature or published key mismatch from %s", r.AnchorID)
+			unverified = append(unverified, UnverifiedReceipt{AnchorID: r.AnchorID, Reason: msg})
+			failures = append(failures, msg)
 			continue
 		}
 		if r.ProverPKHex != q.PublicKeyHex || r.EpochChallengeHex != bundle.EpochChallengeHex {
-			failures = append(failures, fmt.Sprintf("receipt binding mismatch from %s", r.AnchorID))
+			msg := fmt.Sprintf("receipt binding mismatch from %s", r.AnchorID)
+			unverified = append(unverified, UnverifiedReceipt{AnchorID: r.AnchorID, Reason: msg})
+			failures = append(failures, msg)
+			continue
+		}
+		if r.WorkloadMeasurementHex != q.WorkloadMeasurementHex {
+			msg := fmt.Sprintf("receipt workload_measurement_hex mismatch from %s", r.AnchorID)
+			unverified = append(unverified, UnverifiedReceipt{AnchorID: r.AnchorID, Reason: msg})
+			failures = append(failures, msg)
+			continue
+		}
+		if nowUnixS > r.MeasuredAtUnixS+policy.MaxProofAgeSeconds || r.MeasuredAtUnixS > nowUnixS+policy.MaxFutureSkewSeconds {
+			msg := fmt.Sprintf("receipt expired or future-dated from %s", r.AnchorID)
+			unverified = append(unverified, UnverifiedReceipt{AnchorID: r.AnchorID, Reason: msg})
+			failures = append(failures, msg)
 			continue
 		}
 		seenClouds[a.CloudProvider] = true
@@ -495,22 +701,21 @@ func VerifyProof(bundle GeoProofBundle, grid AnchorGrid, policy VerificationPoli
 			RttMinUs:      r.RttMinUs,
 		})
 		u := a.Location.toUnit()
+		ancUnc := 0.0
+		if a.CoordinateBasis != nil {
+			ancUnc = a.CoordinateBasis.UncertaintyKm
+		}
 		mk := func(rKm float64) disk {
-			th := math.Min(math.Pi, rKm/EarthRadiusKm)
+			th := math.Min(math.Pi, math.Max(0, rKm/EarthRadiusKm))
 			return disk{u: u, theta: th, cosTheta: math.Cos(th)}
 		}
-		rttS := float64(r.RttMinUs) * 1e-6
-		calUs := uint64(0)
-		if r.RttMinUs > 600 {
-			calUs = r.RttMinUs - 600
-		}
-		vacDisks = append(vacDisks, mk(0.5*CVacuumKmPerS*rttS))
-		fibDisks = append(fibDisks, mk(0.5*CFiberKmPerS*rttS))
-		calDisks = append(calDisks, mk(0.5*calV*float64(calUs)*1e-6))
+		vacDisks = append(vacDisks, mk(EffectiveOuterRadiusKm(r.RttMinUs, "vacuum", policy, ancUnc, calV)))
+		fibDisks = append(fibDisks, mk(EffectiveOuterRadiusKm(r.RttMinUs, "fiber", policy, ancUnc, calV)))
+		calDisks = append(calDisks, mk(EffectiveOuterRadiusKm(r.RttMinUs, "calibrated", policy, ancUnc, calV)))
 	}
 
 	if len(vacDisks) < policy.MinAnchors {
-		failures = append(failures, fmt.Sprintf("insufficient anchors: %d < %d", len(vacDisks), policy.MinAnchors))
+		failures = append(failures, fmt.Sprintf("insufficient verified anchors: %d < %d", len(vacDisks), policy.MinAnchors))
 	}
 	if len(seenClouds) < policy.MinCloudProviders {
 		failures = append(failures, fmt.Sprintf("insufficient clouds: %d < %d", len(seenClouds), policy.MinCloudProviders))
@@ -526,8 +731,21 @@ func VerifyProof(bundle GeoProofBundle, grid AnchorGrid, policy VerificationPoli
 	} else if policy.EnforceTier == "calibrated" {
 		enforced = t2
 	}
-	if !enforced.ContainedWithinTarget {
+	if len(vacDisks) > 0 && !enforced.ContainedWithinTarget {
 		failures = append(failures, fmt.Sprintf("enforced tier (%s) failed: %.1f km > %.1f km", policy.EnforceTier, enforced.ProvenMaxRadiusKm, bundle.RequiredRadiusKm))
+	}
+
+	proofStatus := "verified"
+	if len(vacDisks) < policy.MinAnchors || len(seenClouds) < policy.MinCloudProviders {
+		proofStatus = "insufficient_verified_anchors"
+	} else if !t1a.Feasible {
+		proofStatus = "inconsistent_measurements"
+	} else if t1a.WholeEarth && !enforced.ContainedWithinTarget {
+		proofStatus = "no_verified_constraint"
+	} else if !enforced.ContainedWithinTarget {
+		proofStatus = "containment_failed"
+	} else if len(failures) > 0 {
+		proofStatus = "policy_rejected"
 	}
 
 	distinctIPs := make([]string, 0, len(seenIPs))
@@ -538,7 +756,10 @@ func VerifyProof(bundle GeoProofBundle, grid AnchorGrid, policy VerificationPoli
 
 	return VerificationReport{
 		OverallValid:           len(failures) == 0,
+		ProofStatus:            proofStatus,
+		HardwareAttested:       proverIsHw && allAnchorsHw && len(vacDisks) > 0,
 		FailureReasons:         failures,
+		UnverifiedReceipts:     unverified,
 		DistinctClouds:         len(seenClouds),
 		VerifiedReceipts:       len(vacDisks),
 		ProverPublicKeyHex:     q.PublicKeyHex,
@@ -553,7 +774,19 @@ func VerifyProof(bundle GeoProofBundle, grid AnchorGrid, policy VerificationPoli
 	}
 }
 
-// SignedRegistryDigest matches `pog_proto::SignedNetworkRegistry::signing_digest()` byte-for-byte.
+func ValidateProductionRegistry(reg SignedNetworkRegistry) error {
+	var dev []string
+	for _, a := range reg.Grid.Anchors {
+		if a.TeeVendor == "SoftwareDev" {
+			dev = append(dev, a.AnchorID)
+		}
+	}
+	if len(dev) > 0 {
+		return fmt.Errorf("production registry contains SoftwareDev anchors: %s", strings.Join(dev, ", "))
+	}
+	return nil
+}
+
 func SignedRegistryDigest(reg SignedNetworkRegistry) [32]byte {
 	h := sha256.New()
 	h.Write([]byte("POG-NETWORK-REGISTRY-V1\n"))
@@ -620,7 +853,6 @@ func FetchSignedRegistry(url string, pinnedRootPKHex string, nowUnixS uint64, cl
 	return reg, nil
 }
 
-// VerifyFederatedProof verifies proofs obtained from `minIndependentNetworks` distinct operator networks.
 func VerifyFederatedProof(
 	submissions []NetworkProofSubmission,
 	trustedNetworks []TrustedNetwork,
@@ -688,7 +920,7 @@ func VerifyFederatedProof(
 				ff := f
 				minFib = &ff
 			}
-			if minCal == nil || c < *minCal {
+			if rep.Tier2Calibrated.Feasible && (minCal == nil || c < *minCal) {
 				cc := c
 				minCal = &cc
 			}
@@ -753,4 +985,365 @@ func QueryFederatedNetworks(
 		}
 	}
 	return VerifyFederatedProof(submissions, trusted, policy, minIndependentNetworks, nowUnixS)
+}
+
+type LikelihoodObservation struct {
+	AnchorID            string  `json:"anchor_id"`
+	Lat                 float64 `json:"lat"`
+	Lon                 float64 `json:"lon"`
+	RttMs               float64 `json:"rtt_ms"`
+	RttMinMs            float64 `json:"rtt_min_ms"`
+	JitterMs            float64 `json:"jitter_ms"`
+	AnchorUncertaintyKm float64 `json:"anchor_uncertainty_km"`
+}
+
+type SpatialLikelihoodConfig struct {
+	T0Ms             float64
+	V0KmMs           float64
+	V1KmMs           float64
+	DKneeKm          float64
+	SigmaBaseMs      float64
+	SigmaRel         float64
+	SigmaJit         float64
+	Rho              float64
+	LCorrKm          float64
+	AsymSlow         float64
+	StudentTNu       float64 // <= 0 means Gaussian
+	TauMoreLikely    float64
+	TauPlausible     float64
+	GridPoints       int
+	PeakSeparationKm float64
+	VacuumByzantineF int
+}
+
+func DefaultSpatialLikelihoodConfig() SpatialLikelihoodConfig {
+	return SpatialLikelihoodConfig{
+		T0Ms:             2.0,
+		V0KmMs:           80.0,
+		V1KmMs:           143.0,
+		DKneeKm:          3500.0,
+		SigmaBaseMs:      1.837,
+		SigmaRel:         0.1267,
+		SigmaJit:         1.5,
+		Rho:              0.85,
+		LCorrKm:          2200.0,
+		AsymSlow:         1.65,
+		StudentTNu:       4.0,
+		TauMoreLikely:    1.752,
+		TauPlausible:     3.911,
+		GridPoints:       2000,
+		PeakSeparationKm: 700.0,
+		VacuumByzantineF: 0,
+	}
+}
+
+type LikelihoodPeak struct {
+	Lat                float64 `json:"lat"`
+	Lon                float64 `json:"lon"`
+	DeltaNll           float64 `json:"delta_nll"`
+	RelativeLikelihood float64 `json:"relative_likelihood"`
+	QualitativeBand    string  `json:"qualitative_band"`
+}
+
+type SpatialLikelihoodSurface struct {
+	IsEmpiricalEstimate         bool             `json:"is_empirical_estimate"`
+	IsHardProof                 bool             `json:"is_hard_proof"`
+	QualitativeScale            string           `json:"qualitative_scale"`
+	EffectiveIndependentAnchors float64          `json:"effective_independent_anchors"`
+	AnchorCount                 int              `json:"anchor_count"`
+	Peaks                       []LikelihoodPeak `json:"peaks"`
+	MoreLikelyAreaKm2           float64          `json:"more_likely_area_km2"`
+	MoreLikelyAreaFraction      float64          `json:"more_likely_area_fraction"`
+	PlausibleAreaKm2            float64          `json:"plausible_area_km2"`
+	PlausibleAreaFraction       float64          `json:"plausible_area_fraction"`
+	VacuumOuterAreaKm2          float64          `json:"vacuum_outer_area_km2"`
+	VacuumOuterAreaFraction     float64          `json:"vacuum_outer_area_fraction"`
+}
+
+func choleskyLower(mat [][]float64) [][]float64 {
+	n := len(mat)
+	L := make([][]float64, n)
+	for i := range L {
+		L[i] = make([]float64, n)
+	}
+	for i := 0; i < n; i++ {
+		for j := 0; j <= i; j++ {
+			s := 0.0
+			for k := 0; k < j; k++ {
+				s += L[i][k] * L[j][k]
+			}
+			if i == j {
+				v := mat[i][i] - s
+				if v < 1e-12 {
+					v = 1e-12
+				}
+				L[i][j] = math.Sqrt(v)
+			} else {
+				L[i][j] = (mat[i][j] - s) / L[j][j]
+			}
+		}
+	}
+	return L
+}
+
+func solveLower(L [][]float64, b []float64) []float64 {
+	n := len(b)
+	y := make([]float64, n)
+	for i := 0; i < n; i++ {
+		s := b[i]
+		for k := 0; k < i; k++ {
+			s -= L[i][k] * y[k]
+		}
+		y[i] = s / L[i][i]
+	}
+	return y
+}
+
+func ComputeSpatialLikelihood(observations []LikelihoodObservation, cfg SpatialLikelihoodConfig, policy VerificationPolicy) SpatialLikelihoodSurface {
+	earthKm2 := 4.0 * math.Pi * EarthRadiusKm * EarthRadiusKm
+	if cfg.GridPoints <= 0 {
+		cfg = DefaultSpatialLikelihoodConfig()
+	}
+	if len(observations) == 0 {
+		return SpatialLikelihoodSurface{
+			IsEmpiricalEstimate:     true,
+			IsHardProof:             false,
+			QualitativeScale:        "more_likely_to_less_likely",
+			MoreLikelyAreaKm2:       earthKm2,
+			MoreLikelyAreaFraction:  1.0,
+			PlausibleAreaKm2:        earthKm2,
+			PlausibleAreaFraction:   1.0,
+			VacuumOuterAreaKm2:      earthKm2,
+			VacuumOuterAreaFraction: 1.0,
+		}
+	}
+	k := len(observations)
+	units := make([]vec3, k)
+	vacCos := make([]float64, k)
+	sigmas := make([]float64, k)
+	for i, o := range observations {
+		units[i] = (LatLon{Lat: o.Lat, Lon: o.Lon}).toUnit()
+		rMin := o.RttMinMs
+		if rMin <= 0 {
+			rMin = o.RttMs
+		}
+		uncKm := o.AnchorUncertaintyKm
+		if uncKm <= 0 {
+			uncKm = 35.0
+		}
+		rKm := EffectiveOuterRadiusKm(uint64(math.Ceil(math.Max(0, rMin)*1000.0)), "vacuum", policy, uncKm, 152000.0)
+		vacCos[i] = math.Cos(math.Min(math.Pi, rKm/EarthRadiusKm))
+		s := math.Sqrt(cfg.SigmaBaseMs*cfg.SigmaBaseMs + math.Pow(cfg.SigmaRel*math.Max(0, o.RttMs), 2) + math.Pow(cfg.SigmaJit*math.Max(0, o.JitterMs), 2))
+		if s < 0.25 {
+			s = 0.25
+		}
+		sigmas[i] = s
+	}
+	reqVac := k - cfg.VacuumByzantineF
+	if reqVac < 1 {
+		reqVac = 1
+	}
+	rho := math.Max(0, math.Min(0.99, cfg.Rho))
+	lCorr := math.Max(1.0, cfg.LCorrKm)
+
+	Sigma := make([][]float64, k)
+	Corr := make([][]float64, k)
+	for i := 0; i < k; i++ {
+		Sigma[i] = make([]float64, k)
+		Corr[i] = make([]float64, k)
+	}
+	for i := 0; i < k; i++ {
+		for j := i; j < k; j++ {
+			c := 1.0
+			if i != j {
+				c = rho * math.Exp(-geodesicKm(units[i], units[j])/lCorr)
+			}
+			Corr[i][j], Corr[j][i] = c, c
+			v := sigmas[i] * sigmas[j] * c
+			Sigma[i][j], Sigma[j][i] = v, v
+		}
+	}
+	LSig := choleskyLower(Sigma)
+	LCor := choleskyLower(Corr)
+	ones := make([]float64, k)
+	for i := range ones {
+		ones[i] = 1.0
+	}
+	onesW := solveLower(LCor, ones)
+	kEff := 0.0
+	for _, x := range onesW {
+		kEff += x * x
+	}
+
+	evalNll := func(pt vec3) float64 {
+		r := make([]float64, k)
+		for i, o := range observations {
+			dKm := geodesicKm(pt, units[i])
+			v := cfg.V0KmMs + (cfg.V1KmMs-cfg.V0KmMs)*(1.0-math.Exp(-dKm/cfg.DKneeKm))
+			if v < 1.0 {
+				v = 1.0
+			}
+			pred := cfg.T0Ms + (2.0*dKm)/v
+			diff := o.RttMs - pred
+			if diff > 0 && cfg.AsymSlow > 1.0 {
+				diff /= cfg.AsymSlow
+			}
+			r[i] = diff
+		}
+		z := solveLower(LSig, r)
+		quad := 0.0
+		for _, x := range z {
+			quad += x * x
+		}
+		if cfg.StudentTNu > 0 {
+			nu := math.Max(0.5, cfg.StudentTNu)
+			return 0.5 * (nu + kEff) * math.Log(1.0+quad/nu)
+		}
+		return 0.5 * quad
+	}
+
+	nPts := cfg.GridPoints
+	if nPts < 64 {
+		nPts = 64
+	}
+	ga := math.Pi * (3.0 - math.Sqrt(5.0))
+	type gridSample struct {
+		pt  vec3
+		nll float64
+	}
+	feasible := make([]gridSample, 0, nPts/4)
+	bestNll := math.Inf(1)
+	bestU := units[0]
+	for i := 0; i < nPts; i++ {
+		y := 1.0 - (2.0*float64(i)+1.0)/float64(nPts)
+		rr := math.Sqrt(math.Max(0, 1.0-y*y))
+		phi := ga * float64(i)
+		pt := vec3{math.Cos(phi) * rr, math.Sin(phi) * rr, y}
+		inCnt := 0
+		for j := 0; j < k; j++ {
+			if pt.dot(units[j]) >= vacCos[j]-1e-12 {
+				inCnt++
+			}
+		}
+		if inCnt < reqVac {
+			continue
+		}
+		nll := evalNll(pt)
+		if nll < bestNll {
+			bestNll = nll
+			bestU = pt
+		}
+		feasible = append(feasible, gridSample{pt: pt, nll: nll})
+	}
+	if len(feasible) == 0 {
+		return SpatialLikelihoodSurface{
+			IsEmpiricalEstimate:         true,
+			IsHardProof:                 false,
+			QualitativeScale:            "more_likely_to_less_likely",
+			EffectiveIndependentAnchors: kEff,
+			AnchorCount:                 k,
+		}
+	}
+
+	bestLL := bestU.toLatLon()
+	for _, step := range []float64{1.5, 0.4, 0.1} {
+		cLat, cLon := bestLL.Lat, bestLL.Lon
+		for dl := -2; dl <= 2; dl++ {
+			for dn := -2; dn <= 2; dn++ {
+				lat := math.Max(-89.5, math.Min(89.5, cLat+float64(dl)*step))
+				lon := math.Mod(math.Mod(cLon+float64(dn)*step+180.0, 360.0)+360.0, 360.0) - 180.0
+				cu := (LatLon{Lat: lat, Lon: lon}).toUnit()
+				inCnt := 0
+				for j := 0; j < k; j++ {
+					if cu.dot(units[j]) >= vacCos[j]-1e-12 {
+						inCnt++
+					}
+				}
+				if inCnt < reqVac {
+					continue
+				}
+				cn := evalNll(cu)
+				if cn < bestNll {
+					bestNll = cn
+					bestLL = LatLon{Lat: lat, Lon: lon}
+					bestU = cu
+				}
+			}
+		}
+	}
+
+	type deltaPt struct {
+		delta float64
+		pt    vec3
+	}
+	mlPts := make([]deltaPt, 0)
+	plCount := 0
+	for _, f := range feasible {
+		d := math.Max(0, f.nll-bestNll)
+		if d <= cfg.TauPlausible {
+			plCount++
+		}
+		if d <= cfg.TauMoreLikely {
+			mlPts = append(mlPts, deltaPt{delta: d, pt: f.pt})
+		}
+	}
+	sort.Slice(mlPts, func(i, j int) bool { return mlPts[i].delta < mlPts[j].delta })
+
+	peakUnits := []deltaPt{{delta: 0, pt: bestU}}
+	for _, cand := range mlPts {
+		ok := true
+		for _, p := range peakUnits {
+			if geodesicKm(cand.pt, p.pt) < cfg.PeakSeparationKm {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			peakUnits = append(peakUnits, cand)
+			if len(peakUnits) >= 4 {
+				break
+			}
+		}
+	}
+
+	peaks := make([]LikelihoodPeak, 0, len(peakUnits))
+	for _, p := range peakUnits {
+		ll := p.pt.toLatLon()
+		band := "more_likely"
+		if p.delta > cfg.TauMoreLikely {
+			band = "plausible"
+		}
+		peaks = append(peaks, LikelihoodPeak{
+			Lat:                ll.Lat,
+			Lon:                ll.Lon,
+			DeltaNll:           p.delta,
+			RelativeLikelihood: math.Exp(-p.delta),
+			QualitativeBand:    band,
+		})
+	}
+
+	vacFrac := float64(len(feasible)) / float64(nPts)
+	mlCnt := len(mlPts)
+	if mlCnt < 1 {
+		mlCnt = 1
+	}
+	if plCount < mlCnt {
+		plCount = mlCnt
+	}
+	mlFrac := float64(mlCnt) / float64(nPts)
+	plFrac := float64(plCount) / float64(nPts)
+	return SpatialLikelihoodSurface{
+		IsEmpiricalEstimate:         true,
+		IsHardProof:                 false,
+		QualitativeScale:            "more_likely_to_less_likely",
+		EffectiveIndependentAnchors: kEff,
+		AnchorCount:                 k,
+		Peaks:                       peaks,
+		MoreLikelyAreaKm2:           mlFrac * earthKm2,
+		MoreLikelyAreaFraction:      mlFrac,
+		PlausibleAreaKm2:            plFrac * earthKm2,
+		PlausibleAreaFraction:       plFrac,
+		VacuumOuterAreaKm2:          vacFrac * earthKm2,
+		VacuumOuterAreaFraction:     vacFrac,
+	}
 }

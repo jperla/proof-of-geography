@@ -1,6 +1,39 @@
 # Multi-Operator Federation & Local Root-Key PKI
 
-Proof of Geography is designed as an **open, federated, Apache-2.0 protocol** — never a single centralized monopoly. Anyone (an independent operator like `proofofgeography.com`, Cloudflare, OVHcloud, EFF, a university consortium, or a national telecom) can operate their own multi-cloud Anchor network signed by their own local root key, and **relying-party SDKs can require quorum across `X` independent networks** (for example, `minIndependentNetworks = 2` or `3`) before trusting a GPU or datacenter's physical location.
+Proof of Geography is designed as an **open, federated, Apache-2.0 protocol** — never a single centralized monopoly. **The official `proofofgeography.com` constellation contains ONLY nodes operated by Proof of Geography** (we do not add third-party nodes to the official registry, maintain a community admission PR workflow, or mix external nodes into official proofs or official hardware counts).
+
+Instead, any independent operator (Cloudflare, OVHcloud, EFF, a university consortium, or your own team) can self-host their own separate constellation, sign their own registry under their own root key, expose their own HTTPS `/info`, `/attest`, and `/ping` endpoints via optional `https_url`, and inspect that separate constellation on the map via `?registry=<url>`. Relying-party SDKs can also require quorum across `X` independent constellations (`minIndependentNetworks = 2` or `3`) before trusting a GPU or datacenter's physical location.
+
+---
+
+## Self-Hosting Your Own Constellation (`?registry=<url>`)
+
+See the minimal working template in [examples/external_constellation_registry.json](../examples/external_constellation_registry.json).
+
+```bash
+# 1. Generate your own offline operator root key (never shared with proofofgeography.com)
+pog-cli network init \
+  --network-id pog.example-operator.org \
+  --operator "Example Independent Operator" \
+  --key-out ~/.pog/example-root.key
+
+# 2. Prepare your grid JSON with optional per-anchor `https_url` pointing to YOUR HTTPS endpoints
+#    (each endpoint serves CORS-enabled `/info`, `/attest?nonce=<hex>`, and `/ping`)
+# 3. Sign your registry under your own root key:
+pog-cli network sign-registry \
+  --key ~/.pog/example-root.key \
+  --network-id pog.example-operator.org \
+  --operator "Example Independent Operator" \
+  --grid my_grid.json \
+  --out ./pog-network.json \
+  --ttl-days 90
+
+# 4. Publish `./pog-network.json` over HTTPS with CORS (`Access-Control-Allow-Origin: *`),
+#    then open the map pointed strictly at YOUR separate constellation:
+#    https://proofofgeography.com/?registry=https://pog.example-operator.org/.well-known/pog-network.json
+```
+
+> **Strict Separation:** `?registry=<url>` **replaces** the active map constellation with your external registry rather than merging it with `web/data/anchors.json`. The UI labels it **Independently Operated**, counts attested hardware (`Intel TDX`, `AMD SEV-SNP`, `AWS Nitro`) only within the selected constellation, and never treats hardware verification on an external constellation as official Proof of Geography membership.
 
 ---
 

@@ -23,7 +23,7 @@ pub enum TeeVendor {
     AmdSevSnp,
     /// Intel Xeon Sapphire/Emerald Rapids TDX (GCP C3, Azure DCes_v5, ByteDance/Volcengine).
     IntelTdx,
-    /// AWS Nitro Enclaves (available in all AWS regions; uses NSM COSE_Sign1 CBOR attestation).
+    /// AWS Nitro Enclaves (uses NSM hardware-signed COSE_Sign1 CBOR attestation chained to AWS Nitro Root-G1).
     AwsNitro,
     /// Software-only mock TEE for local development and CI tests. NEVER accepted in production policy.
     SoftwareDev,
@@ -37,6 +37,11 @@ impl TeeVendor {
             TeeVendor::AwsNitro => "aws-nitro",
             TeeVendor::SoftwareDev => "software-dev",
         }
+    }
+
+    /// True iff this vendor represents an actual hardware TEE (never `SoftwareDev`).
+    pub fn is_production_hardware_tee(self) -> bool {
+        !matches!(self, TeeVendor::SoftwareDev)
     }
 }
 
@@ -58,7 +63,7 @@ pub struct TeeAttestationQuote {
     pub vendor: TeeVendor,
     /// Hex-encoded Ed25519 public key generated inside enclave RAM (`pk_P`).
     pub public_key_hex: String,
-    /// Hex-encoded TEE code measurement (SEV-SNP Launch Digest / TDX MRTD+RTMR / Nitro PCR0).
+    /// Hex-encoded TEE code measurement (SEV-SNP Launch Digest / TDX MRTD / Nitro PCR0).
     pub workload_measurement_hex: String,
     /// 64-byte hardware `report_data` = SHA-512("pog-tee-bind-v1" || pk_P || nonce || optional_gpu_hash).
     pub report_data_hex: String,
@@ -73,8 +78,12 @@ pub struct TeeAttestationQuote {
     pub secure_tsc_enabled: bool,
     /// Optional NVIDIA H100/B200 Confidential GPU binding for GPU localization compliance.
     pub gpu_binding: Option<GpuAttestationBinding>,
-    /// Raw hardware attestation bytes (base64: SEV-SNP 1184B report / TDX quote / Nitro COSE_Sign1).
+    /// Raw hardware attestation bytes (base64: SEV-SNP 1184B report / TDX v4 quote / Nitro COSE_Sign1 CBOR).
     pub raw_quote_b64: String,
+    /// Optional PEM-encoded vendor X.509 certificate chain (e.g., AMD VCEK -> ASK -> ARK for SEV-SNP;
+    /// AWS Nitro embeds its X.509 chain directly inside the COSE_Sign1 CBOR payload).
+    #[serde(default)]
+    pub vendor_cert_chain_pem: Vec<String>,
     /// Timestamp (Unix seconds) when the quote was generated.
     pub generated_at_unix_s: u64,
 }
@@ -159,31 +168,66 @@ pub struct AttestationPolicy {
     pub require_migration_disabled: bool,
     pub require_debug_disabled: bool,
     pub require_secure_tsc: bool,
+    /// Fail-closed production invariant: require full cryptographic verification of the hardware
+    /// vendor signature & X.509 trust root (AWS Nitro Root-G1, AMD VCEK/ASK/ARK, Intel DCAP PCK).
+    #[serde(default = "default_true")]
+    pub require_cryptographic_vendor_chain: bool,
     pub max_quote_age_seconds: u64,
-    /// If non-empty, the quote's `workload_measurement_hex` must appear in this allowlist.
+    /// Maximum tolerated clock skew into the future for quote timestamps (seconds).
+    #[serde(default = "default_future_skew")]
+    pub max_future_skew_seconds: u64,
+    /// If non-empty, `workload_measurement_hex` (SEV-SNP Launch Digest / TDX MRTD / Nitro PCR0) must appear here.
     pub allowed_measurements: Vec<String>,
+    /// Optional Nitro PCR1 (kernel/boot) allowlist.
+    #[serde(default)]
+    pub allowed_pcr1: Vec<String>,
+    /// Optional Nitro PCR2 (application) allowlist.
+    #[serde(default)]
+    pub allowed_pcr2: Vec<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_future_skew() -> u64 {
+    300
 }
 
 impl AttestationPolicy {
+    /// Strict fail-closed production policy:
+    /// - SoftwareDev FORBIDDEN
+    /// - Cryptographic vendor trust-chain verification REQUIRED
+    /// - Migration disabled & debug disabled REQUIRED
     pub fn production() -> Self {
         Self {
             allow_software_dev: false,
             require_migration_disabled: true,
             require_debug_disabled: true,
             require_secure_tsc: false,
+            require_cryptographic_vendor_chain: true,
             max_quote_age_seconds: 3600,
+            max_future_skew_seconds: 300,
             allowed_measurements: Vec::new(),
+            allowed_pcr1: Vec::new(),
+            allowed_pcr2: Vec::new(),
         }
     }
 
+    /// Local development / CI simulation policy ONLY.
+    /// MUST NEVER be enabled in production release configs or registries.
     pub fn allow_dev_software() -> Self {
         Self {
             allow_software_dev: true,
             require_migration_disabled: true,
             require_debug_disabled: true,
             require_secure_tsc: false,
+            require_cryptographic_vendor_chain: false,
             max_quote_age_seconds: 86_400,
+            max_future_skew_seconds: 600,
             allowed_measurements: Vec::new(),
+            allowed_pcr1: Vec::new(),
+            allowed_pcr2: Vec::new(),
         }
     }
 }
@@ -195,6 +239,12 @@ pub struct VerifiedTeeIdentity {
     pub workload_measurement_hex: String,
     pub secure_tsc_enabled: bool,
     pub has_gpu_binding: bool,
+    /// True iff the vendor's cryptographic signature & X.509 trust root verified end-to-end.
+    #[serde(default)]
+    pub vendor_chain_verified: bool,
+    /// True iff `vendor.is_production_hardware_tee() && vendor_chain_verified`.
+    #[serde(default)]
+    pub hardware_attested: bool,
 }
 
 /// Trait implemented by each hardware TEE backend (SEV-SNP, Intel TDX, AWS Nitro, SoftwareDev).
@@ -237,17 +287,25 @@ pub fn verify_quote(
             "TEE policy violation: Secure TSC required".into(),
         ));
     }
-    if now_unix_s > quote.generated_at_unix_s + policy.max_quote_age_seconds {
+    if now_unix_s > quote.generated_at_unix_s.saturating_add(policy.max_quote_age_seconds) {
         return Err(TeeError::PolicyRejected(format!(
             "TEE quote expired (age {}s > max {}s)",
-            now_unix_s - quote.generated_at_unix_s,
+            now_unix_s.saturating_sub(quote.generated_at_unix_s),
             policy.max_quote_age_seconds
+        )));
+    }
+    if quote.generated_at_unix_s > now_unix_s.saturating_add(policy.max_future_skew_seconds) {
+        return Err(TeeError::PolicyRejected(format!(
+            "TEE quote timestamp is {}s in the future (max skew {}s)",
+            quote.generated_at_unix_s - now_unix_s,
+            policy.max_future_skew_seconds
         )));
     }
     if !policy.allowed_measurements.is_empty()
         && !policy
             .allowed_measurements
-            .contains(&quote.workload_measurement_hex)
+            .iter()
+            .any(|m| m.eq_ignore_ascii_case(&quote.workload_measurement_hex))
     {
         return Err(TeeError::PolicyRejected(format!(
             "workload measurement {} not in allowlist",
@@ -257,7 +315,7 @@ pub fn verify_quote(
 
     // Verify nonce & cryptographic report_data binding.
     let expected_nonce_hex = hex::encode(expected_nonce);
-    if quote.nonce_hex != expected_nonce_hex {
+    if !quote.nonce_hex.eq_ignore_ascii_case(&expected_nonce_hex) {
         return Err(TeeError::VerificationFailed(
             "quote nonce mismatch".into(),
         ));
@@ -269,18 +327,34 @@ pub fn verify_quote(
         .map_err(|_| TeeError::VerificationFailed("pk must be 32 bytes".into()))?;
 
     let expected_rd = compute_report_data(&pk_arr, expected_nonce, quote.gpu_binding.as_ref());
-    if quote.report_data_hex != hex::encode(expected_rd) {
+    if !quote.report_data_hex.eq_ignore_ascii_case(&hex::encode(expected_rd)) {
         return Err(TeeError::VerificationFailed(
             "hardware report_data does not match SHA-512(pk_P || nonce || gpu)".into(),
         ));
     }
 
-    // Vendor-specific structural verification of the raw hardware quote bytes.
-    match quote.vendor {
-        TeeVendor::AmdSevSnp => crate::sev_snp::verify_raw_sev_snp_report(quote)?,
-        TeeVendor::IntelTdx => crate::intel_tdx::verify_raw_tdx_quote(quote)?,
-        TeeVendor::AwsNitro => crate::aws_nitro::verify_raw_nitro_doc(quote)?,
-        TeeVendor::SoftwareDev => crate::software_dev::verify_raw_dev_quote(quote)?,
+    // Vendor-specific structural + cryptographic chain verification of the raw hardware quote bytes.
+    let vendor_chain_verified = match quote.vendor {
+        TeeVendor::AmdSevSnp => {
+            crate::sev_snp::verify_raw_sev_snp_report(quote, policy, now_unix_s)?
+        }
+        TeeVendor::IntelTdx => {
+            crate::intel_tdx::verify_raw_tdx_quote(quote, policy, now_unix_s)?
+        }
+        TeeVendor::AwsNitro => {
+            crate::aws_nitro::verify_raw_nitro_doc(quote, expected_nonce, policy, now_unix_s)?
+        }
+        TeeVendor::SoftwareDev => {
+            crate::software_dev::verify_raw_dev_quote(quote)?;
+            false
+        }
+    };
+
+    if policy.require_cryptographic_vendor_chain && !vendor_chain_verified {
+        return Err(TeeError::VerificationFailed(format!(
+            "fail-closed policy requires cryptographic vendor chain verification for {}",
+            quote.vendor.as_str()
+        )));
     }
 
     Ok(VerifiedTeeIdentity {
@@ -289,5 +363,7 @@ pub fn verify_quote(
         workload_measurement_hex: quote.workload_measurement_hex.clone(),
         secure_tsc_enabled: quote.secure_tsc_enabled,
         has_gpu_binding: quote.gpu_binding.is_some(),
+        vendor_chain_verified,
+        hardware_attested: quote.vendor.is_production_hardware_tee() && vendor_chain_verified,
     })
 }

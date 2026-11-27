@@ -3,7 +3,7 @@ name = "pog-proto"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Wire protocol, anti-cherry-picking multi-cloud committee selection, raw UDP BLAKE3-MAC distance bounding, kernel timestamping, and RA-TLS/HTTP proof bundles"
+description = "Wire protocol, anti-cherry-picking multi-cloud committee selection, raw UDP BLAKE3-MAC distance bounding, Nitro vsock transport, and fail-closed proof bundles"
 
 [dependencies]
 pog-geo.workspace = true
@@ -21,3 +21,6 @@ base64.workspace = true
 chrono.workspace = true
 socket2.workspace = true
 libc.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+vsock = "0.5"

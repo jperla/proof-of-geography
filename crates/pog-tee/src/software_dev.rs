@@ -67,6 +67,7 @@ impl TeeProvider for SoftwareDevProvider {
             secure_tsc_enabled: false,
             gpu_binding,
             raw_quote_b64: base64::engine::general_purpose::STANDARD.encode(&raw),
+            vendor_cert_chain_pem: Vec::new(),
             generated_at_unix_s: Utc::now().timestamp().max(0) as u64,
         })
     }

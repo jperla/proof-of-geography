@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Proof of Geography — Real Leaflet Pixel Verification Harness</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <style>
+    html, body { margin: 0; padding: 0; background: #050914; color: #e2e8f0; font-family: monospace; }
+    #map { width: 1024px; height: 1024px; background: transparent; }
+    #out { padding: 12px; white-space: pre-wrap; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <pre id="out">Running Leaflet pixel checks…</pre>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="/geo.js?v=10"></script>
+  <script src="/constellation.js?v=10"></script>
+  <script>
+    (async function () {
+      const CASES = [
+        ["local", 0, 0, 2000],
+        ["dateline", 31, 179, 3200],
+        ["north", 72, 17, 3500],
+        ["south", -65, 166, 4200],
+        ["larger-than-hemisphere", 0, 24, 14500],
+        ["near-global", 0, -23, 19500],
+        ["whole-earth", 38, -79, 21100],
+      ];
+
+      // Create a pure Leaflet canvas map at zoom 2 (1024x1024 = exactly one 360° Mercator world!)
+      const canvasRenderer = L.canvas({ padding: 0.0 });
+      const map = L.map("map", {
+        center: [0, 0],
+        zoom: 2,
+        zoomControl: false,
+        attributionControl: false,
+        preferCanvas: true,
+        renderer: canvasRenderer,
+        fadeAnimation: false,
+        zoomAnimation: false,
+      });
+
+      const layerGroup = L.layerGroup().addTo(map);
+      const waitFrame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      function sampleLeafletCanvasPixels(lat, lon, radiusKm, checkNoOutline) {
+        const canvas = document.querySelector("#map canvas.leaflet-zoom-animated");
+        if (!canvas) throw new Error("Leaflet canvas element not found");
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        const dpr = canvas.width / parseFloat(canvas.style.width || String(canvas.width));
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = img.data;
+        const cRect = canvas.getBoundingClientRect();
+        const mRect = document.getElementById("map").getBoundingClientRect();
+
+        let checked = 0, misses = 0, extra = 0, filledCount = 0;
+        for (let y = -80; y <= 80; y += 5) {
+          for (let x = -178; x <= 178; x += 4) {
+            const d = PogGeo.haversineKm(lat, lon, y, x);
+            if (Math.abs(d - radiusKm) < 250) continue; // ignore anti-aliased boundary strip
+            const pt = map.latLngToContainerPoint([y, x]);
+            const cx = Math.round((pt.x + mRect.left - cRect.left) * dpr);
+            const cy = Math.round((pt.y + mRect.top - cRect.top) * dpr);
+            if (cx < 0 || cy < 0 || cx >= canvas.width || cy >= canvas.height) continue;
+            const alpha = data[(cy * canvas.width + cx) * 4 + 3];
+            const filled = alpha > 10;
+            if (filled) filledCount++;
+            checked++;
+            if (d < radiusKm && !filled) misses++;
+            if (d > radiusKm && filled) extra++;
+          }
+        }
+
+        // For whole-earth: assert ZERO high-alpha outline stroke pixels anywhere on the canvas!
+        let outlinePixels = 0;
+        let maxAlpha = 0;
+        if (checkNoOutline) {
+          for (let i = 3; i < data.length; i += 4) {
+            const a = data[i];
+            if (a > maxAlpha) maxAlpha = a;
+            if (a >= 190) outlinePixels++;
+          }
+        }
+        return { checked, filledCount, misses, extra, outlinePixels, maxAlpha };
+      }
+
+      const results = [];
+      for (const [name, lat, lon, radiusKm] of CASES) {
+        layerGroup.clearLayers();
+        let strokePolylinesAdded = 0;
+        for (const shift of [-360, 0, 360]) {
+          const g = PogGeo.geodesicCircleGeometry(lat, lon, radiusKm, 144, shift);
+          // Fill strictly with stroke: false; render outline separately ONLY when !wholeEarth!
+          L.polygon(g.fill, {
+            renderer: canvasRenderer,
+            stroke: false,
+            fillColor: "#2dd4bf",
+            fillOpacity: 0.35,
+            interactive: false,
+          }).addTo(layerGroup);
+          if (!g.wholeEarth && g.stroke.length >= 2) {
+            strokePolylinesAdded++;
+            L.polyline(g.stroke, {
+              renderer: canvasRenderer,
+              color: "#2dd4bf",
+              weight: 2,
+              opacity: 0.95,
+              interactive: false,
+            }).addTo(layerGroup);
+          }
+        }
+        await waitFrame();
+        const stats = sampleLeafletCanvasPixels(lat, lon, radiusKm, name === "whole-earth");
+        results.push({
+          name,
+          checked: stats.checked,
+          filledCount: stats.filledCount,
+          misses: stats.misses,
+          extra: stats.extra,
+          strokePolylinesAdded,
+          outlinePixels: stats.outlinePixels,
+          maxAlpha: stats.maxAlpha,
+        });
+      }
+
+      // Inert DOM text-rendering check on official origin (quotes & literal angle brackets -> text, NEVER DOM)
+      const domSandbox = document.createElement("div");
+      const inertAnchor = PogConstellation.normalizeAnchor(
+        {
+          id: 'ext-"node"-<alpha>',
+          city: 'O\'Hare "Terminal" <North>',
+          cloud: 'cloud<"x">',
+          lat: 41.97,
+          lon: -87.9,
+          color: '#ff0000; position:fixed',
+          https_url: "https://anchor.example.org/node",
+          endpoint_tcp: '198.51.100.1:7443"<tag>',
+        },
+        { isOfficial: false, pageOrigin: window.location.origin }
+      );
+      const inertBadge = PogConstellation.teeBadgeForVendor("SoftwareDev", inertAnchor.cloud);
+      const rowEl = PogConstellation.buildAnchorRowElement(document, {
+        anchor: inertAnchor,
+        badge: inertBadge,
+        rttText: "14.2 ms",
+        metaText: inertAnchor.endpoint_tcp,
+        barPct: 50,
+        barColor: "#123; evil",
+      });
+      const rejEl = document.createElement("div");
+      rejEl.replaceChildren(
+        PogConstellation.buildVerifyVerdictElement(document, {
+          status: "rejected",
+          failureReasons: ['Mismatch: expected <key> != "other"'],
+        })
+      );
+      const localEl = document.createElement("div");
+      localEl.replaceChildren(
+        PogConstellation.buildVerifyVerdictElement(document, {
+          status: "local_decoded",
+          localVendor: 'Custom<Vendor>"v2"',
+          receiptCount: 2,
+        })
+      );
+      domSandbox.append(rowEl, rejEl, localEl);
+      const domEscapingCheck = {
+        origin: window.location.origin,
+        sanitizedColor: inertAnchor.color,
+        datasetAnchor: rowEl.dataset.anchor,
+        rowHasLiteralText: rowEl.textContent.includes('O\'Hare "Terminal" <North>'),
+        rowUnexpectedTags: Array.from(rowEl.querySelectorAll("*")).filter((e) => !["DIV", "I", "SPAN"].includes(e.tagName)).length,
+        rejHasLiteralText: rejEl.textContent.includes('Mismatch: expected <key> != "other"'),
+        rejUnexpectedTags: Array.from(rejEl.querySelectorAll("*")).filter((e) => !["STRONG", "BR"].includes(e.tagName)).length,
+        localHasLiteralText: localEl.textContent.includes('Custom<Vendor>"v2"'),
+        localUnexpectedTags: Array.from(localEl.querySelectorAll("*")).filter((e) => !["STRONG", "BR", "CODE"].includes(e.tagName)).length,
+      };
+      const domEscapingPassed =
+        domEscapingCheck.sanitizedColor === "#a78bfa" &&
+        domEscapingCheck.datasetAnchor === 'ext-"node"-<alpha>' &&
+        domEscapingCheck.rowHasLiteralText &&
+        domEscapingCheck.rowUnexpectedTags === 0 &&
+        domEscapingCheck.rejHasLiteralText &&
+        domEscapingCheck.rejUnexpectedTags === 0 &&
+        domEscapingCheck.localHasLiteralText &&
+        domEscapingCheck.localUnexpectedTags === 0;
+
+      const allPassed =
+        domEscapingPassed &&
+        results.every(
+          (r) =>
+            r.misses === 0 &&
+            r.extra === 0 &&
+            (r.name !== "whole-earth" || (r.strokePolylinesAdded === 0 && r.outlinePixels === 0 && r.filledCount === r.checked))
+        );
+      const summary = { allPassed, domEscapingPassed, domEscapingCheck, cases: results };
+      window.__LEAFLET_PIXEL_RESULTS__ = summary;
+      document.getElementById("out").textContent = JSON.stringify(summary, null, 2);
+      document.title = allPassed ? "PASS — Leaflet Pixel Check" : "FAIL — Leaflet Pixel Check";
+    })();
+  </script>
+</body>
+</html>

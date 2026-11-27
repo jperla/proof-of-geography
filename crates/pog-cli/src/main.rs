@@ -10,9 +10,11 @@ use pog_geo::{
 use pog_log::{build_router, ContinuousGeoLog};
 use pog_proto::{
     bind_low_latency_udp, compute_challenge_mac, derive_session_key, encode_udp_punch,
-    respond_once_udp, select_committee, verify_proof_bundle, AnchorDescriptor, AnchorEndorsement,
-    AnchorGrid, AnchorReceipt, CommitteeConfig, GeoProofBundle, Phase1InitRequest,
-    Phase1InitResponse, SignedNetworkRegistry, VerificationPolicy,
+    respond_once_udp, select_committee, verify_anchor_fresh_attestation,
+    verify_anchor_info_identity, verify_proof_bundle, AnchorDescriptor, AnchorEndorsement,
+    AnchorFreshAttestResponse, AnchorGrid, AnchorLiveInfo, AnchorReceipt, CommitteeConfig,
+    GeoProofBundle, Phase1InitRequest, Phase1InitResponse, SignedNetworkRegistry,
+    VerificationPolicy,
 };
 use pog_tee::{
     auto_detect_provider, AttestationPolicy, GpuAttestationBinding, SoftwareDevProvider,
@@ -173,7 +175,8 @@ enum NetworkAction {
         #[arg(long)]
         key_out: PathBuf,
     },
-    /// Sign a full Anchor grid JSON (e.g. 9-node or 72-node network) using your local operator root key.
+    /// Sign a full Anchor grid JSON using your local operator root key.
+    /// Fail-closed: refuses grids containing SoftwareDev anchors unless `--allow-dev-anchors` is explicitly passed.
     SignRegistry {
         #[arg(long)]
         key: PathBuf,
@@ -187,6 +190,9 @@ enum NetworkAction {
         out: PathBuf,
         #[arg(long, default_value_t = 90)]
         ttl_days: u64,
+        /// Allow signing a non-production dev registry containing SoftwareDev anchors (FORBIDDEN for production releases).
+        #[arg(long, default_value_t = false)]
+        allow_dev_anchors: bool,
     },
     /// Issue per-Anchor signed endorsement certificates to deliver securely to each Anchor VM.
     EndorseAnchors {
@@ -201,12 +207,53 @@ enum NetworkAction {
         #[arg(long, default_value_t = 90)]
         ttl_days: u64,
     },
-    /// Verify a published SignedNetworkRegistry JSON against an optional pinned operator root public key.
+    /// Verify a published SignedNetworkRegistry JSON against a pinned operator root public key.
     VerifyRegistry {
         #[arg(long)]
         signed_registry: PathBuf,
         #[arg(long)]
         pinned_root_pk: Option<String>,
+        #[arg(long)]
+        expected_network_id: Option<String>,
+        /// Allow SoftwareDev / simulated placeholder anchors when inspecting non-production test registries.
+        #[arg(long, default_value_t = false)]
+        allow_dev_anchors: bool,
+    },
+    /// Verify a saved fresh `/attest?nonce=<64-hex>` JSON payload offline using the full Rust hardware TEE verifier
+    /// (pinned AMD ARK, Intel SGX Root CA, AWS Nitro Root-G1 COSE_Sign1, Ed25519 PoP, operator endorsement, and expected measurements).
+    VerifyAttest {
+        #[arg(long)]
+        signed_registry: PathBuf,
+        #[arg(long)]
+        pinned_root_pk: String,
+        #[arg(long)]
+        anchor_id: String,
+        #[arg(long)]
+        caller_nonce_hex: String,
+        #[arg(long)]
+        attest_json: PathBuf,
+        #[arg(long)]
+        expected_measurement: Vec<String>,
+        #[arg(long)]
+        expected_pcr1: Vec<String>,
+        #[arg(long)]
+        expected_pcr2: Vec<String>,
+        #[arg(long, default_value_t = false)]
+        allow_dev_tee: bool,
+    },
+    /// Audit EVERY published Anchor live over HTTP `:7445` (`/attest?nonce=...` or `/info`), reporting configured / reachable / attested / proof_eligible separately.
+    /// Exits non-zero if ANY production member fails key-match, endorsement, or hardware TEE verification!
+    AuditLive {
+        #[arg(long)]
+        signed_registry: PathBuf,
+        #[arg(long)]
+        pinned_root_pk: String,
+        #[arg(long, default_value_t = false)]
+        require_fresh_attest: bool,
+        #[arg(long)]
+        expected_measurement: Vec<String>,
+        #[arg(long, default_value_t = false)]
+        allow_dev_tee: bool,
     },
 }
 
@@ -281,7 +328,7 @@ async fn main() -> Result<()> {
             grid,
             baseline_grid,
         } => run_audit_coverage(&grid, baseline_grid.as_ref()),
-        Commands::Network { action } => run_network_action(action),
+        Commands::Network { action } => run_network_action(action).await,
     }
 }
 
@@ -334,9 +381,10 @@ fn build_signed_bundle(
         spdm_report_hash_hex: hex::encode(blake3::hash(b"spdm-rim-report").as_bytes()),
         driver_measurement_hex: hex::encode(blake3::hash(b"nvidia-cc-driver-550").as_bytes()),
     };
-    let quote = dev_tee
+    let mut quote = dev_tee
         .attest(&prover_kp.public_key_bytes(), &epoch, Some(gpu))
         .unwrap();
+    quote.generated_at_unix_s = spec.now_unix_s;
 
     let sel = select_committee(
         grid,
@@ -401,6 +449,7 @@ fn run_simulations(grid_path: &PathBuf) -> Result<()> {
         min_cloud_providers: 3,
         max_proof_age_seconds: 3_900,
         enforce_tier: BoundTier::Vacuum,
+        ..Default::default()
     };
 
     println!("==========================================================================");
@@ -434,10 +483,15 @@ fn run_simulations(grid_path: &PathBuf) -> Result<()> {
     let hdr_bytes = b1.to_header_value()?.len();
     println!("[1] HONEST TOKYO H100 GPU CLUSTER (f=1 Byzantine quorum across {} clouds)", rep1.distinct_clouds);
     println!("    Anchors: {:?}", b1.receipts.iter().map(|r| format!("{} ({:.2}ms)", r.anchor_id, r.rtt_min_us as f64 / 1000.0)).collect::<Vec<_>>());
-    println!("    Tier 1A (Vacuum / Starlink-safe): max radius = {:.1} km ({:.1} mi)", rep1.tier1a_vacuum.proven_max_radius_km, rep1.tier1a_vacuum.proven_max_radius_km * 0.621371);
-    println!("    Tier 1B (Silica Fiber):           max radius = {:.1} km ({:.1} mi)", rep1.tier1b_fiber.proven_max_radius_km, rep1.tier1b_fiber.proven_max_radius_km * 0.621371);
-    println!("    Tier 2  (Calibrated Bestline):    max radius = {:.1} km ({:.1} mi)", rep1.tier2_calibrated.proven_max_radius_km, rep1.tier2_calibrated.proven_max_radius_km * 0.621371);
-    println!("    IPinfo-Style Probabilistic 68%:   radius = {:.1} km ({:.1} mi) [MLE error {:.1} km]", rep1.probabilistic_estimate.confidence_68_radius_km, rep1.probabilistic_estimate.confidence_68_radius_km * 0.621371, rep1.probabilistic_estimate.mle_location.distance_km(tokyo));
+    let vac1 = rep1.tier1a_vacuum.as_ref().map(|c| c.proven_max_radius_km).unwrap_or(f64::NAN);
+    let fib1 = rep1.tier1b_fiber.as_ref().map(|c| c.proven_max_radius_km).unwrap_or(f64::NAN);
+    let cal1 = rep1.tier2_calibrated.as_ref().map(|c| c.proven_max_radius_km).unwrap_or(f64::NAN);
+    println!("    Tier 1A (Vacuum / Starlink-safe): max radius = {:.1} km ({:.1} mi)", vac1, vac1 * 0.621371);
+    println!("    Tier 1B (Silica Fiber):           max radius = {:.1} km ({:.1} mi)", fib1, fib1 * 0.621371);
+    println!("    Tier 2  (Calibrated Bestline):    max radius = {:.1} km ({:.1} mi)", cal1, cal1 * 0.621371);
+    if let Some(ref p1) = rep1.probabilistic_estimate {
+        println!("    IPinfo-Style Probabilistic 68%:   radius = {:.1} km ({:.1} mi) [MLE error {:.1} km]", p1.confidence_68_radius_km, p1.confidence_68_radius_km * 0.621371, p1.mle_location.distance_km(tokyo));
+    }
     println!("    X-PoG-Proof handshake header size: {} bytes | Valid: {}\n", hdr_bytes, rep1.overall_valid);
 
     // -----------------------------------------------------------------------
@@ -485,10 +539,12 @@ fn run_simulations(grid_path: &PathBuf) -> Result<()> {
             DiskConstraint::from_rtt(&a.anchor_id, a.location, r.rtt_min_us, BoundTier::Vacuum, &a.cloud_provider)
         })
         .collect();
+    let vac2 = rep2.tier1a_vacuum.as_ref().expect("tier1a_vacuum");
+    let cal2 = rep2.tier2_calibrated.as_ref().unwrap_or(vac2);
     let telem2 = fuse_ipinfo_telemetry(
         singapore,
-        &rep2.tier1a_vacuum,
-        &rep2.tier2_calibrated,
+        vac2,
+        cal2,
         &disks2,
         fake_geofeed.first(),
         &hops,
@@ -496,7 +552,7 @@ fn run_simulations(grid_path: &PathBuf) -> Result<()> {
     );
     println!("[2] INFERENCE ROUTER LIE: BEIJING GPUS PROXYING THROUGH SINGAPORE");
     println!("    Router IP responds in 1.4 ms in Singapore, BUT TEE challenge RTT = {:.1} ms!", sg_rtt_ms);
-    println!("    Tier 1A worst-case distance from Singapore: {:.1} km ({:.1} mi) vs 500 km limit", rep2.tier1a_vacuum.proven_max_radius_km, rep2.tier1a_vacuum.proven_max_radius_km * 0.621371);
+    println!("    Tier 1A worst-case distance from Singapore: {:.1} km ({:.1} mi) vs 500 km limit", vac2.proven_max_radius_km, vac2.proven_max_radius_km * 0.621371);
     println!("    Proof Accepted? {} (CAUGHT!) | IPinfo Telemetry Proxy Alert? {} ({} alerts)\n", rep2.overall_valid, telem2.proxy_or_router_lie_suspected, telem2.alerts.len());
 
     // -----------------------------------------------------------------------
@@ -553,8 +609,9 @@ fn run_simulations(grid_path: &PathBuf) -> Result<()> {
         },
     );
     let rep4 = verify_proof_bundle(&b4, &grid, &policy, now)?;
+    let vac4 = rep4.tier1a_vacuum.as_ref().map(|c| c.proven_max_radius_km).unwrap_or(f64::NAN);
     println!("[4] BYZANTINE COLLUDING ANCHOR ATTACK (f=1 rogue anchor '{}' fabricates 0.3 ms RTT)", rogue_id);
-    println!("    5-of-6 Byzantine Core max distance from Singapore: {:.1} km -> Accepted? {} (BLOCKED!)\n", rep4.tier1a_vacuum.proven_max_radius_km, rep4.overall_valid);
+    println!("    5-of-6 Byzantine Core max distance from Singapore: {:.1} km -> Accepted? {} (BLOCKED!)\n", vac4, rep4.overall_valid);
 
     // -----------------------------------------------------------------------
     // SCENARIO 5: Mobile Datacenter (Hardware Relocated on Boat / Aircraft)
@@ -641,7 +698,9 @@ fn run_simulations(grid_path: &PathBuf) -> Result<()> {
             },
         );
         let r = stat_log.append_bundle(b, ts)?;
-        single_hour_radii.push(r.verification.tier1b_fiber.proven_max_radius_km);
+        if let Some(ref fib) = r.verification.tier1b_fiber {
+            single_hour_radii.push(fib.proven_max_radius_km);
+        }
         prev = Some(r.record_hash_hex);
     }
     let status = stat_log.prover_status(&stat_kp.public_key_hex()).unwrap();
@@ -658,7 +717,8 @@ fn run_simulations(grid_path: &PathBuf) -> Result<()> {
         .movement_report
         .converged_probabilistic
         .as_ref()
-        .unwrap_or(&status.latest_verification.probabilistic_estimate);
+        .or(status.latest_verification.probabilistic_estimate.as_ref())
+        .expect("probabilistic estimate");
     let mle_err = prob.mle_location.distance_km(chicago);
     println!("[6] 24-HOUR CONTINUOUS STATIONARY ORTHOGONAL CONVERGENCE (Chicago, IL — no local anchor!)");
     println!("    Chain length: {} hourly links | Stationary: {}", status.chain_length, status.movement_report.stationary_confirmed);
@@ -699,6 +759,7 @@ fn run_benchmarks(grid_path: &PathBuf, verify_iters: usize) -> Result<()> {
         min_cloud_providers: 3,
         max_proof_age_seconds: 3_900,
         enforce_tier: BoundTier::Vacuum,
+        ..Default::default()
     };
 
     // 1. BLAKE3-MAC fast-path benchmark (timed Phase 2 prover response overhead).
@@ -847,6 +908,7 @@ fn run_export_geojson(grid_path: &PathBuf, target: LatLon, out: &PathBuf) -> Res
         min_cloud_providers: 2,
         max_proof_age_seconds: 3_900,
         enforce_tier: BoundTier::Vacuum,
+        ..Default::default()
     };
     let rep = verify_proof_bundle(&bundle, &grid, &policy, now)?;
 
@@ -871,8 +933,9 @@ fn run_export_geojson(grid_path: &PathBuf, target: LatLon, out: &PathBuf) -> Res
         }));
     }
     // Byzantine (K-f)-core intersection polygon.
-    let mut core_ring: Vec<[f64; 2]> = rep
-        .tier1a_vacuum
+    let vac_core = rep.tier1a_vacuum.as_ref().ok_or_else(|| anyhow::anyhow!("Tier 1A core unavailable"))?;
+    let fib_radius = rep.tier1b_fiber.as_ref().map(|c| c.proven_max_radius_km).unwrap_or(f64::NAN);
+    let mut core_ring: Vec<[f64; 2]> = vac_core
         .boundary_vertices
         .iter()
         .map(|p| [p.lon, p.lat])
@@ -884,8 +947,8 @@ fn run_export_geojson(grid_path: &PathBuf, target: LatLon, out: &PathBuf) -> Res
         "type": "Feature",
         "properties": {
             "kind": "byzantine_core_intersection",
-            "proven_max_radius_km": rep.tier1a_vacuum.proven_max_radius_km,
-            "tier1b_fiber_radius_km": rep.tier1b_fiber.proven_max_radius_km
+            "proven_max_radius_km": vac_core.proven_max_radius_km,
+            "tier1b_fiber_radius_km": fib_radius
         },
         "geometry": {
             "type": "Polygon",
@@ -1071,6 +1134,15 @@ async fn run_probe_live(
         created_at_unix_s: now,
     };
 
+    // Always write the raw bundle first so unverified receipts & failures are never silently dropped!
+    if let Some(ref path) = out_bundle {
+        std::fs::write(path, serde_json::to_string_pretty(&bundle)?)?;
+        println!("  Saved live GeoProofBundle -> {}", path.display());
+    }
+    if print_header {
+        println!("\nX-PoG-Proof: {}", bundle.to_header_value()?);
+    }
+
     let policy = VerificationPolicy {
         tee_policy: if allow_dev_tee {
             AttestationPolicy::allow_dev_software()
@@ -1082,57 +1154,64 @@ async fn run_probe_live(
         min_cloud_providers: 1,
         max_proof_age_seconds: 600,
         enforce_tier: BoundTier::Vacuum,
+        ..Default::default()
     };
     let report = verify_proof_bundle(&bundle, &grid, &policy, now)?;
 
-    println!("\n--- VERIFIED LIVE GEOGRAPHY REPORT (f={} Byzantine core, {} clouds) ---",
-        policy.max_byzantine, report.distinct_clouds);
     println!(
-        "  Target Reference:         ({:.4}, {:.4})",
-        target.lat, target.lon
+        "\n--- LIVE GEOGRAPHY REPORT (status={:?} | hardware_attested={} | f={} | {} clouds) ---",
+        report.proof_status, report.hardware_attested, policy.max_byzantine, report.distinct_clouds
     );
+    println!("  Target Reference:         ({:.4}, {:.4})", target.lat, target.lon);
+    if let Some(ref vac) = report.tier1a_vacuum {
+        println!(
+            "  Tier 1A Vacuum (c0):      max radius = {:.1} km ({:.1} mi){}",
+            vac.proven_max_radius_km,
+            vac.proven_max_radius_km * 0.621371,
+            if vac.whole_earth { " [WHOLE EARTH — NO CONSTRAINT]" } else { "" }
+        );
+    } else {
+        println!("  Tier 1A Vacuum (c0):      NO PROOF (insufficient verified anchors)");
+    }
+    if let Some(ref fib) = report.tier1b_fiber {
+        println!(
+            "  Tier 1B Fiber (204k):     max radius = {:.1} km ({:.1} mi)",
+            fib.proven_max_radius_km,
+            fib.proven_max_radius_km * 0.621371
+        );
+    }
+    if let Some(ref cal) = report.tier2_calibrated {
+        println!(
+            "  Tier 2B Calibrated (emp): max radius = {:.1} km ({:.1} mi)",
+            cal.proven_max_radius_km,
+            cal.proven_max_radius_km * 0.621371
+        );
+    } else if let Some(ref err) = report.tier2_calibrated_error {
+        println!("  Tier 2B Calibrated (emp): NONE ({err})");
+    }
+    if let Some(ref mle) = report.probabilistic_estimate {
+        println!(
+            "  Calibrated 68% MLE (emp): ({:.4}, {:.4}) ± {:.1} km ({:.1} mi)",
+            mle.mle_location.lat,
+            mle.mle_location.lon,
+            mle.confidence_68_radius_km,
+            mle.confidence_68_radius_km * 0.621371
+        );
+    }
     println!(
-        "  Tier 1A Vacuum (c0):      max radius = {:.1} km ({:.1} mi)",
-        report.tier1a_vacuum.proven_max_radius_km,
-        report.tier1a_vacuum.proven_max_radius_km * 0.621371
-    );
-    println!(
-        "  Tier 1B Fiber (204k):     max radius = {:.1} km ({:.1} mi)",
-        report.tier1b_fiber.proven_max_radius_km,
-        report.tier1b_fiber.proven_max_radius_km * 0.621371
-    );
-    println!(
-        "  Tier 2B Calibrated:       max radius = {:.1} km ({:.1} mi)",
-        report.tier2_calibrated.proven_max_radius_km,
-        report.tier2_calibrated.proven_max_radius_km * 0.621371
-    );
-    let mle = &report.probabilistic_estimate;
-    println!(
-        "  Calibrated 68% MLE:       ({:.4}, {:.4}) ± {:.1} km ({:.1} mi)",
-        mle.mle_location.lat,
-        mle.mle_location.lon,
-        mle.confidence_68_radius_km,
-        mle.confidence_68_radius_km * 0.621371
-    );
-    println!(
-        "  Verified Anchor Receipts: {}/{} | Signature Checks: {}",
+        "  Verified Anchor Receipts: {}/{} | Unverified/Rejected: {}",
         report.verified_receipt_count,
         bundle.receipts.len(),
-        if report.verified_receipt_count == bundle.receipts.len() { "ALL VALID" } else { "PARTIAL" }
+        report.unverified_receipts.len()
     );
+    for u in report.unverified_receipts.iter().take(10) {
+        println!("    [UNVERIFIED] {}: {}", u.anchor_id, u.reason);
+    }
     println!(
         "  Anchor-Observed External IP(s): {} ({})",
         report.distinct_observed_ips.join(", "),
-        if report.ip_view_consistent { "consistent across all Anchors" } else { "WARNING: split egress / Anycast!" }
+        if report.ip_view_consistent { "consistent across all verified Anchors" } else { "WARNING: split egress / Anycast!" }
     );
-
-    if let Some(path) = out_bundle {
-        std::fs::write(&path, serde_json::to_string_pretty(&bundle)?)?;
-        println!("  Saved live GeoProofBundle -> {}", path.display());
-    }
-    if print_header {
-        println!("\nX-PoG-Proof: {}", bundle.to_header_value()?);
-    }
     Ok(())
 }
 
@@ -1444,10 +1523,15 @@ fn run_inspect_telemetry(
         .map(|r| (r.rtt_min_us as f64) / 1000.0)
         .fold(f64::INFINITY, f64::min);
 
+    let vac_core = report
+        .tier1a_vacuum
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Cannot fuse telemetry: insufficient verified anchors"))?;
+    let cal_core = report.tier2_calibrated.as_ref().unwrap_or(vac_core);
     let assessment = fuse_ipinfo_telemetry(
         bundle.target_location,
-        &report.tier1a_vacuum,
-        &report.tier2_calibrated,
+        vac_core,
+        cal_core,
         &hard_disks,
         geofeed_entry.as_ref(),
         &hops,
@@ -1500,6 +1584,7 @@ fn run_audit_coverage(grid_path: &PathBuf, baseline_path: Option<&PathBuf>) -> R
             max_metro_anchors: 2,
             metro_radius_km: 150.0,
             max_regional_km: 6_500.0,
+            ..Default::default()
         };
         let sel = select_committee(g, "audit_prover_pk", b"audit_epoch_v1_00000000000000000", target, &cfg);
 
@@ -1625,7 +1710,52 @@ fn load_operator_key(path: &PathBuf) -> Result<SigningKey> {
     Ok(SigningKey::from_bytes(&arr))
 }
 
-fn run_network_action(action: NetworkAction) -> Result<()> {
+async fn fetch_http_json<T: serde::de::DeserializeOwned>(
+    host_ip: &str,
+    port: u16,
+    path: &str,
+) -> Result<T> {
+    let addr = format!("{host_ip}:{port}");
+    let mut stream = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&addr))
+        .await
+        .map_err(|_| anyhow::anyhow!("connect timeout to {addr}"))??;
+    let req = format!(
+        "GET {path} HTTP/1.1\r\nHost: {host_ip}\r\nConnection: close\r\nCache-Control: no-cache\r\n\r\n"
+    );
+    stream.write_all(req.as_bytes()).await?;
+    stream.flush().await?;
+    let mut raw = Vec::new();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::io::AsyncReadExt::read_to_end(&mut stream, &mut raw),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("read timeout from {addr}"))??;
+    let split = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or_else(|| anyhow::anyhow!("malformed HTTP response from {addr}"))?;
+    let header_str = String::from_utf8_lossy(&raw[..split]);
+    if !header_str.starts_with("HTTP/1.1 200") && !header_str.starts_with("HTTP/1.0 200") {
+        anyhow::bail!("HTTP error from {addr}{path}: {}", header_str.lines().next().unwrap_or("unknown"));
+    }
+    let body = &raw[split + 4..];
+    Ok(serde_json::from_slice(body)?)
+}
+
+async fn fetch_http_info_json(host_ip: &str, port: u16) -> Result<AnchorLiveInfo> {
+    fetch_http_json(host_ip, port, "/info").await
+}
+
+async fn fetch_http_attest_json(
+    host_ip: &str,
+    port: u16,
+    nonce_hex: &str,
+) -> Result<AnchorFreshAttestResponse> {
+    fetch_http_json(host_ip, port, &format!("/attest?nonce={nonce_hex}")).await
+}
+
+async fn run_network_action(action: NetworkAction) -> Result<()> {
     match action {
         NetworkAction::Init {
             network_id,
@@ -1665,6 +1795,7 @@ fn run_network_action(action: NetworkAction) -> Result<()> {
             grid,
             out,
             ttl_days,
+            allow_dev_anchors,
         } => {
             let sk = load_operator_key(&key)?;
             let anchor_grid = AnchorGrid::from_json_str(&std::fs::read_to_string(&grid)?)?;
@@ -1677,6 +1808,11 @@ fn run_network_action(action: NetworkAction) -> Result<()> {
                 ttl_days * 86_400,
                 &sk,
             );
+            if !allow_dev_anchors {
+                signed.validate_production_membership()?;
+            } else {
+                eprintln!("WARNING: --allow-dev-anchors enabled; resulting registry is NON-PRODUCTION ONLY!");
+            }
             std::fs::write(&out, serde_json::to_string_pretty(&signed)? + "\n")?;
             println!(
                 "Signed {} Anchors for network `{}` (operator: {})",
@@ -1725,11 +1861,25 @@ fn run_network_action(action: NetworkAction) -> Result<()> {
         NetworkAction::VerifyRegistry {
             signed_registry,
             pinned_root_pk,
+            expected_network_id,
+            allow_dev_anchors,
         } => {
             let signed: SignedNetworkRegistry =
                 serde_json::from_str(&std::fs::read_to_string(&signed_registry)?)?;
             let now = Utc::now().timestamp().max(0) as u64;
+            if let Some(ref exp_net) = expected_network_id {
+                if signed.network_id != *exp_net {
+                    anyhow::bail!(
+                        "network_id mismatch: got `{}`, expected `{}`",
+                        signed.network_id,
+                        exp_net
+                    );
+                }
+            }
             signed.verify(pinned_root_pk.as_deref(), now)?;
+            if !allow_dev_anchors {
+                signed.validate_production_hygiene()?;
+            }
             println!(
                 "VALID SignedNetworkRegistry: `{}` (operator: {}, {} Anchors, root_pk: {}…)",
                 signed.network_id,
@@ -1737,6 +1887,166 @@ fn run_network_action(action: NetworkAction) -> Result<()> {
                 signed.grid.anchors.len(),
                 &signed.root_public_key_hex[..16]
             );
+            Ok(())
+        }
+        NetworkAction::VerifyAttest {
+            signed_registry,
+            pinned_root_pk,
+            anchor_id,
+            caller_nonce_hex,
+            attest_json,
+            expected_measurement,
+            expected_pcr1,
+            expected_pcr2,
+            allow_dev_tee,
+        } => {
+            let signed: SignedNetworkRegistry =
+                serde_json::from_str(&std::fs::read_to_string(&signed_registry)?)?;
+            let now = Utc::now().timestamp().max(0) as u64;
+            signed.verify(Some(&pinned_root_pk), now)?;
+            let published = signed
+                .grid
+                .by_id(&anchor_id)
+                .ok_or_else(|| anyhow::anyhow!("anchor_id `{anchor_id}` not found in signed registry"))?;
+            let resp: AnchorFreshAttestResponse =
+                serde_json::from_str(&std::fs::read_to_string(&attest_json)?)?;
+            let mut tee_policy = if allow_dev_tee {
+                AttestationPolicy::allow_dev_software()
+            } else {
+                AttestationPolicy::production()
+            };
+            tee_policy.allowed_measurements = expected_measurement;
+            tee_policy.allowed_pcr1 = expected_pcr1;
+            tee_policy.allowed_pcr2 = expected_pcr2;
+
+            let result = verify_anchor_fresh_attestation(
+                &resp,
+                published,
+                &pinned_root_pk,
+                &caller_nonce_hex,
+                &tee_policy,
+                now,
+            );
+            println!("{}", serde_json::to_string_pretty(&result)?);
+            if !result.proof_eligible {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
+        NetworkAction::AuditLive {
+            signed_registry,
+            pinned_root_pk,
+            require_fresh_attest,
+            expected_measurement,
+            allow_dev_tee,
+        } => {
+            let signed: SignedNetworkRegistry =
+                serde_json::from_str(&std::fs::read_to_string(&signed_registry)?)?;
+            let now = Utc::now().timestamp().max(0) as u64;
+            signed.verify(Some(&pinned_root_pk), now)?;
+            if !allow_dev_tee {
+                signed.validate_production_hygiene()?;
+            }
+
+            let mut tee_policy = if allow_dev_tee {
+                AttestationPolicy::allow_dev_software()
+            } else {
+                AttestationPolicy::production()
+            };
+            tee_policy.allowed_measurements = expected_measurement;
+
+            let mut results: Vec<serde_json::Value> = Vec::new();
+            let mut reachable = 0usize;
+            let mut attested = 0usize;
+            let mut key_matched = 0usize;
+            let mut proof_eligible = 0usize;
+
+            for a in &signed.grid.anchors {
+                let host = a.endpoint_tcp.split(':').next().unwrap_or("");
+                if require_fresh_attest {
+                    let mut nonce = [0u8; 32];
+                    rand::RngCore::fill_bytes(&mut OsRng, &mut nonce);
+                    let nonce_hex = hex::encode(nonce);
+                    match fetch_http_attest_json(host, 7445, &nonce_hex).await {
+                        Ok(resp) => {
+                            reachable += 1;
+                            let r = verify_anchor_fresh_attestation(
+                                &resp,
+                                a,
+                                &pinned_root_pk,
+                                &nonce_hex,
+                                &tee_policy,
+                                now,
+                            );
+                            if r.hardware_tee_attested {
+                                attested += 1;
+                            }
+                            if r.key_matches_published_registry {
+                                key_matched += 1;
+                            }
+                            if r.proof_eligible {
+                                proof_eligible += 1;
+                            }
+                            results.push(serde_json::to_value(r)?);
+                        }
+                        Err(e) => {
+                            results.push(json!({
+                                "anchor_id": a.anchor_id,
+                                "reachable": false,
+                                "fresh_caller_nonce_verified": false,
+                                "hardware_tee_attested": false,
+                                "proof_eligible": false,
+                                "failure_reasons": [format!("unreachable or /attest?nonce= failed: {e}")],
+                            }));
+                        }
+                    }
+                } else {
+                    match fetch_http_info_json(host, 7445).await {
+                        Ok(info) => {
+                            reachable += 1;
+                            let r = verify_anchor_info_identity(&info, a, &pinned_root_pk, &tee_policy, now);
+                            if r.hardware_tee_attested {
+                                attested += 1;
+                            }
+                            if r.key_matches_published_registry {
+                                key_matched += 1;
+                            }
+                            if r.proof_eligible {
+                                proof_eligible += 1;
+                            }
+                            results.push(serde_json::to_value(r)?);
+                        }
+                        Err(e) => {
+                            results.push(serde_json::to_value(pog_proto::AnchorIdentityAuditResult {
+                                anchor_id: a.anchor_id.clone(),
+                                configured: true,
+                                reachable: false,
+                                hardware_tee_attested: false,
+                                key_matches_published_registry: false,
+                                endorsement_matches_live_key: false,
+                                endorsement_signature_valid: false,
+                                proof_eligible: false,
+                                failure_reasons: vec![format!("unreachable: {e}")],
+                            })?);
+                        }
+                    }
+                }
+            }
+            let summary = json!({
+                "network_id": signed.network_id,
+                "require_fresh_attest": require_fresh_attest,
+                "configured": signed.grid.anchors.len(),
+                "reachable": reachable,
+                "attested_hardware_tee": attested,
+                "key_matches_published_registry": key_matched,
+                "proof_eligible": proof_eligible,
+                "all_members_pass": proof_eligible == signed.grid.anchors.len() && !signed.grid.anchors.is_empty(),
+                "anchors": results,
+            });
+            println!("{}", serde_json::to_string_pretty(&summary)?);
+            if proof_eligible != signed.grid.anchors.len() {
+                std::process::exit(1);
+            }
             Ok(())
         }
     }

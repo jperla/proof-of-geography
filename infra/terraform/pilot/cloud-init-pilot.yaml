@@ -41,7 +41,7 @@ write_files:
       RestartSec=2
       # Strict systemd sandboxing (defense-in-depth alongside SELinux Enforcing)
       NoNewPrivileges=yes
-      ProtectSystem=strict
+      ProtectSystem=full
       ProtectHome=yes
       PrivateTmp=yes
       ProtectKernelModules=yes
@@ -51,7 +51,6 @@ write_files:
       MemoryDenyWriteExecute=yes
       RestrictAddressFamilies=AF_INET AF_INET6
       ReadOnlyPaths=-/etc/pog
-      ReadWritePaths=-/dev/sev-guest -/sys/kernel/config/tsm/report
       MemoryMax=256M
       LimitNOFILE=4096
       TasksMax=256

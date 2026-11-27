@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "network_id": "example-operator.org",
+  "operator_name": "Example Independent Operator",
+  "root_public_key_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+  "issued_at_unix_s": 1795700000,
+  "expires_at_unix_s": 1827236000,
+  "grid": {
+    "version": "2.0.0",
+    "grid_name": "example-operator-constellation",
+    "description": "Self-hosted independent Proof of Geography constellation (NOT operated by or affiliated with proofofgeography.com)",
+    "anchors": [
+      {
+        "anchor_id": "ext-aws-iad-01",
+        "cloud_provider": "aws",
+        "region": "us-east-1",
+        "city": "Ashburn, VA (Independent AWS Nitro)",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6g.large",
+        "location": { "lat": 39.0180, "lon": -77.4590 },
+        "endpoint_tcp": "203.0.113.10:7443",
+        "endpoint_udp": "203.0.113.10:7444",
+        "https_url": "https://iad-aws.pog.example-operator.org",
+        "public_key_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+        "coordinate_basis": {
+          "source": "operator_region_audit_and_cross_cloud_c0_check",
+          "uncertainty_km": 15.0,
+          "audited_at_unix_s": 1795700000,
+          "hardware_identity_proves_coordinates": false
+        }
+      },
+      {
+        "anchor_id": "ext-gcp-fra-01",
+        "cloud_provider": "gcp",
+        "region": "europe-west3",
+        "city": "Frankfurt, DE (Independent GCP SEV-SNP)",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "n2d-standard-2",
+        "location": { "lat": 50.1109, "lon": 8.6821 },
+        "endpoint_tcp": "203.0.113.20:7443",
+        "endpoint_udp": "203.0.113.20:7444",
+        "https_url": "https://fra-gcp.pog.example-operator.org",
+        "public_key_hex": "2222222222222222222222222222222222222222222222222222222222222222",
+        "coordinate_basis": {
+          "source": "operator_region_audit_and_cross_cloud_c0_check",
+          "uncertainty_km": 15.0,
+          "audited_at_unix_s": 1795700000,
+          "hardware_identity_proves_coordinates": false
+        }
+      }
+    ]
+  },
+  "operator_signature_hex": "replace-with-output-of-pog-cli-network-sign-registry"
+}

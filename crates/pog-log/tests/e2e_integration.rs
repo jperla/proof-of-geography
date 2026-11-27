@@ -141,6 +141,7 @@ fn test_full_e2e_live_udp_header_and_transparency_log() {
         min_cloud_providers: 2,
         max_proof_age_seconds: 3_600,
         enforce_tier: BoundTier::Vacuum,
+        ..Default::default()
     };
 
     let rep = verify_proof_bundle(&decoded, &grid, &policy, now).unwrap();

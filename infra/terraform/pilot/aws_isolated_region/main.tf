@@ -153,9 +153,9 @@ resource "aws_instance" "anchor" {
   associate_public_ip_address = true
   key_name                    = aws_key_pair.pilot.key_name
 
-  # Completely disable EC2 Instance Metadata Service (IMDS) -> zero metadata attack surface!
+  # Enable IMDSv2 ONLY during initial cloud-init bootstrap; disable IMDS completely in public lockdown mode!
   metadata_options {
-    http_endpoint               = "disabled"
+    http_endpoint               = var.lockdown_egress ? "disabled" : "enabled"
     http_tokens                 = "required"
     http_put_response_hop_limit = 1
   }

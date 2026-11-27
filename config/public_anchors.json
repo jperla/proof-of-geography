@@ -1,7 +1,7 @@
 {
-  "version": "1.0.0",
-  "grid_name": "pog-live-public-grid-9",
-  "description": "Live locked-down 9-node multi-cloud Proof of Geography public Anchor grid (GCP Intel TDX + AMD SEV-SNP + AWS across US, Europe & Asia)",
+  "version": "2.0.0",
+  "grid_name": "pog-live-public-grid-42",
+  "description": "Live locked-down 42-node tri-cloud Rocky Linux 9 Proof of Geography public Anchor grid (14 GCP Hardware TEEs [Intel TDX + AMD SEV-SNP], 14 AWS, 14 Azure across 6 continents)",
   "anchors": [
     {
       "anchor_id": "aws-ap-northeast-1-tokyo",
@@ -14,9 +14,54 @@
         "lat": 35.6895,
         "lon": 139.6917
       },
-      "endpoint_tcp": "43.206.93.106:7443",
-      "endpoint_udp": "43.206.93.106:7444",
-      "public_key_hex": "0c9381592dc7285404b91e6922da37cd9935fd603abddeca7a130feb48bf5b82"
+      "endpoint_tcp": "13.192.214.124:7443",
+      "endpoint_udp": "13.192.214.124:7444",
+      "public_key_hex": "6bd61b63bbae38f7137dbb79f553f2cc29bfcf31a5d91c7c16882de355cc755d"
+    },
+    {
+      "anchor_id": "aws-ap-south-1-mumbai",
+      "cloud_provider": "aws",
+      "region": "ap-south-1",
+      "city": "Mumbai, India",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "c6a.large",
+      "location": {
+        "lat": 19.076,
+        "lon": 72.8777
+      },
+      "endpoint_tcp": "13.206.243.206:7443",
+      "endpoint_udp": "13.206.243.206:7444",
+      "public_key_hex": "bd9d8c8aa48fbd263bf8f1455d96ab1731dcaca375cc2ebade5059ac29677f59"
+    },
+    {
+      "anchor_id": "aws-ap-southeast-2-sydney",
+      "cloud_provider": "aws",
+      "region": "ap-southeast-2",
+      "city": "Sydney, Australia",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "c6a.large",
+      "location": {
+        "lat": -33.8688,
+        "lon": 151.2093
+      },
+      "endpoint_tcp": "3.107.210.72:7443",
+      "endpoint_udp": "3.107.210.72:7444",
+      "public_key_hex": "7043e9f8a8bbbbd302fc5585d5ed9911527c77435dbc33be51f0f86ebafef080"
+    },
+    {
+      "anchor_id": "aws-ca-central-1-montreal",
+      "cloud_provider": "aws",
+      "region": "ca-central-1",
+      "city": "Montreal, QC, Canada",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "c6a.large",
+      "location": {
+        "lat": 45.5017,
+        "lon": -73.5673
+      },
+      "endpoint_tcp": "3.99.220.110:7443",
+      "endpoint_udp": "3.99.220.110:7444",
+      "public_key_hex": "c16dddef87c8282daed11c906bd822633e9f0b2f80710ef43ef750b9946c669a"
     },
     {
       "anchor_id": "aws-eu-central-1-frankfurt",
@@ -29,9 +74,84 @@
         "lat": 50.1167,
         "lon": 8.6833
       },
-      "endpoint_tcp": "3.70.234.145:7443",
-      "endpoint_udp": "3.70.234.145:7444",
-      "public_key_hex": "14c9e84889941dd7eb32a7e129afe5fad23378eebcd9c8ab46cb674110f79633"
+      "endpoint_tcp": "63.184.126.163:7443",
+      "endpoint_udp": "63.184.126.163:7444",
+      "public_key_hex": "bd4a7b24b1bbef339ded55cf6f6ea7d0b27d15599d7e785365022e31c7ac5ab3"
+    },
+    {
+      "anchor_id": "aws-eu-north-1-stockholm",
+      "cloud_provider": "aws",
+      "region": "eu-north-1",
+      "city": "Stockholm, Sweden",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "c6a.large",
+      "location": {
+        "lat": 59.3293,
+        "lon": 18.0686
+      },
+      "endpoint_tcp": "13.61.151.44:7443",
+      "endpoint_udp": "13.61.151.44:7444",
+      "public_key_hex": "76a48e731054c9bac24edf9461359d751f53e92360558a952e7f0d0ab0c6c4ed"
+    },
+    {
+      "anchor_id": "aws-eu-south-1-milan",
+      "cloud_provider": "aws",
+      "region": "eu-south-1",
+      "city": "Milan, Italy",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "c6a.large",
+      "location": {
+        "lat": 45.4642,
+        "lon": 9.19
+      },
+      "endpoint_tcp": "16.22.90.141:7443",
+      "endpoint_udp": "16.22.90.141:7444",
+      "public_key_hex": "36ec76db4a17168cb1e56a01322c79c66242fccac93fa9edfad003e0461c49d9"
+    },
+    {
+      "anchor_id": "aws-eu-west-1-dublin",
+      "cloud_provider": "aws",
+      "region": "eu-west-1",
+      "city": "Dublin, Ireland",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "c6a.large",
+      "location": {
+        "lat": 53.3498,
+        "lon": -6.2603
+      },
+      "endpoint_tcp": "52.212.232.110:7443",
+      "endpoint_udp": "52.212.232.110:7444",
+      "public_key_hex": "da969dd8903ab5617bdcb2797488dea257a833dd9e5a681f4f74fafaaf14f357"
+    },
+    {
+      "anchor_id": "aws-eu-west-2-london",
+      "cloud_provider": "aws",
+      "region": "eu-west-2",
+      "city": "London, UK",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "c6a.large",
+      "location": {
+        "lat": 51.5074,
+        "lon": -0.1278
+      },
+      "endpoint_tcp": "18.170.43.198:7443",
+      "endpoint_udp": "18.170.43.198:7444",
+      "public_key_hex": "e194b03d64c682cbdf472edc7728267527b7062277e227a1ae52e3a36d1eec89"
+    },
+    {
+      "anchor_id": "aws-sa-east-1-saopaulo",
+      "cloud_provider": "aws",
+      "region": "sa-east-1",
+      "city": "S\u00e3o Paulo, Brazil",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "c6a.large",
+      "location": {
+        "lat": -23.5505,
+        "lon": -46.6333
+      },
+      "endpoint_tcp": "54.233.13.128:7443",
+      "endpoint_udp": "54.233.13.128:7444",
+      "public_key_hex": "756099cace8dfb37ce4218df964613b8fcc1d659ecbbc248b652d13fe82a2ee0"
     },
     {
       "anchor_id": "aws-us-east-1-nvirginia",
@@ -44,9 +164,24 @@
         "lat": 39.018,
         "lon": -77.459
       },
-      "endpoint_tcp": "100.26.196.197:7443",
-      "endpoint_udp": "100.26.196.197:7444",
-      "public_key_hex": "cb5dc0070c04fcc18d3a83763bf6d1eab34f572e172220064d0ad0b39765b78f"
+      "endpoint_tcp": "32.198.57.152:7443",
+      "endpoint_udp": "32.198.57.152:7444",
+      "public_key_hex": "9685ed033f80e0743acc11d30a8b1eb76b5114c73c8c8b6fda0db8e0a22fe237"
+    },
+    {
+      "anchor_id": "aws-us-east-2-ohio",
+      "cloud_provider": "aws",
+      "region": "us-east-2",
+      "city": "Columbus, OH, USA",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "c6a.large",
+      "location": {
+        "lat": 39.9612,
+        "lon": -82.9988
+      },
+      "endpoint_tcp": "18.188.171.88:7443",
+      "endpoint_udp": "18.188.171.88:7444",
+      "public_key_hex": "5f292bf7ad81b4fc68e111aa4519972cbf7a1ece618cf74814487587cfc959ff"
     },
     {
       "anchor_id": "aws-us-west-1-sanjose",
@@ -59,84 +194,444 @@
         "lat": 37.3382,
         "lon": -121.8863
       },
-      "endpoint_tcp": "54.241.67.28:7443",
-      "endpoint_udp": "54.241.67.28:7444",
-      "public_key_hex": "f59af7268fcf2bf046f54b58685f9c86978def2d14cae9bf0121ed56e75945df"
+      "endpoint_tcp": "3.101.151.35:7443",
+      "endpoint_udp": "3.101.151.35:7444",
+      "public_key_hex": "15bb9f5a42023d70d9d6c5e28838637d706a81835df52761f104181c8a5d8c7a"
     },
     {
-      "anchor_id": "gcp-asia-southeast1-singapore",
+      "anchor_id": "aws-us-west-2-oregon",
+      "cloud_provider": "aws",
+      "region": "us-west-2",
+      "city": "Boardman, OR, USA",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "c6a.large",
+      "location": {
+        "lat": 45.8399,
+        "lon": -119.7006
+      },
+      "endpoint_tcp": "34.221.78.28:7443",
+      "endpoint_udp": "34.221.78.28:7444",
+      "public_key_hex": "f0be9a5692da9786fb9f5c1c683c4e3d859352523cb376d4c071bdcdd4857e46"
+    },
+    {
+      "anchor_id": "azure-canadacentral-toronto",
+      "cloud_provider": "azure",
+      "region": "canadacentral",
+      "city": "Toronto, ON, Canada",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "Standard_D2als_v7",
+      "location": {
+        "lat": 43.6532,
+        "lon": -79.3832
+      },
+      "endpoint_tcp": "20.43.23.224:7443",
+      "endpoint_udp": "20.43.23.224:7444",
+      "public_key_hex": "a668f5fd02d38ddedcee48682a0ec1e92ea46baadd0757d56936c49642cbc219"
+    },
+    {
+      "anchor_id": "azure-chilecentral-santiago",
+      "cloud_provider": "azure",
+      "region": "chilecentral",
+      "city": "Santiago, Chile",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "Standard_D2als_v7",
+      "location": {
+        "lat": -33.4489,
+        "lon": -70.6693
+      },
+      "endpoint_tcp": "68.211.147.7:7443",
+      "endpoint_udp": "68.211.147.7:7444",
+      "public_key_hex": "88532c74bbc389163ea58d41b479d5051ab641812c84a28a8ef576115592d2b8"
+    },
+    {
+      "anchor_id": "azure-eastus-virginia",
+      "cloud_provider": "azure",
+      "region": "eastus",
+      "city": "Boydton, VA, USA",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "Standard_D2als_v7",
+      "location": {
+        "lat": 36.6676,
+        "lon": -78.3875
+      },
+      "endpoint_tcp": "20.121.204.205:7443",
+      "endpoint_udp": "20.121.204.205:7444",
+      "public_key_hex": "9b766f6af425279860368cc1f843bd2caefe98acb39bf10da32295de085f56e0"
+    },
+    {
+      "anchor_id": "azure-israelcentral-telaviv",
+      "cloud_provider": "azure",
+      "region": "israelcentral",
+      "city": "Tel Aviv, Israel",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "Standard_D2als_v7",
+      "location": {
+        "lat": 32.0853,
+        "lon": 34.7818
+      },
+      "endpoint_tcp": "20.217.188.13:7443",
+      "endpoint_udp": "20.217.188.13:7444",
+      "public_key_hex": "577e00ce66b438390171489bc64676d41f59d8232622845538e37689c405d93c"
+    },
+    {
+      "anchor_id": "azure-italynorth-milan",
+      "cloud_provider": "azure",
+      "region": "italynorth",
+      "city": "Milan, Italy",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "Standard_D2als_v7",
+      "location": {
+        "lat": 45.4642,
+        "lon": 9.19
+      },
+      "endpoint_tcp": "172.213.16.253:7443",
+      "endpoint_udp": "172.213.16.253:7444",
+      "public_key_hex": "60d789e1812bf6ebc6d0bf75f83e65de34d0bc58c31f6779ccdb7a324d48814f"
+    },
+    {
+      "anchor_id": "azure-koreacentral-seoul",
+      "cloud_provider": "azure",
+      "region": "koreacentral",
+      "city": "Seoul, South Korea",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "Standard_D2als_v7",
+      "location": {
+        "lat": 37.5665,
+        "lon": 126.978
+      },
+      "endpoint_tcp": "20.196.205.171:7443",
+      "endpoint_udp": "20.196.205.171:7444",
+      "public_key_hex": "e330062f965c3c1f13036a8f70730c10219f541f9cd23630246620353574a5df"
+    },
+    {
+      "anchor_id": "azure-northcentralus-chicago",
+      "cloud_provider": "azure",
+      "region": "northcentralus",
+      "city": "Chicago, IL, USA",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "Standard_D2als_v7",
+      "location": {
+        "lat": 41.8781,
+        "lon": -87.6298
+      },
+      "endpoint_tcp": "20.25.254.85:7443",
+      "endpoint_udp": "20.25.254.85:7444",
+      "public_key_hex": "1fba7158729bfdedd6ae46106c285856e158c72abb988d9e396175dca5ecaf2d"
+    },
+    {
+      "anchor_id": "azure-polandcentral-warsaw",
+      "cloud_provider": "azure",
+      "region": "polandcentral",
+      "city": "Warsaw, Poland",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "Standard_D2als_v7",
+      "location": {
+        "lat": 52.2297,
+        "lon": 21.0122
+      },
+      "endpoint_tcp": "74.248.19.23:7443",
+      "endpoint_udp": "74.248.19.23:7444",
+      "public_key_hex": "97888130244fc1d73a73b063c9f52b439f847983270bcccad2fe7246e170ef1c"
+    },
+    {
+      "anchor_id": "azure-southafricanorth-johannesburg",
+      "cloud_provider": "azure",
+      "region": "southafricanorth",
+      "city": "Johannesburg, South Africa",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "Standard_D2als_v7",
+      "location": {
+        "lat": -26.2041,
+        "lon": 28.0473
+      },
+      "endpoint_tcp": "40.123.244.36:7443",
+      "endpoint_udp": "40.123.244.36:7444",
+      "public_key_hex": "7050100fda537fb2eb4bf577546c28ae8d68d91afc27069e969b9e45a8377214"
+    },
+    {
+      "anchor_id": "azure-southcentralus-sanantonio",
+      "cloud_provider": "azure",
+      "region": "southcentralus",
+      "city": "San Antonio, TX, USA",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "Standard_D2als_v7",
+      "location": {
+        "lat": 29.4241,
+        "lon": -98.4936
+      },
+      "endpoint_tcp": "20.225.64.213:7443",
+      "endpoint_udp": "20.225.64.213:7444",
+      "public_key_hex": "df3d4a4b5725f765586fc7780da3b8d2009ae2de8fb19ee8e76e67e32815c900"
+    },
+    {
+      "anchor_id": "azure-spaincentral-madrid",
+      "cloud_provider": "azure",
+      "region": "spaincentral",
+      "city": "Madrid, Spain",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "Standard_D2als_v7",
+      "location": {
+        "lat": 40.4168,
+        "lon": -3.7038
+      },
+      "endpoint_tcp": "158.158.117.218:7443",
+      "endpoint_udp": "158.158.117.218:7444",
+      "public_key_hex": "7feffcf63de4b77100284355a97880b67f74adeb633687bd145098e2e4db0b48"
+    },
+    {
+      "anchor_id": "azure-swedencentral-gavle",
+      "cloud_provider": "azure",
+      "region": "swedencentral",
+      "city": "G\u00e4vle, Sweden",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "Standard_D2als_v7",
+      "location": {
+        "lat": 60.6749,
+        "lon": 17.1413
+      },
+      "endpoint_tcp": "20.240.163.134:7443",
+      "endpoint_udp": "20.240.163.134:7444",
+      "public_key_hex": "2f08abd327fb7a6c02f5e72687e3ce4ef03c3bec6dae668c5e1760b6e586ad10"
+    },
+    {
+      "anchor_id": "azure-uaenorth-dubai",
+      "cloud_provider": "azure",
+      "region": "uaenorth",
+      "city": "Dubai, UAE",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "Standard_D2als_v7",
+      "location": {
+        "lat": 25.2048,
+        "lon": 55.2708
+      },
+      "endpoint_tcp": "20.74.236.111:7443",
+      "endpoint_udp": "20.74.236.111:7444",
+      "public_key_hex": "eb2324e0a0925eb503c128213cc3ee52f72d013ceb11a105fe37be4a7a1046fa"
+    },
+    {
+      "anchor_id": "azure-westus3-phoenix",
+      "cloud_provider": "azure",
+      "region": "westus3",
+      "city": "Phoenix, AZ, USA",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "Standard_D2als_v7",
+      "location": {
+        "lat": 33.4484,
+        "lon": -112.074
+      },
+      "endpoint_tcp": "20.168.77.174:7443",
+      "endpoint_udp": "20.168.77.174:7444",
+      "public_key_hex": "787b40f63fcb78790a1b0b7427b6dc4cd903f2ef3d3284eaa802293a8ca3661c"
+    },
+    {
+      "anchor_id": "gcp-asia-east1-taiwan",
       "cloud_provider": "gcp",
-      "region": "asia-southeast1",
-      "city": "Jurong West, Singapore",
-      "tee_vendor": "AmdSevSnp",
+      "region": "asia-east1",
+      "city": "Changhua, Taiwan",
+      "tee_vendor": "SoftwareDev",
       "instance_type": "n2d-standard-2",
       "location": {
-        "lat": 1.3521,
-        "lon": 103.8198
+        "lat": 24.0518,
+        "lon": 120.5161
       },
-      "endpoint_tcp": "34.2.145.119:7443",
-      "endpoint_udp": "34.2.145.119:7444",
-      "public_key_hex": "67597ddee7127ecb2665f866fd27eec459f8f9820dfa74b09a5de72ac9d6d739"
+      "endpoint_tcp": "35.206.211.6:7443",
+      "endpoint_udp": "35.206.211.6:7444",
+      "public_key_hex": "171b965259ba838ce693cdb45b562e7c5b9bf30551dc48cb6bf6b19ecc06a3ff"
     },
     {
-      "anchor_id": "gcp-europe-west3-frankfurt",
+      "anchor_id": "gcp-europe-central2-warsaw",
       "cloud_provider": "gcp",
-      "region": "europe-west3",
-      "city": "Frankfurt, Germany",
-      "tee_vendor": "AmdSevSnp",
+      "region": "europe-central2",
+      "city": "Warsaw, Poland",
+      "tee_vendor": "SoftwareDev",
       "instance_type": "n2d-standard-2",
       "location": {
-        "lat": 50.1109,
-        "lon": 8.6821
+        "lat": 52.2297,
+        "lon": 21.0122
       },
-      "endpoint_tcp": "35.207.136.128:7443",
-      "endpoint_udp": "35.207.136.128:7444",
-      "public_key_hex": "4650d9bed5a021eb14923af50e36217799d46178fb37bd3705ae799b03eddbce"
+      "endpoint_tcp": "34.0.246.202:7443",
+      "endpoint_udp": "34.0.246.202:7444",
+      "public_key_hex": "b91ce02ae205db85248789342eac98de44e792649cb0614d7d5cef8003f1df43"
     },
     {
-      "anchor_id": "gcp-us-central1-iowa",
+      "anchor_id": "gcp-europe-north1-finland",
       "cloud_provider": "gcp",
-      "region": "us-central1",
-      "city": "Council Bluffs, IA, USA",
-      "tee_vendor": "AmdSevSnp",
+      "region": "europe-north1",
+      "city": "Hamina, Finland",
+      "tee_vendor": "SoftwareDev",
       "instance_type": "n2d-standard-2",
       "location": {
-        "lat": 41.2619,
-        "lon": -95.8608
+        "lat": 60.5693,
+        "lon": 27.1979
       },
-      "endpoint_tcp": "35.209.22.219:7443",
-      "endpoint_udp": "35.209.22.219:7444",
-      "public_key_hex": "1ecf75fbc1db2898adc76e112dcb293df136603dc24ec97c804d5c14cfd5e4b4"
+      "endpoint_tcp": "35.217.54.139:7443",
+      "endpoint_udp": "35.217.54.139:7444",
+      "public_key_hex": "10fbe99195f2e8d783fa02ac6fd40017dace8a8ca7458f2ffd80820a9331fff8"
     },
     {
-      "anchor_id": "gcp-us-east4-ashburn",
+      "anchor_id": "gcp-europe-southwest1-madrid",
       "cloud_provider": "gcp",
-      "region": "us-east4",
-      "city": "Ashburn, VA, USA",
-      "tee_vendor": "IntelTdx",
-      "instance_type": "c3-standard-4",
+      "region": "europe-southwest1",
+      "city": "Madrid, Spain",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "n2d-standard-2",
       "location": {
-        "lat": 39.0438,
-        "lon": -77.4874
+        "lat": 40.4168,
+        "lon": -3.7038
       },
-      "endpoint_tcp": "34.4.37.46:7443",
-      "endpoint_udp": "34.4.37.46:7444",
-      "public_key_hex": "160331479a3a9accb79f3a8fa0b3aa0c05a48a2ec5fc02d7d534cfdba0a74741"
+      "endpoint_tcp": "34.0.194.213:7443",
+      "endpoint_udp": "34.0.194.213:7444",
+      "public_key_hex": "39a58be5f575508ede5f020aca8beae8535b9de4f79c9762aa2e5b8f67f5ca09"
     },
     {
-      "anchor_id": "gcp-us-west1-oregon",
+      "anchor_id": "gcp-europe-west6-zurich",
       "cloud_provider": "gcp",
-      "region": "us-west1",
-      "city": "The Dalles, OR, USA",
-      "tee_vendor": "IntelTdx",
-      "instance_type": "c3-standard-4",
+      "region": "europe-west6",
+      "city": "Zurich, Switzerland",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "n2d-standard-2",
       "location": {
-        "lat": 45.5946,
-        "lon": -121.1787
+        "lat": 47.3769,
+        "lon": 8.5417
       },
-      "endpoint_tcp": "34.3.99.152:7443",
-      "endpoint_udp": "34.3.99.152:7444",
-      "public_key_hex": "bef6c6327793177482a6d0ae4c3ce3f82e82f94ff60d6ff8e537fe841fd6235e"
+      "endpoint_tcp": "35.216.134.44:7443",
+      "endpoint_udp": "35.216.134.44:7444",
+      "public_key_hex": "df41612bc4a5d7156e8e10351c7bedd61c2f2e7de45b59017d7c6ab4cf3e5927"
+    },
+    {
+      "anchor_id": "gcp-me-central1-doha",
+      "cloud_provider": "gcp",
+      "region": "me-central1",
+      "city": "Doha, Qatar",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "n2d-standard-2",
+      "location": {
+        "lat": 25.2854,
+        "lon": 51.531
+      },
+      "endpoint_tcp": "34.1.45.244:7443",
+      "endpoint_udp": "34.1.45.244:7444",
+      "public_key_hex": "a8b3e665951cd0e9ef7ed08f7805fd27c9d8b61171b803f625b40ceb327708f7"
+    },
+    {
+      "anchor_id": "gcp-me-west1-telaviv",
+      "cloud_provider": "gcp",
+      "region": "me-west1",
+      "city": "Tel Aviv, Israel",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "n2d-standard-2",
+      "location": {
+        "lat": 32.0853,
+        "lon": 34.7818
+      },
+      "endpoint_tcp": "34.0.72.189:7443",
+      "endpoint_udp": "34.0.72.189:7444",
+      "public_key_hex": "bb2bc42a5bf0c52b36ed347fd9ccddc4b6d91ffd8cdb76eb70576bafd1ed114c"
+    },
+    {
+      "anchor_id": "gcp-northamerica-northeast1-montreal",
+      "cloud_provider": "gcp",
+      "region": "northamerica-northeast1",
+      "city": "Montreal, QC, Canada",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "n2d-standard-2",
+      "location": {
+        "lat": 45.5017,
+        "lon": -73.5673
+      },
+      "endpoint_tcp": "35.215.29.34:7443",
+      "endpoint_udp": "35.215.29.34:7444",
+      "public_key_hex": "44e0c0bb1fde2d5c94969727e2fa8e2836af470672f01acebc094bbec0a74dc4"
+    },
+    {
+      "anchor_id": "gcp-northamerica-south1-queretaro",
+      "cloud_provider": "gcp",
+      "region": "northamerica-south1",
+      "city": "Quer\u00e9taro, Mexico",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "n2d-standard-2",
+      "location": {
+        "lat": 20.5888,
+        "lon": -100.3899
+      },
+      "endpoint_tcp": "34.2.7.228:7443",
+      "endpoint_udp": "34.2.7.228:7444",
+      "public_key_hex": "456f81d2ba7956326bd951d40ef07888c45778628771603f234fe0ff1dda54d9"
+    },
+    {
+      "anchor_id": "gcp-us-east1-sc",
+      "cloud_provider": "gcp",
+      "region": "us-east1",
+      "city": "Moncks Corner, SC, USA",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "n2d-standard-2",
+      "location": {
+        "lat": 33.196,
+        "lon": -80.0131
+      },
+      "endpoint_tcp": "35.211.23.253:7443",
+      "endpoint_udp": "35.211.23.253:7444",
+      "public_key_hex": "7b3780be75f8186f4fb5c627011844d9a96762aca47c8f4ec789711039c6622f"
+    },
+    {
+      "anchor_id": "gcp-us-south1-dallas",
+      "cloud_provider": "gcp",
+      "region": "us-south1",
+      "city": "Dallas, TX, USA",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "n2d-standard-2",
+      "location": {
+        "lat": 32.7767,
+        "lon": -96.797
+      },
+      "endpoint_tcp": "34.0.136.121:7443",
+      "endpoint_udp": "34.0.136.121:7444",
+      "public_key_hex": "d9527aaa16ef31e55685839f10bd0f47f7766c32d43ad6d1edeaa3ad548b33fe"
+    },
+    {
+      "anchor_id": "gcp-us-west2-losangeles",
+      "cloud_provider": "gcp",
+      "region": "us-west2",
+      "city": "Los Angeles, CA, USA",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "n2d-standard-2",
+      "location": {
+        "lat": 34.0522,
+        "lon": -118.2437
+      },
+      "endpoint_tcp": "34.4.31.61:7443",
+      "endpoint_udp": "34.4.31.61:7444",
+      "public_key_hex": "6f742ad228726a8e319b3d75d74d0f717e97021ac993e49cb3285175655abc2d"
+    },
+    {
+      "anchor_id": "gcp-us-west3-saltlakecity",
+      "cloud_provider": "gcp",
+      "region": "us-west3",
+      "city": "Salt Lake City, UT, USA",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "n2d-standard-2",
+      "location": {
+        "lat": 40.7608,
+        "lon": -111.891
+      },
+      "endpoint_tcp": "35.217.79.137:7443",
+      "endpoint_udp": "35.217.79.137:7444",
+      "public_key_hex": "766ba8cf21de2d2d746f5cb16288191eebbe1d967e24cf3bc590780773ad8c85"
+    },
+    {
+      "anchor_id": "gcp-us-west4-lasvegas",
+      "cloud_provider": "gcp",
+      "region": "us-west4",
+      "city": "Las Vegas, NV, USA",
+      "tee_vendor": "SoftwareDev",
+      "instance_type": "n2d-standard-2",
+      "location": {
+        "lat": 36.1699,
+        "lon": -115.1398
+      },
+      "endpoint_tcp": "35.219.164.8:7443",
+      "endpoint_udp": "35.219.164.8:7444",
+      "public_key_hex": "6cf514cf4b29525bf65c336b291b9b864a2ab8106724b8033647db38b32b70dd"
     }
   ]
 }

@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Proof of Geography — Live Speed-of-Light Location Proofs</title>
-  <meta name="description" content="Watch 9 live multi-cloud hardware TEE Anchors (Intel TDX, AMD SEV-SNP &amp; AWS) pinpoint your browser using the speed of light, try spoofing them, and explore our 72-node rim-surrounded global grid (7.05× tighter border-city localization)." />
+  <title>Proof of Geography — Speed-of-Light Outer Bounds &amp; Likelihood Map</title>
+  <meta name="description" content="Conservative speed-of-light geographic outer bounds (Vacuum c₀ &amp; Optical Fiber) paired with a correlated spatial likelihood map, spoof simulator, and cryptographic X-PoG-Proof verifier." />
   <meta name="theme-color" content="#050914" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta property="og:site_name" content="Proof of Geography" />
-  <meta property="og:title" content="Proof of Geography — Unspoofable Speed-of-Light Location Proofs" />
-  <meta property="og:description" content="Can you outrun the speed of light? Test 9 live Intel TDX, AMD SEV-SNP &amp; AWS Anchors from your browser, try spoofing your location, and explore our 72-node rim-surrounded global grid across North America, Europe, Iceland, Azores, North Africa, Middle East &amp; Asia." />
+  <meta property="og:title" content="Proof of Geography — Speed-of-Light Location Proofs" />
+  <meta property="og:description" content="Conservative Vacuum c₀ speed-of-light outer regions, correlated spatial likelihood heatmaps, spoof simulation, and fail-closed hardware TEE verification." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://proofofgeography.com/" />
   <meta property="og:image" content="https://proofofgeography.com/og-image.png?v=2" />
@@ -17,16 +17,12 @@
   <meta property="og:image:type" content="image/png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <meta property="og:image:alt" content="Proof of Geography 72-node rim-surrounded multi-cloud TEE Anchor map showing 4-quadrant speed-of-light circles from Iceland, Azores, Casablanca, and Frankfurt intersecting tightly over Western Europe." />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Proof of Geography — Unspoofable Speed-of-Light Location Proofs" />
-  <meta name="twitter:description" content="Locate your browser with 9 live Intel TDX &amp; AMD SEV-SNP Anchors, test proxy/VPN lies, and explore our 72-node 4-quadrant rim-surrounded global grid." />
-  <meta name="twitter:image" content="https://proofofgeography.com/og-image.png?v=2" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=5" />
+  <link rel="stylesheet" href="/styles.css?v=10" />
 </head>
 <body>
   <div id="map"></div>
@@ -35,49 +31,53 @@
   <header class="topbar">
     <div class="brand">
       <div class="brand-dot"></div>
-      <div>
+      <div class="brand-text">
         <div class="brand-title">Proof of Geography</div>
-        <div class="brand-sub">Multi-Cloud Hardware TEE Speed-of-Light Multilateration</div>
+        <div class="brand-sub">Conservative c₀ Outer Bounds · Spatial Likelihood Diagnostics</div>
       </div>
     </div>
 
     <nav class="tabs" role="tablist">
       <button class="tab active" data-tab="live" role="tab">⚡ Locate Me</button>
-      <button class="tab" data-tab="mesh" role="tab">🌐 9×9 Live Mesh</button>
+      <button class="tab" data-tab="mesh" role="tab">🌐 Cloud Mesh</button>
       <button class="tab" data-tab="grid72" role="tab">🗺️ 72-Node Rim</button>
       <button class="tab" data-tab="verify" role="tab">🔐 Verify</button>
       <button class="tab" data-tab="cli" role="tab">💻 CLI &amp; SDKs</button>
     </nav>
 
     <div class="top-right">
-      <div id="grid-status-pill" class="status-pill">
-        <span class="pulse-dot"></span>
-        <span id="grid-status-text">Checking 9 Live Anchors…</span>
+      <div id="grid-status-pill" class="status-pill" title="Configured / Reachable / Hardware TEE Attested / Production Proof-Eligible">
+        <span id="grid-status-dot" class="pulse-dot"></span>
+        <span id="grid-status-text">Auditing Live Grid…</span>
       </div>
+      <button id="mobile-panel-btn" class="mobile-panel-btn" type="button" title="Toggle Drawer">Drawer</button>
       <a class="gh-btn" href="https://github.com/jperla/proof-of-geography" target="_blank" rel="noopener">
         GitHub ↗
       </a>
     </div>
   </header>
 
-  <!-- Floating Left HUD Panel -->
+  <!-- Floating Left HUD Panel (Desktop) / Bottom Sheet (Mobile) -->
   <aside id="panel" class="panel">
-    <button id="panel-toggle" class="panel-toggle" title="Toggle Panel">‹</button>
+    <button id="panel-toggle" class="panel-toggle" type="button" title="Toggle Panel">‹</button>
 
     <!-- TAB 1: LIVE LOCATE ME -->
     <section class="tab-pane active" id="pane-live">
+      <!-- Shown ONLY when ?registry=<url> selects an independently operated external constellation -->
+      <div id="external-constellation-banner" class="external-banner hidden"></div>
+
       <div class="hero-box">
-        <div class="eyebrow">REAL-TIME PHYSICS · ZERO GPS · ZERO IP DATABASE</div>
-        <h1>Where does the speed of light prove you are?</h1>
+        <div class="eyebrow">OPT-IN ACTIVE BROWSER DIAGNOSTIC · ZERO GPS · CONSERVATIVE c₀ BOUND</div>
+        <h1>Where does the speed of light allow you to be?</h1>
         <p class="lead">
-          Your browser pings <strong>9 real multi-cloud Anchors</strong> (Intel TDX, AMD SEV-SNP &amp; AWS) around Earth over direct unicast HTTPS. Each Anchor draws a speed-of-light circle centered on itself — your physical location must lie in their <strong>intersection</strong>.
+          Clicking below actively pings our <strong id="hero-anchor-count">live tri-cloud Anchors</strong> over direct unicast HTTPS. The solid cyan outline is the <strong>raw Vacuum c₀ outer bound</strong> (conditional on trusted anchors &amp; audited coordinates); the optional violet→amber heatmap shows the <strong>empirical spatial likelihood</strong> inside it without narrowing the hard bound.
         </p>
         <div class="cta-row">
-          <button id="btn-probe-live" class="btn-primary">
+          <button id="btn-probe-live" class="btn-primary" type="button">
             <span class="btn-icon">⚡</span>
             <span id="btn-probe-label">Locate Me Live</span>
           </button>
-          <button id="btn-spoof-toggle" class="btn-secondary" title="Try lying about your location">
+          <button id="btn-spoof-toggle" class="btn-secondary" type="button" title="Test whether a claimed city violates speed-of-light bounds">
             🕵️ Try to Spoof
           </button>
         </div>
@@ -87,22 +87,30 @@
         </div>
       </div>
 
+      <!-- Honest Attestation & Diagnostic Provenance Banner -->
+      <div id="attestation-banner" class="disclaimer-box">
+        <strong>ℹ️ Browser HTTPS Diagnostic · Not a Production Hardware Proof</strong>
+        <p>
+          Browser HTTPS pings include local Wi-Fi/cellular/TLS overhead and are <strong>unsigned diagnostics</strong> (never hardware-attested proof). Production cryptographic proofs require hardware-attested TEE Anchors (AWS Nitro Enclaves, Azure/GCP SEV-SNP or Intel TDX), verified published keys, and audited coordinate provenance.
+        </p>
+      </div>
+
       <!-- Spoof Attack Lab Drawer -->
       <div id="spoof-box" class="spoof-box hidden">
         <div class="spoof-header">
-          <strong>🕵️ Spoof / Inference-Cloud Lie Simulator</strong>
-          <button id="btn-spoof-clear" class="link-btn">Exit Spoof Mode</button>
+          <strong>🕵️ Spoof / Claim Consistency Simulator</strong>
+          <button id="btn-spoof-clear" class="link-btn" type="button">Exit Spoof Mode</button>
         </div>
         <p class="small muted">
-          Click anywhere on the map — or pick a fake datacenter city below — to pretend your GPU / server is there. Watch the speed-of-light circles catch the lie:
+          Click anywhere on the map — or pick a claimed city below — to test whether it violates the conservative outer speed-of-light caps (overlap alone is not proof):
         </p>
         <div class="preset-chips">
-          <button class="chip" data-spoof="39.0438,-77.4874,Ashburn, VA">Ashburn, VA</button>
-          <button class="chip" data-spoof="50.1109,8.6821,Frankfurt, DE">Frankfurt, DE</button>
-          <button class="chip" data-spoof="35.6895,139.6917,Tokyo, JP">Tokyo, JP</button>
-          <button class="chip" data-spoof="1.3521,103.8198,Singapore">Singapore</button>
-          <button class="chip" data-spoof="40.7128,-74.0060,New York, NY">New York</button>
-          <button class="chip" data-spoof="51.5074,-0.1278,London, UK">London</button>
+          <button class="chip" data-spoof="39.0438,-77.4874,Ashburn, VA" type="button">Ashburn, VA</button>
+          <button class="chip" data-spoof="50.1109,8.6821,Frankfurt, DE" type="button">Frankfurt, DE</button>
+          <button class="chip" data-spoof="35.6895,139.6917,Tokyo, JP" type="button">Tokyo, JP</button>
+          <button class="chip" data-spoof="1.3521,103.8198,Singapore" type="button">Singapore</button>
+          <button class="chip" data-spoof="40.7128,-74.0060,New York, NY" type="button">New York</button>
+          <button class="chip" data-spoof="51.5074,-0.1278,London, UK" type="button">London</button>
         </div>
         <div id="spoof-verdict" class="verdict-card hidden"></div>
       </div>
@@ -110,24 +118,24 @@
       <!-- Live Physics Bounds Summary -->
       <div id="live-summary" class="metrics-grid hidden">
         <div class="metric-card highlight">
-          <div class="metric-label">Best-Fit Intersection</div>
-          <div id="m-coords" class="metric-val mono">—</div>
-          <div id="m-nearest" class="metric-sub">Nearest Anchor: —</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-label">Calibrated Bound</div>
-          <div id="m-cal" class="metric-val mono">—</div>
-          <div class="metric-sub">9×9 mesh calibrated</div>
+          <div class="metric-label">Vacuum c₀ Outer Bound</div>
+          <div id="m-vac" class="metric-val mono">—</div>
+          <div id="m-vac-area" class="metric-sub">Conditional outer region</div>
         </div>
         <div class="metric-card">
           <div class="metric-label">Optical Fiber (Tier 1B)</div>
           <div id="m-fiber" class="metric-val mono">—</div>
-          <div class="metric-sub">204k km/s glass limit</div>
+          <div id="m-fiber-area" class="metric-sub">204k km/s conservative</div>
         </div>
         <div class="metric-card">
-          <div class="metric-label">Vacuum c₀ (Tier 1A)</div>
-          <div id="m-vac" class="metric-val mono">—</div>
-          <div class="metric-sub">299.8k km/s absolute</div>
+          <div class="metric-label">Empirical Peak (Diag.)</div>
+          <div id="m-coords" class="metric-val mono">—</div>
+          <div id="m-peaks-sub" class="metric-sub">Correlated likelihood</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">More-Likely Band</div>
+          <div id="m-like-area" class="metric-val mono">—</div>
+          <div id="m-nearest" class="metric-sub">Empirical (not a hard bound)</div>
         </div>
       </div>
 
@@ -136,43 +144,69 @@
       <!-- Per-Anchor Live RTT Waterfall -->
       <div class="section-head">
         <span>Live Anchor Measurements</span>
-        <span id="anchor-count-badge" class="badge">9 Anchors</span>
+        <span id="anchor-count-badge" class="badge">Anchors</span>
       </div>
       <div id="live-anchor-list" class="anchor-list"></div>
     </section>
 
-    <!-- TAB 2: 9x9 CLOUD MESH -->
+    <!-- TAB 2: CLOUD MESH + GEOMETRY DIAGNOSTIC SCENARIOS -->
     <section class="tab-pane" id="pane-mesh">
       <div class="hero-box compact">
-        <div class="eyebrow">REAL HARDWARE-SIGNED UDP PROBES · 9 LIVE CLOUD VMs</div>
-        <h2>Multi-Cloud Datacenter Mesh (9×9)</h2>
+        <div class="eyebrow">HISTORICAL 9×9 UDP FIXTURE &amp; GEOMETRY DIAGNOSTICS · NOT LIVE PRODUCTION PROOF</div>
+        <h2>Cloud Mesh &amp; Edge-Case Diagnostics</h2>
         <p class="lead">
-          Select any live cloud VM below to visualize its <strong>actual hardware-signed UDP speed-of-light circles</strong> measured across our isolated GCP (Intel TDX + AMD SEV-SNP) &amp; AWS pilot. Cross-cloud Frankfurt &amp; Ashburn localize to <strong>55–65 miles</strong>!
+          Inspect historical 9-node cross-cloud UDP snapshots (self-probes excluded) alongside deterministic edge-case geometry tests (Whole-Earth 150 ms, Dateline crossing, Multi-Peak ambiguity). Solid cyan outline = <strong>raw Vacuum c₀ outer bound</strong>; violet→amber heatmap = <strong>correlated empirical likelihood</strong>.
         </p>
       </div>
 
       <div class="section-head">
-        <span>Select Prover Datacenter</span>
-        <span class="badge">Real UDP Min-RTT</span>
+        <span>Geometry &amp; Edge-Case Presets</span>
+        <span class="badge">Deterministic QA</span>
+      </div>
+      <div class="preset-chips" style="margin-bottom:10px">
+        <button class="chip qa-preset" data-qa="chicago" type="button">Held-Out: Chicago (T2)</button>
+        <button class="chip qa-preset" data-qa="seoul" type="button">Held-Out: Seoul (T2)</button>
+        <button class="chip qa-preset" data-qa="frankfurt" type="button">Frankfurt 9×9 Mesh</button>
+        <button class="chip qa-preset" data-qa="repro150" type="button">150 ms Whole-Earth</button>
+        <button class="chip qa-preset" data-qa="dateline" type="button">Dateline (±180°)</button>
+        <button class="chip qa-preset" data-qa="polar" type="button">Arctic Polar Cap</button>
+        <button class="chip qa-preset" data-qa="multipeak" type="button">Multi-Peak (2 Anchors)</button>
+      </div>
+
+      <div class="section-head">
+        <span>Historical 9×9 Prover Fixture (Self-Excluded)</span>
+        <span class="badge">Diagnostic Fixture</span>
       </div>
       <div id="mesh-prover-picker" class="mesh-picker"></div>
 
       <div id="mesh-stats" class="metrics-grid">
         <div class="metric-card highlight">
-          <div class="metric-label">Selected Prover</div>
+          <div class="metric-label">Active Scene</div>
           <div id="mesh-name" class="metric-val">—</div>
           <div id="mesh-tee" class="metric-sub">—</div>
         </div>
         <div class="metric-card">
-          <div class="metric-label">Tightest Cross-Cloud</div>
+          <div class="metric-label">Outer Bound (Active Tier)</div>
           <div id="mesh-best" class="metric-val mono">—</div>
           <div id="mesh-best-sub" class="metric-sub">—</div>
         </div>
+        <div class="metric-card">
+          <div class="metric-label">Empirical Peak(s)</div>
+          <div id="mesh-peak" class="metric-val mono">—</div>
+          <div id="mesh-peak-sub" class="metric-sub">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">More-Likely Area</div>
+          <div id="mesh-like-area" class="metric-val mono">—</div>
+          <div id="mesh-like-sub" class="metric-sub">Empirical diagnostic only</div>
+        </div>
       </div>
 
+      <div id="mesh-note" class="info-banner hidden"></div>
+
       <div class="section-head">
-        <span>Live Hardware TEE Attestation (/info)</span>
-        <button id="btn-refresh-tees" class="link-btn">Refresh Live</button>
+        <span>Anchor Measurements &amp; Live Audit Status</span>
+        <button id="btn-refresh-tees" class="link-btn" type="button">Refresh Audit</button>
       </div>
       <div id="mesh-anchor-list" class="anchor-list"></div>
     </section>
@@ -180,47 +214,45 @@
     <!-- TAB 2B: 72-NODE RIM-SURROUNDED GLOBAL GRID EXPLORER -->
     <section class="tab-pane" id="pane-grid72">
       <div class="hero-box compact">
-        <div class="eyebrow">72-NODE GLOBAL TOPOLOGY · 4-QUADRANT RIM SURROUND</div>
-        <h2>Surround Every Border &amp; Coastal City</h2>
+        <div class="eyebrow">SIMULATED TOPOLOGY EXPLORER · SYNTHETIC RTT MODEL (NOT LIVE PROOF)</div>
+        <h2>72-Node Global Topology Simulation</h2>
         <p class="lead">
-          <strong>26 North America</strong> (incl. Honolulu, Anchorage, Canada, Mexico &amp; Caribbean) + <strong>30 Europe &amp; Rim</strong> (incl. Iceland, Faroe Islands, Azores, Lisbon, Finland, North Africa, Middle East &amp; Eastern Border) + <strong>16 APAC / Global South</strong>. Click <strong>any city on the map</strong> or pick a border city below to see 4-direction framing in action!
+          Explore simulated 4-quadrant Anchor placement across North America (26), Europe &amp; Rim (30), and APAC/Global South (16). Click any city to compare conservative Vacuum c₀ &amp; Fiber outer bounds with the correlated spatial likelihood surface.
         </p>
       </div>
 
       <div class="section-head">
-        <span>Test Coastal &amp; Border Cities</span>
-        <span class="badge">72 Nodes · Click Map!</span>
+        <span>Simulated Target Cities</span>
+        <span class="badge">72-Node Sim · Click Map</span>
       </div>
       <div class="preset-chips" style="margin-bottom:12px">
-        <button class="chip grid72-city" data-city="38.7223,-9.1393,Lisbon, PT">Lisbon, PT</button>
-        <button class="chip grid72-city" data-city="53.3498,-6.2603,Dublin, IE">Dublin, IE</button>
-        <button class="chip grid72-city" data-city="60.1699,24.9384,Helsinki, FI">Helsinki, FI</button>
-        <button class="chip grid72-city" data-city="52.2297,21.0122,Warsaw, PL">Warsaw, PL</button>
-        <button class="chip grid72-city" data-city="41.0082,28.9784,Istanbul, TR">Istanbul, TR</button>
-        <button class="chip grid72-city" data-city="37.9838,23.7275,Athens, GR">Athens, GR</button>
-        <button class="chip grid72-city" data-city="37.7749,-122.4194,San Francisco, US">San Francisco</button>
-        <button class="chip grid72-city" data-city="25.7617,-80.1918,Miami, US">Miami, FL</button>
-        <button class="chip grid72-city" data-city="49.2827,-123.1207,Vancouver, CA">Vancouver, CA</button>
-        <button class="chip grid72-city" data-city="19.4326,-99.1332,Mexico City, MX">Mexico City</button>
-        <button class="chip grid72-city" data-city="18.4655,-66.1057,San Juan, PR">San Juan, PR</button>
-        <button class="chip grid72-city" data-city="41.8781,-87.6298,Chicago, US">Chicago, IL</button>
+        <button class="chip grid72-city" data-city="38.7223,-9.1393,Lisbon, PT" type="button">Lisbon, PT</button>
+        <button class="chip grid72-city" data-city="53.3498,-6.2603,Dublin, IE" type="button">Dublin, IE</button>
+        <button class="chip grid72-city" data-city="60.1699,24.9384,Helsinki, FI" type="button">Helsinki, FI</button>
+        <button class="chip grid72-city" data-city="52.2297,21.0122,Warsaw, PL" type="button">Warsaw, PL</button>
+        <button class="chip grid72-city" data-city="41.0082,28.9784,Istanbul, TR" type="button">Istanbul, TR</button>
+        <button class="chip grid72-city" data-city="37.7749,-122.4194,San Francisco, US" type="button">San Francisco</button>
+        <button class="chip grid72-city" data-city="25.7617,-80.1918,Miami, US" type="button">Miami, FL</button>
+        <button class="chip grid72-city" data-city="49.2827,-123.1207,Vancouver, CA" type="button">Vancouver, CA</button>
+        <button class="chip grid72-city" data-city="19.4326,-99.1332,Mexico City, MX" type="button">Mexico City</button>
+        <button class="chip grid72-city" data-city="41.8781,-87.6298,Chicago, US" type="button">Chicago, IL</button>
       </div>
 
       <div class="metrics-grid">
         <div class="metric-card highlight">
-          <div class="metric-label">Target City</div>
+          <div class="metric-label">Simulated Target</div>
           <div id="g72-city" class="metric-val">Lisbon, PT</div>
           <div id="g72-quads" class="metric-sub">Quadrants: 4/4 (N·S·E·W)</div>
         </div>
         <div class="metric-card">
-          <div class="metric-label">Calibrated Intersection</div>
+          <div class="metric-label">Vacuum c₀ / Fiber Bound</div>
           <div id="g72-cal" class="metric-val mono">—</div>
           <div id="g72-fib" class="metric-sub">Fiber: —</div>
         </div>
       </div>
 
       <div class="section-head">
-        <span>Selected 6-Anchor Surrounding Committee</span>
+        <span>Simulated 6-Anchor Committee</span>
         <span class="badge">Multi-Cloud · f=1</span>
       </div>
       <div id="g72-committee-list" class="anchor-list"></div>
@@ -229,23 +261,24 @@
     <!-- TAB 3: VERIFY X-POG-PROOF -->
     <section class="tab-pane" id="pane-verify">
       <div class="hero-box compact">
-        <div class="eyebrow">RUST BACKEND VERIFIER · ZERO-TRUST CRYPTOGRAPHY</div>
+        <div class="eyebrow">FAIL-CLOSED VERIFIER · HARDWARE TEE &amp; KEY IDENTITY CHECKS</div>
         <h2>Verify an <code>X-PoG-Proof</code> Header</h2>
         <p class="lead">
-          AI inference APIs and confidential datacenters attach an <code>X-PoG-Proof</code> header to every TLS handshake. Paste one below — or load a real live cloud proof — to verify its Ed25519 Anchor signatures &amp; Byzantine (K-f)-core physics bounds via our Rust verifier.
+          Paste a base64url <code>X-PoG-Proof</code> bundle below to inspect its receipts, hardware TEE status, unverified/mismatched receipts, and conservative Vacuum c₀ outer bound. Historical sample fixtures below are clearly labeled diagnostic and will fail production hardware-TEE/freshness checks.
         </p>
       </div>
 
       <div class="preset-chips" style="margin-bottom:10px">
-        <button class="chip verify-sample" data-sample="gcp-europe-west3-frankfurt">Load Live Frankfurt SEV-SNP</button>
-        <button class="chip verify-sample" data-sample="gcp-us-east4-ashburn">Load Live Ashburn Intel TDX</button>
-        <button class="chip verify-sample" data-sample="aws-us-west-1-sanjose">Load Live San Jose AWS</button>
+        <button class="chip verify-sample" data-sample="gcp-europe-west3-frankfurt" type="button">Sample Fixture: Frankfurt</button>
+        <button class="chip verify-sample" data-sample="gcp-us-east4-ashburn" type="button">Sample Fixture: Ashburn</button>
+        <button class="chip verify-sample" data-sample="aws-us-west-1-sanjose" type="button">Sample Fixture: San Jose (Dev)</button>
       </div>
 
       <textarea id="verify-input" class="code-input" placeholder="Paste base64url X-PoG-Proof header value here…"></textarea>
       <div class="cta-row" style="margin-top:10px">
-        <button id="btn-verify-header" class="btn-primary">🔐 Verify Cryptographically</button>
-        <a href="/.well-known/pog-registry" target="_blank" class="btn-secondary">Registry JSON ↗</a>
+        <button id="btn-verify-header" class="btn-primary" type="button">🔐 Verify Bundle</button>
+        <a href="/.well-known/pog-network.json" target="_blank" class="btn-secondary" title="Operator Root-Signed Network Registry">Signed Net ↗</a>
+        <a href="/.well-known/pog-registry" target="_blank" class="btn-secondary">Grid JSON ↗</a>
       </div>
 
       <div id="verify-verdict" class="verdict-card hidden" style="margin-top:12px"></div>
@@ -255,80 +288,121 @@
     <!-- TAB 4: CLI & SDKS -->
     <section class="tab-pane" id="pane-cli">
       <div class="hero-box compact">
-        <div class="eyebrow">OPEN PUBLIC UTILITY · HARDWARE-ATTESTED UDP PROBING</div>
-        <h2>Run Cryptographic Probes Yourself</h2>
+        <div class="eyebrow">FAIL-CLOSED PRODUCTION VERIFICATION · OPEN APACHE-2.0 SDKS</div>
+        <h2>Run Cryptographic Audits &amp; Probes</h2>
         <p class="lead">
-          Browser pings show the physics visually via HTTPS; for <strong>full hardware-attested UDP <code>BLAKE3-MAC</code> proofs</strong> with Ed25519 Anchor receipts, run our open-source Rust CLI against the locked-down 9-node public grid right now:
+          Production proofs require verified hardware TEEs (AWS Nitro Enclaves, Azure/GCP SEV-SNP or Intel TDX), live key match against a signed registry, and audited coordinate provenance. Use <code>network audit-live</code> to audit every constellation node:
         </p>
       </div>
 
       <div class="code-block-card">
         <div class="code-block-head">
-          <span>1. Clone &amp; Probe the Live 9-Node Public Grid</span>
-          <button class="copy-btn" data-copy="cmd-cli">Copy</button>
+          <span>1. Audit Live Fleet Attestation &amp; Key Enrollment (Fail-Closed)</span>
+          <button class="copy-btn" data-copy="cmd-cli" type="button">Copy</button>
         </div>
         <pre id="cmd-cli">git clone https://github.com/jperla/proof-of-geography
 cd proof-of-geography
-cargo run --release --bin pog-cli -- probe-live \
-  --grid config/public_anchors.json \
-  --rounds 8 --allow-dev-tee</pre>
+cargo run --release --bin pog-cli -- network audit-live \
+  --registry config/signed_public_network.json \
+  --pinned-root-pk &lt;operator-ed25519-root-pk-hex&gt;</pre>
       </div>
 
       <div class="code-block-card">
         <div class="code-block-head">
-          <span>2. Zero-Dependency Client Verifier SDKs (TS · Go · Python)</span>
-          <button class="copy-btn" data-copy="cmd-sdk">Copy</button>
+          <span>2. Production Verifier + Spatial Likelihood SDK (TS · Go · Python)</span>
+          <button class="copy-btn" data-copy="cmd-sdk" type="button">Copy</button>
         </div>
-        <pre id="cmd-sdk">import { verifyProofHeader } from "./sdks/typescript/src/index.ts";
-const registry = await fetch("https://proofofgeography.com/.well-known/pog-registry").then(r =&gt; r.json());
-const report = await verifyProofHeader(res.headers.get("X-PoG-Proof"), registry);
-console.log(report.overall_valid, report.tier1b_fiber.proven_max_radius_km);</pre>
+        <pre id="cmd-sdk">import { verifyProof, computeSpatialLikelihood } from "./sdks/typescript/src/index.ts";
+// Production default: allowSoftwareDev = false, enforceTier = "vacuum"
+const report = verifyProof(headerVal, grid);
+console.log(report.overallValid, report.proofStatus, report.hardwareAttested);
+// Optional empirical diagnostic surface strictly inside Vacuum c0 bound:
+const surf = computeSpatialLikelihood(observations);
+console.log(surf.peaks, surf.moreLikelyAreaKm2);</pre>
+      </div>
+
+      <div class="code-block-card">
+        <div class="code-block-head">
+          <span>3. Self-Host Your Own Independent Constellation (<code>?registry=&lt;url&gt;</code>)</span>
+          <button class="copy-btn" data-copy="cmd-selfhost" type="button">Copy</button>
+        </div>
+        <pre id="cmd-selfhost"># 1. Generate your own offline operator root key (separate from proofofgeography.com)
+pog-cli network init --network-id pog.example.org --operator "Example Org" \
+  --key-out ~/.pog/example-root.key
+
+# 2. Sign your own Anchor grid (include optional "https_url" per anchor for /info &amp; /ping)
+pog-cli network sign-registry --key ~/.pog/example-root.key \
+  --network-id pog.example.org --operator "Example Org" \
+  --grid examples/external_constellation_registry.json \
+  --out ./pog-network.json --ttl-days 90
+
+# 3. Serve pog-network.json over HTTPS with CORS, then inspect your separate constellation:
+#    https://proofofgeography.com/?registry=https://pog.example.org/.well-known/pog-network.json
+#    (Selects your constellation ONLY — never merges into the official roster or HW counts.)</pre>
       </div>
 
       <div class="why-card">
-        <h3>Why Proof of Geography Matters</h3>
+        <h3>Core Guarantees &amp; Limits</h3>
         <ul>
-          <li><strong>GPU Export-Control &amp; Hardware Localization:</strong> Proves where confidential GPUs (H100/B200 SPDM + SEV-SNP/TDX) physically sit on Earth — even against VPNs, BGP hijacks, or spoofed geofeed claims.</li>
-          <li><strong>Data Sovereignty &amp; AI Compliance:</strong> Cryptographically verifies EU/US/regional inference residency on every API handshake (<code>X-PoG-Proof</code>).</li>
-          <li><strong>Stop Inference-Cloud Routing Lies:</strong> Catches API routers silently forwarding "US-hosted" prompts overseas — light physically cannot beat 299,792 km/s.</li>
-          <li><strong>Continuous Mobility Detection:</strong> Hourly hash-chained proofs catch datacenters moved onto trucks, ships, or aircraft.</li>
+          <li><strong>Raw Vacuum c₀ Outer Bound (Default):</strong> Zero empirical RTT deductions; folds in clock resolution, drift, WGS84 chord-to-arc, and anchor-coordinate uncertainty. Never narrows via calibration.</li>
+          <li><strong>Correlated Spatial Likelihood Map:</strong> Uses a spatially correlated covariance matrix so clustered anchors sharing network backbones do not manufacture false certainty. Supports single or multiple peaks labeled <em>More likely / Less likely</em>.</li>
+          <li><strong>Fleet-Wide Hardware TEE Invariant:</strong> Software/dev anchors are excluded from production membership and never silently substituted when quorum is unmet.</li>
+          <li><strong>Separate Coordinate Provenance:</strong> Hardware identity proves enclave code and key custody — never physical coordinates, which require separate audited provenance and cross-cloud speed-of-light checks.</li>
         </ul>
       </div>
     </section>
   </aside>
 
+  <!-- Explicit All-World label when outer bound covers 100% of Earth (zero false outline!) -->
+  <div id="whole-earth-banner" class="whole-earth-banner hidden" role="status" aria-live="polite"></div>
+
   <!-- Floating Bottom-Right Physics Controls -->
   <div class="bottom-controls">
-    <div class="control-group" title="Switch speed-of-light physics bound model">
-      <span class="control-label">Physics Tier</span>
+    <div class="control-group" title="Switch conservative outer bound tier (Vacuum c₀ is the strict default)">
+      <span class="control-label">Outer Bound</span>
       <div class="segmented" id="tier-switcher">
-        <button class="seg-btn" data-tier="vacuum">Vacuum c₀</button>
-        <button class="seg-btn" data-tier="fiber">Optical Fiber</button>
-        <button class="seg-btn active" data-tier="calibrated">Calibrated</button>
+        <button class="seg-btn active" data-tier="vacuum" type="button">Vacuum c₀</button>
+        <button class="seg-btn" data-tier="fiber" type="button">Fiber 1B</button>
       </div>
     </div>
 
-    <div class="control-group" title="Choose how many Anchor circles to display">
+    <div class="control-group" title="Toggle correlated empirical spatial likelihood overlay inside the outer bound">
+      <span class="control-label">Likelihood</span>
+      <div class="segmented" id="likelihood-switcher">
+        <button class="seg-btn active" data-likelihood="on" type="button">On</button>
+        <button class="seg-btn" data-likelihood="off" type="button">Off</button>
+      </div>
+    </div>
+
+    <div class="control-group" title="Choose how many individual Anchor circles to overlay">
       <span class="control-label">Circles</span>
       <div class="segmented" id="circle-switcher">
-        <button class="seg-btn active" data-circles="top5">Closest 5</button>
-        <button class="seg-btn" data-circles="all">All 9</button>
-        <button class="seg-btn" data-circles="none">Clean</button>
+        <button class="seg-btn" data-circles="top5" type="button">Top 5</button>
+        <button class="seg-btn" data-circles="all" type="button">All</button>
+        <button class="seg-btn active" data-circles="none" type="button">Clean</button>
       </div>
     </div>
   </div>
 
-  <!-- Floating Bottom-Left Legend -->
-  <div class="map-legend">
-    <span class="leg-item"><i class="dot" style="background:#38bdf8"></i>GCP Intel TDX</span>
-    <span class="leg-item"><i class="dot" style="background:#818cf8"></i>GCP AMD SEV-SNP</span>
-    <span class="leg-item"><i class="dot" style="background:#f59e0b"></i>AWS Anchor</span>
-    <span class="leg-item"><i class="dot" style="background:#2dd4bf"></i>Intersection Zone</span>
-    <span class="leg-item"><i class="dot" style="background:#f43f5e"></i>Spoof Violation</span>
+  <!-- Floating Bottom-Left Legend (Visible on BOTH Desktop and Mobile) -->
+  <div class="map-legend" id="map-legend">
+    <span class="leg-item" title="Raw Vacuum c₀ / Fiber outer bound conditional on trusted anchors &amp; audited coordinates">
+      <i class="leg-swatch leg-outer"></i>Outer Bound (c₀)
+    </span>
+    <span class="leg-item" title="Empirical spatial likelihood estimate inside outer bound — qualitative More likely / Less likely, NOT a proof">
+      <i class="leg-gradient"></i>More → Less likely (Estimate, not proof)
+    </span>
+    <span class="leg-item"><i class="leg-target"></i>Known Target</span>
+    <span class="leg-item"><i class="leg-peak"></i>Peak</span>
+    <span class="leg-item leg-desktop-only"><i class="dot" style="background:#38bdf8"></i>GCP</span>
+    <span class="leg-item leg-desktop-only"><i class="dot" style="background:#f59e0b"></i>AWS</span>
+    <span class="leg-item leg-desktop-only"><i class="dot" style="background:#10b981"></i>Azure</span>
+    <span class="leg-item leg-desktop-only"><i class="dot" style="background:#f43f5e"></i>Spoof</span>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="/geo.js?v=5"></script>
-  <script src="/app.js?v=5"></script>
+  <script src="/geo.js?v=10"></script>
+  <script src="/constellation.js?v=10"></script>
+  <script src="/app.js?v=10"></script>
 </body>
 </html>

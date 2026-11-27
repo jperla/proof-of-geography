@@ -25,6 +25,8 @@ jobs:
           python-version: "3.12"
       - name: Run Rust workspace unit & live UDP integration tests
         run: cargo test --workspace
+      - name: Build release pog-cli verifier
+        run: cargo build --release --bin pog-cli
       - name: Run Clippy (strict)
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Run Red-Team & Physics Simulation Suite
@@ -33,6 +35,12 @@ jobs:
         run: cargo run --release --bin pog-cli -- bench --verify-iters 1000
       - name: Regenerate cross-language SDK fixture
         run: cargo run --release --bin pog-cli -- export-sdk-fixture
+      - name: Test Web Geometry, 7-Case Cap Fill & Constellation Isolation
+        run: node --test web/test_geo.mjs
+      - name: Test Release Gate Real Verifier Self-Tests & Static Lint (Lint Only — Not Promotion Auth)
+        run: |
+          python3 scripts/release_gate.py --self-test
+          python3 scripts/release_gate.py --lint
       - name: Test TypeScript SDK (zero dependencies)
         run: cd sdks/typescript && node --experimental-strip-types --test ./test.ts
       - name: Test Go SDK (zero dependencies)

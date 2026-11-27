@@ -193,6 +193,9 @@ pub fn measure_udp_round(
     let t0 = Instant::now();
     sock.send_to(&wire_bytes, prover_addr)?;
     let dgram = recv_timestamped(sock)?;
+    // Use monotonic Instant::now() difference (immune to NTP wall-clock jumps, unlike epoch-clock
+    // SO_TIMESTAMPNS alone). Always round UP to the next whole microsecond (`div_ceil`) so timer
+    // truncation can NEVER shrink an outer speed-of-light disk!
     let rtt_ns = dgram.received_at.saturating_duration_since(t0).as_nanos() as u64;
 
     let resp = ResponsePacket::decode(&dgram.bytes)?;
@@ -206,7 +209,7 @@ pub fn measure_udp_round(
         return Err(ProtoError::InvalidMac);
     }
 
-    Ok((rtt_ns / 1_000).max(1))
+    Ok(rtt_ns.div_ceil(1_000).max(1))
 }
 
 /// Prover TEE-side fast-path: receives a 64-byte ChallengePacket, computes keyed BLAKE3-MAC

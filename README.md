@@ -1,9 +1,13 @@
 # Proof of Geography (PoG)
 
-**Unspoofable, cryptographic, speed-of-light physical location proofs for GPUs, confidential datacenters, and AI inference endpoints—secured by hardware TEEs and a multi-cloud Anchor network.**
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
+**Unspoofable, cryptographic, speed-of-light physical location proofs for GPUs, confidential datacenters, and AI inference endpoints—secured by hardware TEEs, federated operator root keys, and a live tri-cloud Anchor network.**
 
 > 🌐 **Try the Live Interactive Speed-of-Light Visualizer:** **[https://proofofgeography.com](https://proofofgeography.com)**
-> Watch 9 live multi-cloud Anchors (GCP Intel TDX, GCP AMD SEV-SNP & AWS) locate your browser in real time, simulate spoofing / inference-cloud lies, explore our **72-Node Rim-Surrounded Global Grid** (4-quadrant framing across North America, Canada, Mexico, Caribbean, Europe, Iceland, Faroe Islands, Azores, North Africa & Middle East), and cryptographically verify `X-PoG-Proof` headers online!
+> Watch live multi-cloud Rocky Linux 9 Anchors (GCP Intel TDX & AMD SEV-SNP, AWS & Azure) locate your browser in real time, simulate spoofing / inference-cloud lies, explore our **72-Node Rim-Surrounded Global Grid**, and cryptographically verify `X-PoG-Proof` headers online!
+>
+> **Note on Opt-In & Datacenter Precision:** Proof of Geography is 100% **opt-in active sensing** designed for **high-speed datacenters and GPU clusters** (1–2 ms fiber RTT → 46–65 mi). Testing from home Wi-Fi or especially mobile 4G/5G incurs 10–60+ ms of last-mile radio/ISP overhead and is naturally far less precise.
 
 ---
 
@@ -43,12 +47,13 @@ Real-time speed-of-light geolocation of a developer laptop behind NAT measured l
    ```
    *(Public Anchor registry is also served live at `https://proofofgeography.com/.well-known/pog-registry`.)*
 
-### Public Security Lockdown
+### Public Security Lockdown (Uniform Rocky Linux 9 · SELinux Enforcing)
 
-All 9 live public Anchors and the isolated `proofofgeography.com` web host run in a strictly segregated GCP project + dedicated AWS VPCs with defense-in-depth hardening:
-* **Zero Public SSH (`22/tcp` closed everywhere):** All cloud firewalls block port 22; Anchors also close HTTP `80/tcp`.
-* **Zero Cloud Credentials / IMDS Attack Surface:** AWS EC2 IMDS is completely disabled (`http_endpoint = "disabled"`); GCP VMs have zero IAM service account scopes + Shielded VM Secure Boot, vTPM, and Integrity Monitoring enabled; host `iptables` + cloud egress firewalls block RFC1918 private ranges and all Anchor outbound TCP (UDP `123` NTP + `1024-65535` PoG replies only).
-* **Hardened `pog-anchor` (`v0.1.2`) + Systemd Sandboxing:** Bounded 32 KiB Phase 1 line cap & 4s/12s Slowloris timeouts, mandatory authenticated UDP `PUNCH` (eliminates UDP reflection DDoS), scoped UDP port window (`40000-40999/udp`), concurrency cap (`64`), per-IP (`12/min`) + global (`600/min`) rate limiting, 60-second cached `/info` endpoint, and strict systemd confinement (`ProtectSystem=strict`, `NoNewPrivileges=yes`, `MemoryDenyWriteExecute=yes`, `MemoryMax=256M`).
+All live public Anchors across **GCP, AWS, and Azure** plus the isolated `proofofgeography.com` web host run **uniform Rocky Linux 9 (zero Ubuntu)** with SELinux Enforcing, full latest-kernel `dnf upgrade` + reboot before egress lockdown, and defense-in-depth hardening:
+* **Zero Public SSH (`22/tcp` closed everywhere):** All GCP firewalls, AWS Security Groups, and Azure NSGs block port 22; Anchors also close HTTP `80/tcp`.
+* **Zero Cloud Credentials / IMDS Attack Surface:** AWS EC2 IMDS is completely disabled (`http_endpoint = "disabled"`); GCP VMs have zero IAM service account scopes + Shielded VM Secure Boot, vTPM, and Integrity Monitoring enabled; Azure VMs run in dedicated isolated per-region VNets with Secure Boot + vTPM; host `iptables` + cloud egress firewalls block RFC1918 private ranges and all Anchor outbound TCP (UDP `123` NTP + `1024-65535` PoG replies only).
+* **Static `musl` Hardened `pog-anchor` (`v0.1.4`) + Systemd Sandboxing:** Zero-glibc static binary, bounded 32 KiB Phase 1 line cap & 4s/12s Slowloris timeouts, mandatory authenticated UDP `PUNCH` (eliminates UDP reflection DDoS), scoped UDP port window (`40000-40999/udp`), concurrency cap (`64`), per-IP (`12/min`) + global (`600/min`) rate limiting, 60-second cached `/info` endpoint with operator-signed `AnchorEndorsement`, and strict systemd confinement (`ProtectSystem=strict`, `NoNewPrivileges=yes`, `MemoryDenyWriteExecute=yes`, `MemoryMax=256M`).
+* **Operator Root-Key Federation & Observed External IPs:** The operator's Ed25519 root private key stays strictly local/offline and signs `https://proofofgeography.com/.well-known/pog-network.json` + per-Anchor `AnchorEndorsement` certs (pinned root public key: `fdff6d6d0b8364e459ffbb921430e39411bd812ec3ce766c2904b39bfa996ee1`). Every Anchor signs its observed `prover_observed_ip` view (`distinct_observed_ips`, `ip_view_consistent`) to flag Anycast / split-egress routing, and relying parties can require quorum across `X` independent operator networks (e.g. `proofofgeography.com` + Cloudflare + OVH) in the Rust, TypeScript, Python, and Go SDKs. See [docs/FEDERATION.md](docs/FEDERATION.md).
 
 ---
 
@@ -88,7 +93,7 @@ flowchart LR
 ### Core Design Pillars
 
 * **Split Stopwatch from Identity:** The Prover TEE *never* times its own RTT (defending against host hypervisor clock skew/VM freezing). Independent multi-cloud Anchor TEEs hold the stopwatch using Linux `SO_TIMESTAMPNS` + `SO_BUSY_POLL` (and AMD Secure TSC), while the Prover TEE provides an unforgeable, migration-disabled (`MIGRATE_MA=0`) hardware-bound cryptographic reply.
-* **Two-Tier Physics Bounds + Starlink Defense:** Every proof publishes all three tiers simultaneously:
+* **Two-Tier Physics Bounds + Starlink Defense:** Every proof publishes all three tiers simultaneously (full same-clock RTT, Sagnac, one-way, and satellite assumptions documented in [docs/PHYSICAL_BOUNDS_MODEL.md](docs/PHYSICAL_BOUNDS_MODEL.md)):
   * **Tier 1A — Vacuum Speed of Light (`c_0 = 299,792.458 km/s`, ~93.1 mi/ms RTT):** Strictly uncheatable even against private hollow-core fiber, line-of-sight microwave, or **Starlink LEO vacuum optical inter-satellite links (ISLs)**. *(Our simulation proves Starlink vacuum lasers can beat ideal silica fiber past ~4,283 km, which is why Tier 1A vacuum is the gold-standard adversarial bound.)*
   * **Tier 1B — Silica Optical Fiber (`c_fiber = 204,000 km/s`, ~63.4 mi/ms RTT):** Tighter terrestrial/subsea fiber bound (including cloud private backbones).
   * **Tier 2 — IPinfo-Style Calibrated Empirical Radius:** Learned live from the all-pairs Anchor calibration mesh and fused with RFC 8805 geofeed validation & traceroute rDNS airport-code hints to catch `LastHopProxyJump` router lies.
@@ -216,6 +221,7 @@ cargo run --release --bin pog-prover -- --grid-path config/public_anchors.json \
 
 ## Further Reading
 
+* [docs/FEDERATION.md](docs/FEDERATION.md) — **Multi-Operator Federation & Local Root-Key PKI:** run your own signed Anchor network (Cloudflare, OVH, independent orgs) and query/verify quorum across `X` independent networks in Rust, TypeScript, Python, and Go.
 * [docs/GRID_72_TOPOLOGY.md](docs/GRID_72_TOPOLOGY.md) — **72-node rim-surrounded global Anchor grid** (`config/global_grid_72.json`): 26 NA/Canada/Mexico/Caribbean + 30 Europe/Iceland/Faroe/Azores/North Africa/Middle East/East Rim + 16 APAC/Global South — cuts border-city $f=1$ localization **7.05× tighter** (`1,341 mi → 190 mi` mean, `19/20` full 4/4 quadrant surround!).
 * [docs/LIVE_PILOT_RESULTS.md](docs/LIVE_PILOT_RESULTS.md) — **Real live 9×9 cross-cloud RTT matrix & verified Intel TDX / AMD SEV-SNP proofs** measured over the public internet (Frankfurt 1.69 ms -> 55–158 mi; Ashburn 1.85 ms -> 65–175 mi).
 * [docs/DEPLOY_24_NODES.md](docs/DEPLOY_24_NODES.md) — Step-by-step guide to launching the live 24-node grid & public web playground.
@@ -223,3 +229,9 @@ cargo run --release --bin pog-prover -- --grid-path config/public_anchors.json \
 * [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) — 11 adversarial attack vectors (including proxies, split-TEEs, Starlink, mobile boats/aircraft, clock skew, and colluding clouds) and residual risks.
 * [docs/CAPACITY_AND_ECONOMICS.md](docs/CAPACITY_AND_ECONOMICS.md) — Detailed trillions-of-requests throughput math and 24-node multi-cloud operating costs.
 * [docs/BLOCKCHAIN_EXTENSION.md](docs/BLOCKCHAIN_EXTENSION.md) — Optional future on-chain STH / smart-contract settlement path.
+
+---
+
+## License
+
+Licensed exclusively under the **[Apache License, Version 2.0](LICENSE)** across all Rust crates, TypeScript/Python/Go verifier SDKs, Terraform modules, and documentation.
