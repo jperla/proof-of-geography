@@ -153,9 +153,13 @@ async fn real_tls13_http_exchange(
     tls.flush().await?;
 
     let mut raw = Vec::new();
-    tokio::time::timeout(Duration::from_secs(90), tls.read_to_end(&mut raw))
-        .await
-        .context("HTTPS response timeout")??;
+    match tokio::time::timeout(Duration::from_secs(90), tls.read_to_end(&mut raw)).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof && !raw.is_empty() => {}
+        Ok(Err(e)) => return Err(e.into()),
+        Err(_) if !raw.is_empty() => {}
+        Err(_) => bail!("HTTPS response timeout from {host}"),
+    }
 
     let sep = raw
         .windows(4)

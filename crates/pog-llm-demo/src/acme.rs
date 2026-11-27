@@ -104,9 +104,13 @@ pub async fn https_request(
     tls.flush().await?;
 
     let mut raw = Vec::new();
-    tokio::time::timeout(Duration::from_secs(20), tls.read_to_end(&mut raw))
-        .await
-        .context("HTTPS read timeout")??;
+    match tokio::time::timeout(Duration::from_secs(20), tls.read_to_end(&mut raw)).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof && !raw.is_empty() => {}
+        Ok(Err(e)) => return Err(e.into()),
+        Err(_) if !raw.is_empty() => {}
+        Err(_) => bail!("HTTPS read timeout from {url}"),
+    }
 
     let sep = raw
         .windows(4)
@@ -227,7 +231,7 @@ async fn acme_post(
 pub async fn obtain_acme_tls_alpn01_cert<F>(
     directory_url: &str,
     domain: &str,
-    contact_email: &str,
+    _contact_email: &str,
     install_alpn_challenge_cert: F,
 ) -> Result<IssuedTlsMaterial>
 where
@@ -265,10 +269,9 @@ where
         .ok_or_else(|| anyhow!("ACME newNonce missing replay-nonce"))?
         .to_string();
 
-    // 2. Register ephemeral in-RAM ACME account.
+    // 2. Register ephemeral in-RAM ACME account (omit deprecated contact email per LE 2025+ policy).
     let acct_payload = json!({
-        "termsOfServiceAgreed": true,
-        "contact": [format!("mailto:{contact_email}")]
+        "termsOfServiceAgreed": true
     });
     let (acct_st, acct_hdrs, acct_body) = acme_post(
         new_account_url,
@@ -354,6 +357,12 @@ where
         let key_auth = format!("{token}.{thumbprint}");
         let digest = Sha256::digest(key_auth.as_bytes());
         let mut ch_params = CertificateParams::new(vec![domain.to_string()])?;
+        ch_params.distinguished_name = rcgen::DistinguishedName::new();
+        ch_params.not_before = rcgen::date_time_ymd(2025, 1, 1);
+        ch_params.not_after = rcgen::date_time_ymd(2028, 1, 1);
+        ch_params
+            .extended_key_usages
+            .push(rcgen::ExtendedKeyUsagePurpose::ServerAuth);
         ch_params
             .custom_extensions
             .push(CustomExtension::new_acme_identifier(digest.as_slice()));
@@ -420,9 +429,10 @@ where
         }
     }
 
-    // 5. Generate fresh nonexportable ECDSA P-256 TLS leaf keypair strictly in enclave RAM & submit CSR.
+    // 5. Generate fresh nonexportable ECDSA P-256 TLS leaf keypair strictly in enclave RAM & submit SAN-only CSR.
     let tls_kp = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)?;
-    let csr_params = CertificateParams::new(vec![domain.to_string()])?;
+    let mut csr_params = CertificateParams::new(vec![domain.to_string()])?;
+    csr_params.distinguished_name = rcgen::DistinguishedName::new();
     let csr = csr_params.serialize_request(&tls_kp)?;
     let csr_b64 = B64_URL.encode(csr.der().as_ref());
 
@@ -503,4 +513,82 @@ where
         leaf_cert_sha256_hex: leaf_sha256,
         issuer_note: format!("acme-tls-alpn-01 ({directory_url})"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "hits live Let's Encrypt staging directory over the network"]
+    async fn test_acme_staging_handshake_directory_nonce_account_order() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let (st, _, body) = https_request("GET", LETS_ENCRYPT_STAGING_DIRECTORY, None, &[])
+            .await
+            .expect("GET LE staging directory");
+        assert_eq!(st, 200);
+        let dir: Value = serde_json::from_slice(&body).unwrap();
+        let new_nonce = dir["newNonce"].as_str().unwrap();
+        let new_acct = dir["newAccount"].as_str().unwrap();
+        let new_order = dir["newOrder"].as_str().unwrap();
+
+        let (hst, nh, _) = https_request("HEAD", new_nonce, None, &[])
+            .await
+            .expect("HEAD LE staging newNonce");
+        assert!(hst == 200 || hst == 204, "unexpected HEAD status {hst}");
+        let mut nonce = header_val(&nh, "replay-nonce").unwrap().to_string();
+
+        let rng = SystemRandom::new();
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
+        let kp = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap();
+        let (jwk, thumb) = jwk_and_thumbprint(&kp).unwrap();
+        let (ast, ah, ab) = acme_post(
+            new_acct,
+            &mut nonce,
+            &kp,
+            &rng,
+            None,
+            &jwk,
+            Some(&json!({"termsOfServiceAgreed": true})),
+        )
+        .await
+        .expect("POST newAccount");
+        assert!((200..300).contains(&ast), "newAccount {ast}: {}", String::from_utf8_lossy(&ab));
+        let kid = header_val(&ah, "location").unwrap().to_string();
+
+        let (ost, _, ob) = acme_post(
+            new_order,
+            &mut nonce,
+            &kp,
+            &rng,
+            Some(&kid),
+            &jwk,
+            Some(&json!({"identifiers": [{"type": "dns", "value": "llm.proofofgeography.com"}]})),
+        )
+        .await
+        .expect("POST newOrder");
+        assert!((200..300).contains(&ost), "newOrder {ost}: {}", String::from_utf8_lossy(&ob));
+        let ord: Value = serde_json::from_slice(&ob).unwrap();
+        let az_url = ord["authorizations"][0].as_str().unwrap();
+        let (zst, _, zb) = acme_post(az_url, &mut nonce, &kp, &rng, Some(&kid), &jwk, None)
+            .await
+            .expect("POST-as-GET authz");
+        assert_eq!(zst, 200, "authz {zst}: {}", String::from_utf8_lossy(&zb));
+        let az: Value = serde_json::from_slice(&zb).unwrap();
+        let ch = az["challenges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["type"].as_str() == Some("tls-alpn-01"))
+            .expect("tls-alpn-01 challenge present");
+        let token = ch["token"].as_str().unwrap();
+        let digest = Sha256::digest(format!("{token}.{thumb}").as_bytes());
+        let mut p = CertificateParams::new(vec!["llm.proofofgeography.com".into()]).unwrap();
+        p.not_before = rcgen::date_time_ymd(2025, 1, 1);
+        p.not_after = rcgen::date_time_ymd(2028, 1, 1);
+        p.extended_key_usages.push(rcgen::ExtendedKeyUsagePurpose::ServerAuth);
+        p.custom_extensions.push(CustomExtension::new_acme_identifier(digest.as_slice()));
+        let ch_kp = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).unwrap();
+        let _cert = p.self_signed(&ch_kp).unwrap();
+    }
 }

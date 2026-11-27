@@ -179,6 +179,7 @@ struct DemoState {
     latest_hw_quote: RwLock<TeeAttestationQuote>,
     latest_pog_bundle: RwLock<Option<GeoProofBundle>>,
     diagnostic_rtts: RwLock<Vec<DiagnosticAnchorObservation>>,
+    acme_last_status: RwLock<String>,
 }
 
 #[derive(Deserialize)]
@@ -309,6 +310,7 @@ async fn info_handler(State(state): State<Arc<DemoState>>) -> Json<serde_json::V
         "tls_leaf_cert_sha256_hex": live_tls.as_ref().map(|t| t.leaf_cert_sha256_hex.clone()),
         "tls_cert_prover_binding_sig_hex": live_tls.as_ref().map(|t| t.cert_prover_binding_sig_hex.clone()),
         "tls_issuer": live_tls.as_ref().map(|t| t.issuer_note.clone()).unwrap_or_else(|| "initializing".into()),
+        "acme_status": state.acme_last_status.read().unwrap().clone(),
         "model_runtime": state.model_runtime,
         "production_geo_quorum_available": prod_pog,
         "geographic_proof_note": "Inference TEE attestation and production multi-cloud geographic proof are strictly separated; SoftwareDev diagnostic nodes and the prover itself are NEVER counted toward geographic proof.",
@@ -775,6 +777,7 @@ async fn main() -> Result<()> {
         latest_hw_quote: RwLock::new(initial_quote),
         latest_pog_bundle: RwLock::new(None),
         diagnostic_rtts: RwLock::new(Vec::new()),
+        acme_last_status: RwLock::new("initializing".into()),
     });
 
     // 5. Background out-of-band PoG refresh loop (uses SAME enclave Ed25519 key; separates prod vs diagnostic).
@@ -821,6 +824,8 @@ async fn main() -> Result<()> {
                             issuer = %mat.issuer_note,
                             "Installed browser-trusted Let's Encrypt TLS 1.3 cert inside enclave RAM"
                         );
+                        *acme_state.acme_last_status.write().unwrap() =
+                            format!("ok: {}", mat.issuer_note);
                         acme_state
                             .cert_resolver
                             .install_live(mat, &acme_state.keypair);
@@ -829,6 +834,7 @@ async fn main() -> Result<()> {
                     }
                     Err(e) => {
                         warn!(err = %e, "ACME TLS-ALPN-01 attempt failed; retrying in 60s");
+                        *acme_state.acme_last_status.write().unwrap() = format!("error: {e}");
                         tokio::time::sleep(Duration::from_secs(60)).await;
                     }
                 }
@@ -897,6 +903,7 @@ mod tests {
             latest_hw_quote: RwLock::new(init_q),
             latest_pog_bundle: RwLock::new(None),
             diagnostic_rtts: RwLock::new(Vec::new()),
+            acme_last_status: RwLock::new("test".into()),
         });
 
         let tls_ekm = "55".repeat(32);
