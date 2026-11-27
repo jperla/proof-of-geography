@@ -1,11 +1,15 @@
-name: Publish Zero-SSH Anchor OCI Image (Pinned Digest)
+name: Publish Zero-SSH Anchor OCI Images & Non-Debug Nitro EIF
 
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
     paths:
+      - "crates/**"
       - "infra/images/Dockerfile.anchor"
+      - "infra/images/build-nitro-eif.sh"
+      - "scripts/release_gate.py"
+      - "scripts/verify_public_node.py"
       - ".github/workflows/publish-anchor-image.yml"
 
 permissions:
@@ -20,13 +24,16 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Build real pog-cli verifier for release-gate self-tests
-        run: cargo build --release --bin pog-cli
+      - name: Run full workspace Rust tests & build real pog-cli verifier
+        run: |
+          cargo test --workspace
+          cargo build --release --bin pog-cli
 
-      - name: Verify measured image recipe hygiene (real-verifier self-tests + static lint only)
+      - name: Verify measured image recipes & external 3-cloud verifier negative tests
         run: |
           python3 scripts/release_gate.py --self-test
           python3 scripts/release_gate.py --lint
+          python3 scripts/verify_public_node.py --self-test
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -38,12 +45,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push linux/amd64 FROM scratch zero-SSH image to GHCR
-        id: build
+      - name: Build and push linux/amd64 AWS Nitro zero-SSH FROM scratch image
+        id: build_nitro
         uses: docker/build-push-action@v6
         with:
           context: .
           file: infra/images/Dockerfile.anchor
+          target: runtime
           platforms: linux/amd64
           push: true
           provenance: false
@@ -52,53 +60,64 @@ jobs:
             ghcr.io/${{ github.repository }}/pog-anchor:nossh-${{ github.sha }}
             ghcr.io/${{ github.repository }}/pog-anchor:canary-nossh
 
-      - name: Verify remote pinned digest, linux/amd64 architecture, reproducible binary SHA-256 & zero-shell/zero-SSH rootfs
+      - name: Build and push linux/amd64 GCP Confidential Space TDX zero-SSH FROM scratch image
+        id: build_gcp_tdx
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/images/Dockerfile.anchor
+          target: runtime-gcp-tdx
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: |
+            ghcr.io/${{ github.repository }}/pog-anchor:gcp-tdx-${{ github.sha }}
+            ghcr.io/${{ github.repository }}/pog-anchor:gcp-tdx-nossh
+
+      - name: Verify both pinned digests, zero-shell/zero-SSH rootfs, static binary SHA-256 & anonymous pull
         env:
-          IMAGE_REPO: ghcr.io/${{ github.repository }}/pog-anchor
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-          REVIEWED_LOCAL_SHA256: 774fb046526e78c304c648353ae93fd541bc08fa6a4371e0c1fa0e856496f477
+          NITRO_REPO: ghcr.io/${{ github.repository }}/pog-anchor
+          NITRO_DIGEST: ${{ steps.build_nitro.outputs.digest }}
+          GCP_REPO: ghcr.io/${{ github.repository }}/pog-anchor
+          GCP_DIGEST: ${{ steps.build_gcp_tdx.outputs.digest }}
         run: |
           set -euo pipefail
-          PINNED="${IMAGE_REPO}@${IMAGE_DIGEST}"
-          echo "Pinned OCI reference: ${PINNED}"
+          verify_image() {
+            local REPO="$1"
+            local DIGEST="$2"
+            local PINNED="${REPO}@${DIGEST}"
+            echo "=== Verifying ${PINNED} ==="
+            docker buildx imagetools inspect "${PINNED}"
+            docker pull --platform linux/amd64 "${PINNED}"
+            ARCH=$(docker image inspect "${PINNED}" --format '{{.Os}}/{{.Architecture}}')
+            test "${ARCH}" = "linux/amd64"
 
-          # 1. Verify remote manifest resolves to linux/amd64
-          docker buildx imagetools inspect "${PINNED}"
-          docker pull --platform linux/amd64 "${PINNED}"
-          ARCH=$(docker image inspect "${PINNED}" --format '{{.Os}}/{{.Architecture}}')
-          echo "Verified platform: ${ARCH}"
-          test "${ARCH}" = "linux/amd64"
+            CID=$(docker create --platform linux/amd64 "${PINNED}")
+            FILES=$(docker export "${CID}" | tar -t | sort)
+            echo "${FILES}"
+            if echo "${FILES}" | grep -E '(^|/)(sshd|ssh|sh|bash|dash|ash|busybox|apt|apt-get|apk|dnf|yum|curl|wget|python3?|sudo|su|google_guest_agent|cloud-init)$'; then
+              docker rm "${CID}" >/dev/null 2>&1 || true
+              echo "ERROR: Forbidden shell/SSH/admin binary found in ${PINNED}!" >&2
+              exit 1
+            fi
+            echo "${FILES}" | grep -qx 'usr/local/bin/pog-anchor'
+            echo "${FILES}" | grep -qx 'etc/pog/SHA256SUMS'
+            echo "${FILES}" | grep -qx 'etc/ssl/certs/ca-certificates.crt'
 
-          # 2. Export pulled container rootfs and verify ZERO sshd / shell / package manager
-          CID=$(docker create --platform linux/amd64 "${PINNED}")
-          trap 'docker rm "${CID}" >/dev/null 2>&1 || true' EXIT
-          FILES=$(docker export "${CID}" | tar -t | sort)
-          echo "--- Pulled image filesystem ---"
-          echo "${FILES}"
+            TMPD=$(mktemp -d)
+            docker cp "${CID}:/usr/local/bin/pog-anchor" "${TMPD}/pog-anchor"
+            docker cp "${CID}:/etc/pog/SHA256SUMS" "${TMPD}/SHA256SUMS"
+            docker rm "${CID}" >/dev/null 2>&1 || true
+            file "${TMPD}/pog-anchor" | grep -E 'ELF 64-bit.*x86-64.*static(-pie|ally) linked'
+            (cd "${TMPD}" && sha256sum -c SHA256SUMS)
+            ACTUAL_SHA256=$(sha256sum "${TMPD}/pog-anchor" | awk '{print $1}')
+            echo "VERIFIED_PINNED_REF=${PINNED}"
+            echo "VERIFIED_BINARY_SHA256=${ACTUAL_SHA256}"
 
-          if echo "${FILES}" | grep -E '(^|/)(sshd|ssh|sh|bash|dash|ash|busybox|apt|apt-get|apk|dnf|yum|curl|wget|python3?|sudo|su|google_guest_agent|cloud-init)$'; then
-            echo "ERROR: Forbidden shell/SSH/admin binary found in zero-SSH image!" >&2
-            exit 1
-          fi
-
-          echo "${FILES}" | grep -qx 'usr/local/bin/pog-anchor'
-          echo "${FILES}" | grep -qx 'etc/pog/SHA256SUMS'
-          echo "${FILES}" | grep -qx 'etc/ssl/certs/ca-certificates.crt'
-
-          # 3. Verify static musl pog-anchor binary SHA-256 matches embedded SHA256SUMS AND reviewed local SHA-256
-          TMPD=$(mktemp -d)
-          docker cp "${CID}:/usr/local/bin/pog-anchor" "${TMPD}/pog-anchor"
-          docker cp "${CID}:/etc/pog/SHA256SUMS" "${TMPD}/SHA256SUMS"
-          file "${TMPD}/pog-anchor" | grep -E 'ELF 64-bit.*x86-64.*static(-pie|ally) linked'
-          (cd "${TMPD}" && sha256sum -c SHA256SUMS)
-          ACTUAL_SHA256=$(sha256sum "${TMPD}/pog-anchor" | awk '{print $1}')
-          echo "VERIFIED_PINNED_REF=${PINNED}"
-          echo "VERIFIED_BINARY_SHA256=${ACTUAL_SHA256}"
-          echo "REVIEWED_LOCAL_SHA256=${REVIEWED_LOCAL_SHA256}"
-          test "${ACTUAL_SHA256}" = "${REVIEWED_LOCAL_SHA256}"
-
-          # 4. Verify anonymous unauthenticated manifest GET by digest succeeds (confirms public pullability)
-          python3 - "${{ github.repository }}/pog-anchor" "${IMAGE_DIGEST}" <<'PY'
+            # Anonymous unauthenticated manifest GET check (confirms public pullability)
+            local GHCR_PATH="${REPO#ghcr.io/}"
+            python3 - "${GHCR_PATH}" "${DIGEST}" <<'PY'
           import json, sys, urllib.request
           repo, digest = sys.argv[1].lower(), sys.argv[2]
           with urllib.request.urlopen(f"https://ghcr.io/token?service=ghcr.io&scope=repository:{repo}:pull", timeout=15) as r:
@@ -113,5 +132,50 @@ jobs:
           with urllib.request.urlopen(req, timeout=15) as r:
               assert r.status == 200, f"expected 200, got {r.status}"
               assert r.headers.get("Docker-Content-Digest") == digest
-              print("ANONYMOUS_MANIFEST_GET_OK", r.status, digest)
+              print("ANONYMOUS_MANIFEST_GET_OK", r.status, repo, digest)
           PY
+          }
+
+          verify_image "${NITRO_REPO}" "${NITRO_DIGEST}"
+          verify_image "${GCP_REPO}" "${GCP_DIGEST}"
+
+      - name: Build real non-debug AWS Nitro Enclave Image File (.eif) & verify non-zero PCR0/PCR1/PCR2
+        env:
+          NITRO_REF: ghcr.io/${{ github.repository }}/pog-anchor@${{ steps.build_nitro.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/nitro-eif
+          docker tag "${NITRO_REF}" pog-anchor-nitro-eif:release
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${PWD}/dist/nitro-eif:/out" \
+            public.ecr.aws/amazonlinux/amazonlinux:2023 \
+            bash -euo pipefail -c '
+              dnf install -y -q aws-nitro-enclaves-cli aws-nitro-enclaves-cli-devel
+              export NITRO_CLI_ARTIFACTS=/tmp/nitro-artifacts
+              mkdir -p /tmp/nitro-artifacts /var/log/nitro_enclaves
+              nitro-cli --version
+              nitro-cli build-enclave \
+                --docker-uri pog-anchor-nitro-eif:release \
+                --output-file /out/pog-anchor-x86_64.eif | tee /out/nitro-build.log
+              sha256sum /out/pog-anchor-x86_64.eif > /out/pog-anchor-x86_64.eif.sha256
+            '
+          python3 - dist/nitro-eif/nitro-build.log dist/nitro-eif/pog-anchor-x86_64.eif.measurements.json <<'PY'
+          import json, sys
+          raw = open(sys.argv[1]).read()
+          start = raw.find("{")
+          end = raw.rfind("}")
+          assert start != -1 and end > start, f"No JSON block found in nitro-cli output:\n{raw}"
+          doc = json.loads(raw[start : end + 1])
+          open(sys.argv[2], "w").write(json.dumps(doc, indent=2) + "\n")
+          print("Extracted real Nitro EIF measurements:")
+          print(json.dumps(doc, indent=2))
+          PY
+          cat dist/nitro-eif/pog-anchor-x86_64.eif.sha256
+          python3 scripts/release_gate.py --lint --eif-measurements dist/nitro-eif/pog-anchor-x86_64.eif.measurements.json
+
+      - name: Upload non-debug AWS Nitro EIF & PCR0/PCR1/PCR2 measurements artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pog-anchor-nitro-eif-${{ github.sha }}
+          path: dist/nitro-eif/

@@ -48,7 +48,7 @@
       "diagnostic_only": true,
       "failure_domain": "vultr-hnl-drfortress/AS20473",
       "asn": 20473,
-      "instance_type": "vhp-1c-2gb-intel",
+      "instance_type": "vhp-1c-1gb-intel",
       "location": {
         "lat": 21.3282,
         "lon": -157.9225

@@ -342,34 +342,44 @@ def run_live_check(args: argparse.Namespace, pog_cli: Path) -> int:
         print(json.dumps({"ok": False, "stage": "patch_invariants", "errors": errs}, indent=2))
         return 1
 
-    aws_info = fetch_json(f"{args.aws_url.rstrip('/')}/info")
-    vultr_info = fetch_json(f"{args.vultr_url.rstrip('/')}/info")
-    aws_pk = (aws_info.get("public_key_hex") or "").lower()
-    vultr_pk = (vultr_info.get("public_key_hex") or "").lower()
+    has_aws = bool(args.aws_url and args.aws_tcp)
+    has_vultr = bool(args.vultr_url and args.vultr_tcp)
 
-    checks = {
-        "aws_anchor_id_match": aws_info.get("anchor_id") == "aws-us-west-2-hnl-honolulu",
-        "vultr_anchor_id_match": vultr_info.get("anchor_id") == "vultr-hnl-honolulu",
-        "distinct_live_keys": bool(aws_pk and vultr_pk and aws_pk != vultr_pk and len(aws_pk) == 64 and len(vultr_pk) == 64),
-        "distinct_endpoints": args.aws_tcp.split(":")[0] != args.vultr_tcp.split(":")[0],
-        "diagnostic_only_not_prod_hw_tee": True,
-    }
+    aws_info = fetch_json(f"{args.aws_url.rstrip('/')}/info") if has_aws else None
+    vultr_info = fetch_json(f"{args.vultr_url.rstrip('/')}/info") if has_vultr else None
+    aws_pk = (aws_info.get("public_key_hex") or "").lower() if aws_info else ""
+    vultr_pk = (vultr_info.get("public_key_hex") or "").lower() if vultr_info else ""
 
-    # Build temporary 2-node grid and run real signed UDP distance-bounding probe from this vantage
+    checks: dict[str, bool] = {"diagnostic_only_not_prod_hw_tee": True}
+    live_map: dict[str, tuple[str, str]] = {}
+    if has_aws:
+        checks["aws_anchor_id_match"] = aws_info.get("anchor_id") == "aws-us-west-2-hnl-honolulu"
+        checks["aws_valid_ephemeral_pk"] = len(aws_pk) == 64 and all(ch in "0123456789abcdef" for ch in aws_pk)
+        checks["aws_tee_vendor_software_dev"] = aws_info.get("tee_vendor") in (None, "SoftwareDev", "software_dev")
+        live_map["aws-us-west-2-hnl-honolulu"] = (args.aws_tcp, aws_pk)
+    if has_vultr:
+        checks["vultr_anchor_id_match"] = vultr_info.get("anchor_id") == "vultr-hnl-honolulu"
+        checks["vultr_valid_ephemeral_pk"] = len(vultr_pk) == 64 and all(ch in "0123456789abcdef" for ch in vultr_pk)
+        checks["vultr_tee_vendor_software_dev"] = vultr_info.get("tee_vendor") in (None, "SoftwareDev", "software_dev")
+        live_map["vultr-hnl-honolulu"] = (args.vultr_tcp, vultr_pk)
+    if has_aws and has_vultr:
+        checks["distinct_live_keys"] = bool(aws_pk and vultr_pk and aws_pk != vultr_pk)
+        checks["distinct_endpoints"] = args.aws_tcp.split(":")[0] != args.vultr_tcp.split(":")[0]
+
+    # Build temporary grid for provisioned Honolulu node(s) and run real signed UDP distance-bounding probe
     udp_probe_ok = False
     udp_probe_summary = ""
+    receipts_out = []
     with tempfile.TemporaryDirectory(prefix="pog-hnl-live-") as td:
         tmp_grid = {
             "version": "2.0.0",
             "grid_name": "pog-honolulu-live-probe",
-            "description": "Temporary 2-node Honolulu diagnostic probe grid",
+            "description": "Temporary Honolulu diagnostic probe grid",
             "anchors": [],
         }
-        live_map = {
-            "aws-us-west-2-hnl-honolulu": (args.aws_tcp, aws_pk),
-            "vultr-hnl-honolulu": (args.vultr_tcp, vultr_pk),
-        }
         for c in patch["candidate_anchors"]:
+            if c["anchor_id"] not in live_map:
+                continue
             e = json.loads(json.dumps(c))
             tcp, pk = live_map[e["anchor_id"]]
             host = tcp.split(":")[0]
@@ -400,21 +410,24 @@ def run_live_check(args: argparse.Namespace, pog_cli: Path) -> int:
         udp_probe_summary = (probe_res.stdout + "\n" + probe_res.stderr).strip()
         if bpath.is_file():
             bundle = json.loads(bpath.read_text())
-            receipts = bundle.get("receipts", [])
-            got_ids = {r.get("anchor_id") for r in receipts}
-            udp_probe_ok = got_ids == {"aws-us-west-2-hnl-honolulu", "vultr-hnl-honolulu"}
+            receipts_out = bundle.get("receipts", [])
+            got_ids = {r.get("anchor_id") for r in receipts_out}
+            udp_probe_ok = got_ids == set(live_map.keys())
 
-    checks["fresh_signed_udp_receipts_both_nodes"] = udp_probe_ok
+    checks["fresh_signed_udp_receipts"] = udp_probe_ok
     ok = all(checks.values())
     print(
         json.dumps(
             {
                 "ok": ok,
                 "mode": "DIAGNOSTIC_ONLY_NOT_PRODUCTION_QUORUM",
+                "providers_checked": sorted(live_map.keys()),
+                "vultr_status": "VERIFIED" if has_vultr else "PENDING_CREDENTIAL_BLOCKER",
                 "checks": checks,
-                "aws_live_pk_hex": aws_pk,
-                "vultr_live_pk_hex": vultr_pk,
-                "udp_probe_excerpt": udp_probe_summary[-800:],
+                "aws_info": aws_info,
+                "vultr_info": vultr_info,
+                "receipts": receipts_out,
+                "udp_probe_excerpt": udp_probe_summary[-1200:],
             },
             indent=2,
         )
@@ -425,7 +438,7 @@ def run_live_check(args: argparse.Namespace, pog_cli: Path) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Verify & stage two-provider Honolulu diagnostic anchors")
     ap.add_argument("--self-test", action="store_true", help="Run offline zero-spend self-tests with real pog-cli")
-    ap.add_argument("--live", action="store_true", help="Verify live provisioned AWS + Vultr Honolulu anchors")
+    ap.add_argument("--live", action="store_true", help="Verify live provisioned AWS and/or Vultr Honolulu anchor(s)")
     ap.add_argument("--pog-cli", default=None, help="Path to compiled pog-cli binary")
     ap.add_argument("--aws-url", default="", help="AWS HNL /info base URL (e.g. http://<eip>:7445)")
     ap.add_argument("--aws-tcp", default="", help="AWS HNL TCP endpoint (e.g. <eip>:7443)")
@@ -438,8 +451,10 @@ def main() -> int:
         run_self_test(pog_cli)
         return 0
     if args.live:
-        if not (args.aws_url and args.aws_tcp and args.vultr_url and args.vultr_tcp):
-            ap.error("--live requires --aws-url, --aws-tcp, --vultr-url, and --vultr-tcp")
+        has_aws = bool(args.aws_url and args.aws_tcp)
+        has_vultr = bool(args.vultr_url and args.vultr_tcp)
+        if not (has_aws or has_vultr):
+            ap.error("--live requires --aws-url + --aws-tcp and/or --vultr-url + --vultr-tcp")
         return run_live_check(args, pog_cli)
     ap.error("Specify either --self-test or --live")
     return 2

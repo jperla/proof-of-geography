@@ -85,51 +85,77 @@ resource "aws_security_group" "hnl" {
   dynamic "ingress" {
     for_each = var.allow_ssh ? [1] : []
     content {
+      description = "Temporary bootstrap SSH only (disabled by default)"
       from_port   = 22
       to_port     = 22
       protocol    = "tcp"
       cidr_blocks = ["0.0.0.0/0"]
     }
   }
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  dynamic "ingress" {
+    for_each = var.allow_https_443 ? [1] : []
+    content {
+      description = "PoG HTTPS /info /ping (enabled only after DNS + TLS setup)"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
   ingress {
+    description = "PoG Phase 1 TCP handshake"
     from_port   = 7443
     to_port     = 7443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
   ingress {
+    description = "PoG HTTP /info metadata"
     from_port   = 7445
     to_port     = 7445
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
   ingress {
+    description = "PoG Phase 2 UDP distance-bounding challenge range"
     from_port   = 40000
     to_port     = 40999
     protocol    = "udp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  # Stateful SG automatically permits return TCP replies on 7443/7445.
+  # Always allow UDP probe replies and NTP; only allow HTTPS+DNS egress during initial bootstrap.
+  egress {
+    description = "PoG Phase 2 UDP distance-bounding replies"
+    from_port   = 1024
+    to_port     = 65535
+    protocol    = "udp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    description = "NTP clock sync"
+    from_port   = 123
+    to_port     = 123
+    protocol    = "udp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
   dynamic "egress" {
-    for_each = var.lockdown_egress ? [1] : []
+    for_each = var.lockdown_egress ? [] : [1]
     content {
-      from_port   = 1024
-      to_port     = 65535
-      protocol    = "udp"
+      description = "Bootstrap-only HTTPS download of pinned pog-anchor tarball"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
       cidr_blocks = ["0.0.0.0/0"]
     }
   }
   dynamic "egress" {
-    for_each = var.lockdown_egress ? [1] : []
+    for_each = var.lockdown_egress ? [] : [1]
     content {
-      from_port   = 123
-      to_port     = 123
+      description = "Bootstrap-only DNS (UDP)"
+      from_port   = 53
+      to_port     = 53
       protocol    = "udp"
       cidr_blocks = ["0.0.0.0/0"]
     }
@@ -137,9 +163,10 @@ resource "aws_security_group" "hnl" {
   dynamic "egress" {
     for_each = var.lockdown_egress ? [] : [1]
     content {
-      from_port   = 0
-      to_port     = 0
-      protocol    = "-1"
+      description = "Bootstrap-only DNS (TCP)"
+      from_port   = 53
+      to_port     = 53
+      protocol    = "tcp"
       cidr_blocks = ["0.0.0.0/0"]
     }
   }
@@ -195,12 +222,13 @@ resource "aws_instance" "hnl" {
   }
 
   user_data = templatefile("${path.module}/cloud-init-honolulu.yaml", {
-    anchor_id           = "aws-us-west-2-hnl-honolulu"
-    cloud_provider      = "aws"
-    failure_domain      = "aws-us-west-2-hnl-1a/AS16509"
-    release_tarball_url = var.release_tarball_url
-    ssh_public_key      = var.ssh_public_key
-    extra_flags         = "--allow-dev-tee --allow-dev-prover"
+    anchor_id              = "aws-us-west-2-hnl-honolulu"
+    cloud_provider         = "aws"
+    failure_domain         = "aws-us-west-2-hnl-1a/AS16509"
+    release_tarball_url    = var.release_tarball_url
+    release_tarball_sha256 = var.release_tarball_sha256
+    ssh_public_key         = var.ssh_public_key
+    extra_flags            = "--allow-dev-tee --allow-dev-prover"
   })
 
   tags = {

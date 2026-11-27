@@ -262,6 +262,12 @@ fn build_fresh_attest_payload(
         "tee_quote": quote,
         "operator_endorsement": operator_endorsement,
         "endorsement_status": endorsement_status,
+        "timing_boundary_assumptions": {
+            "key_generation": "inside_tee_ram_ephemeral",
+            "challenge_mac_and_rtt_stopwatch": "inside_tee_monotonic_instant",
+            "wall_clock_timestamps": "host_or_ntp_untrusted_for_freshness_rely_on_caller_nonce",
+            "network_or_vsock_relay": "untrusted_relay_can_only_delay_widening_outer_bound_fail_safe"
+        },
         "hardened": true,
     }))
 }
@@ -341,7 +347,17 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let args = Args::parse();
+    let mut args = Args::parse();
+    // Allow GCP Confidential Space / immutable container images to pass `POG_ANCHOR_ID` via
+    // narrow allowlisted env_override while keeping `cmd_override` strictly empty `[]`.
+    if args.anchor_id == "local-anchor-01" {
+        if let Ok(env_id) = std::env::var("POG_ANCHOR_ID") {
+            let trimmed = env_id.trim();
+            if !trimmed.is_empty() {
+                args.anchor_id = trimmed.to_string();
+            }
+        }
+    }
 
     // Mode A: Untrusted Parent EC2 Host Relay -> forwards TCP/UDP/HTTP to Nitro Enclave over AF_VSOCK.
     if args.nitro_host_relay {

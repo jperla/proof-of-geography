@@ -37,14 +37,14 @@ resource "vultr_firewall_rule" "hnl_ssh" {
 }
 
 resource "vultr_firewall_rule" "hnl_https" {
-  count             = var.enable_vultr_hnl ? 1 : 0
+  count             = var.enable_vultr_hnl && var.allow_https_443 ? 1 : 0
   firewall_group_id = vultr_firewall_group.hnl[0].id
   protocol          = "tcp"
   ip_type           = "v4"
   subnet            = "0.0.0.0"
   subnet_size       = 0
   port              = "443"
-  notes             = "PoG HTTPS /info /ping"
+  notes             = "PoG HTTPS /info /ping (enabled only after DNS + TLS setup)"
 }
 
 resource "vultr_firewall_rule" "hnl_tcp_7443" {
@@ -101,12 +101,13 @@ resource "vultr_instance" "hnl" {
   ]
 
   user_data = templatefile("${path.module}/cloud-init-honolulu.yaml", {
-    anchor_id           = "vultr-hnl-honolulu"
-    cloud_provider      = "vultr"
-    failure_domain      = "vultr-hnl-drfortress/AS20473"
-    release_tarball_url = var.release_tarball_url
-    ssh_public_key      = var.ssh_public_key
-    extra_flags         = "--allow-dev-tee --allow-dev-prover"
+    anchor_id              = "vultr-hnl-honolulu"
+    cloud_provider         = "vultr"
+    failure_domain         = "vultr-hnl-drfortress/AS20473"
+    release_tarball_url    = var.release_tarball_url
+    release_tarball_sha256 = var.release_tarball_sha256
+    ssh_public_key         = var.ssh_public_key
+    extra_flags            = "--allow-dev-tee --allow-dev-prover"
   })
 
   lifecycle {

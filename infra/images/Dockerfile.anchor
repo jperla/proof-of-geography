@@ -28,7 +28,19 @@ RUN cargo build --release --locked --target x86_64-unknown-linux-musl --bin pog-
     && touch -d "@${SOURCE_DATE_EPOCH}" /out/pog-anchor \
     && (cd /out && sha256sum pog-anchor > SHA256SUMS)
 
-# Strictly minimal zero-shell, zero-SSH runtime image (`FROM scratch`)
+# Strictly minimal zero-shell, zero-SSH runtime image for GCP Confidential Space Intel TDX (`FROM scratch`).
+# Reads `POG_ANCHOR_ID` from allowlisted env_override so `cmd_override` remains strictly empty `[]`!
+FROM scratch AS runtime-gcp-tdx
+LABEL org.opencontainers.image.source="https://github.com/jperla/proof-of-geography" \
+      org.opencontainers.image.description="Reproducible zero-shell, zero-SSH static musl Proof of Geography GCP Confidential Space Intel TDX Anchor" \
+      org.opencontainers.image.licenses="Apache-2.0"
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=builder /out/pog-anchor /usr/local/bin/pog-anchor
+COPY --from=builder /out/SHA256SUMS /etc/pog/SHA256SUMS
+ENTRYPOINT ["/usr/local/bin/pog-anchor"]
+CMD ["--cloud-provider", "gcp", "--tcp-listen", "0.0.0.0:7443", "--udp-bind", "0.0.0.0:7444", "--udp-port-min", "40000", "--udp-port-max", "40999", "--http-info-listen", "0.0.0.0:7445"]
+
+# Strictly minimal zero-shell, zero-SSH runtime image for AWS Nitro Enclaves (`FROM scratch`)
 FROM scratch AS runtime
 LABEL org.opencontainers.image.source="https://github.com/jperla/proof-of-geography" \
       org.opencontainers.image.description="Reproducible zero-shell, zero-SSH static musl Proof of Geography Anchor TEE image" \

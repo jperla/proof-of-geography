@@ -5,8 +5,8 @@ This isolated Terraform stack provisions **two operator-run, diagnostic-only Hon
 | Anchor ID | Provider & Region | Network / Failure Domain | Recommended SKU | Exact Monthly Cost (USD) | TEE Status |
 |---|---|---|---|---|---|
 | `aws-us-west-2-hnl-honolulu` | AWS Local Zone `us-west-2-hnl-1a` (`us-west-2` parent) | `aws-us-west-2-hnl-1a/AS16509` | `t3.medium` (2 vCPU, 4 GiB) + `10 GB gp2` + `1 EIP` | **`$53.34/mo`** fixed (`$47.09` compute + `$2.60` gp2 @ `$0.26/GB` + `$3.65` IPv4) + `$0.09/GB` Internet egress (`$0.032/GB` to `us-west-2`) | **`SoftwareDev` / `diagnostic_only: true`** (AWS Local Zones do **not** support Nitro Enclaves or SEV-SNP) |
-| `vultr-hnl-honolulu` | Vultr `hnl` (DRFortress HNL) | `vultr-hnl-drfortress/AS20473` | `vhp-1c-2gb-intel` (or `vhp-1c-1gb-intel` `$6/mo` / `voc-c-1c-2gb-25s-amd` `$28/mo`) | **`$12.00/mo`** all-inclusive (`3 TB` egress + 1 IPv4 + 50 GB NVMe; `$0.01/GB` overage) | **`SoftwareDev` / `diagnostic_only: true`** (Vultr `hnl` lists no SEV-SNP/TDX Confidential VM SKU) |
-| **Aggregate Pair** | **2 Independent Providers** | **2 Distinct ASNs (`AS16509`, `AS20473`)** | `t3.medium` + `vhp-1c-2gb-intel` | **`$65.34/mo` fixed** (`~$66–$70/mo` with `10–50 GB` AWS egress; `$59.34/mo` fixed with `vhp-1c-1gb-intel`; `$81.34/mo` fixed with dedicated AMD `voc`) | **Strictly excluded from production hardware proof quorum** |
+| `vultr-hnl-honolulu` | Vultr `hnl` (DRFortress HNL) | `vultr-hnl-drfortress/AS20473` | `vhp-1c-1gb-intel` (1 vCPU, 1 GiB, 25 GB NVMe) | **`$6.00/mo`** all-inclusive (`2 TB` egress + 1 IPv4 + 25 GB NVMe; `$0.01/GB` overage) | **`SoftwareDev` / `diagnostic_only: true`** (Vultr `hnl` lists no SEV-SNP/TDX Confidential VM SKU) |
+| **Aggregate Pair** | **2 Independent Providers** | **2 Distinct ASNs (`AS16509`, `AS20473`)** | `t3.medium` + `vhp-1c-1gb-intel` | **`$59.34/mo` fixed** (`~$60–$62/mo` with light AWS diagnostic egress @ `$0.09/GB`, within approved `$62/mo` baseline) | **Strictly excluded from production hardware proof quorum** |
 
 ## Pre-Apply Requirements (Operator Approval Required)
 1. **AWS Local Zone Opt-In (one-time scoped action on account `330422590279`):**

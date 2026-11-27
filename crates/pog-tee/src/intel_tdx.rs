@@ -114,6 +114,7 @@ impl TeeProvider for IntelTdxProvider {
             gpu_binding,
             raw_quote_b64: base64::engine::general_purpose::STANDARD.encode(&raw),
             vendor_cert_chain_pem: Vec::new(),
+            workload_attestation: None,
             generated_at_unix_s: Utc::now().timestamp().max(0) as u64,
         })
     }

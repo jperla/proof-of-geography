@@ -243,6 +243,7 @@ impl TeeProvider for AwsNitroProvider {
             gpu_binding,
             raw_quote_b64: base64::engine::general_purpose::STANDARD.encode(&raw_cose),
             vendor_cert_chain_pem: Vec::new(),
+            workload_attestation: None,
             generated_at_unix_s,
         })
     }
@@ -672,6 +673,7 @@ mod tests {
             gpu_binding: None,
             raw_quote_b64: base64::engine::general_purpose::STANDARD.encode(&raw_cose),
             vendor_cert_chain_pem: Vec::new(),
+            workload_attestation: None,
             generated_at_unix_s: ts_unix_s,
         };
         (raw_cose, quote)

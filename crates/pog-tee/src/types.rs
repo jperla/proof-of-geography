@@ -56,6 +56,34 @@ pub struct GpuAttestationBinding {
     pub driver_measurement_hex: String,
 }
 
+/// Optional cloud-specific workload-to-silicon attestation evidence binding the exact
+/// immutable zero-SSH workload image/PCRs to the vendor hardware root of trust.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum WorkloadAttestation {
+    /// Google Cloud Confidential Space OIDC JWT (`teeserver.sock` `/v1/token`), binding
+    /// `hwmodel == "GCP_INTEL_TDX"`, `secboot == true`, `dbgstat == "disabled-since-boot"`,
+    /// pinned `submods.container.image_digest`, empty `cmd_override`, and `eat_nonce(pk, nonce)`.
+    GcpConfidentialSpaceOidc {
+        jwt: String,
+        audience: String,
+        image_digest: String,
+        hwmodel: String,
+        swname: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        raw_tdx_quote_b64: Option<String>,
+    },
+    /// Azure Confidential VM HCL Report (`0x01400001` AMD SEV-SNP/TDX) chained to vTPM `akPub`
+    /// and a fresh `TPM2_Quote` (`TPMS_ATTEST`) over measured UKI/dm-verity boot PCRs.
+    AzureCvmHclVtpm {
+        hcl_report_b64: String,
+        vtpm_quote_b64: String,
+        vtpm_quote_sig_b64: String,
+        pcr_values: std::collections::BTreeMap<u32, String>,
+        ak_pub_jwk_json: String,
+    },
+}
+
 /// Hardware-backed (or dev) TEE Remote Attestation Quote binding a non-exportable
 /// workload signing key (`public_key_hex`) and exact code measurement (`workload_measurement_hex`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,7 +91,7 @@ pub struct TeeAttestationQuote {
     pub vendor: TeeVendor,
     /// Hex-encoded Ed25519 public key generated inside enclave RAM (`pk_P`).
     pub public_key_hex: String,
-    /// Hex-encoded TEE code measurement (SEV-SNP Launch Digest / TDX MRTD / Nitro PCR0).
+    /// Hex-encoded TEE code measurement (SEV-SNP Launch Digest / TDX MRTD / Nitro PCR0 / CS container digest / Azure PCR SHA-384).
     pub workload_measurement_hex: String,
     /// 64-byte hardware `report_data` = SHA-512("pog-tee-bind-v1" || pk_P || nonce || optional_gpu_hash).
     pub report_data_hex: String,
@@ -84,6 +112,9 @@ pub struct TeeAttestationQuote {
     /// AWS Nitro embeds its X.509 chain directly inside the COSE_Sign1 CBOR payload).
     #[serde(default)]
     pub vendor_cert_chain_pem: Vec<String>,
+    /// Optional workload-to-silicon attestation evidence (GCP Confidential Space OIDC JWT or Azure CVM HCL+vTPM).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workload_attestation: Option<WorkloadAttestation>,
     /// Timestamp (Unix seconds) when the quote was generated.
     pub generated_at_unix_s: u64,
 }
@@ -184,6 +215,15 @@ pub struct AttestationPolicy {
     /// Optional Nitro PCR2 (application) allowlist.
     #[serde(default)]
     pub allowed_pcr2: Vec<String>,
+    /// Optional GCP Confidential Space container `sha256:...` digest allowlist.
+    #[serde(default)]
+    pub allowed_container_digests: Vec<String>,
+    /// Optional trusted Google Confidential Space JWKS JSON (for offline RS256 verification).
+    #[serde(default)]
+    pub trusted_gcp_cs_jwks_json: Option<String>,
+    /// Optional expected GCP Confidential Space OIDC audience (defaults to https://proofofgeography.com).
+    #[serde(default)]
+    pub expected_gcp_cs_audience: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -211,6 +251,9 @@ impl AttestationPolicy {
             allowed_measurements: Vec::new(),
             allowed_pcr1: Vec::new(),
             allowed_pcr2: Vec::new(),
+            allowed_container_digests: Vec::new(),
+            trusted_gcp_cs_jwks_json: None,
+            expected_gcp_cs_audience: None,
         }
     }
 
@@ -228,6 +271,9 @@ impl AttestationPolicy {
             allowed_measurements: Vec::new(),
             allowed_pcr1: Vec::new(),
             allowed_pcr2: Vec::new(),
+            allowed_container_digests: Vec::new(),
+            trusted_gcp_cs_jwks_json: None,
+            expected_gcp_cs_audience: None,
         }
     }
 }
@@ -333,18 +379,30 @@ pub fn verify_quote(
         ));
     }
 
-    // Vendor-specific structural + cryptographic chain verification of the raw hardware quote bytes.
-    let vendor_chain_verified = match quote.vendor {
-        TeeVendor::AmdSevSnp => {
+    // Vendor-specific structural + cryptographic chain verification of the raw hardware quote bytes
+    // (or cloud workload-to-silicon chain for GCP Confidential Space TDX & Azure CVM HCL+vTPM).
+    let vendor_chain_verified = match (&quote.vendor, &quote.workload_attestation) {
+        (TeeVendor::IntelTdx, Some(WorkloadAttestation::GcpConfidentialSpaceOidc { .. })) => {
+            crate::gcp_confidential_space::verify_gcp_confidential_space_quote(
+                quote,
+                expected_nonce,
+                policy,
+                now_unix_s,
+            )?
+        }
+        (TeeVendor::AmdSevSnp, Some(WorkloadAttestation::AzureCvmHclVtpm { .. })) => {
+            crate::azure_cvm::verify_azure_cvm_quote(quote, expected_nonce, policy, now_unix_s)?
+        }
+        (TeeVendor::AmdSevSnp, _) => {
             crate::sev_snp::verify_raw_sev_snp_report(quote, policy, now_unix_s)?
         }
-        TeeVendor::IntelTdx => {
+        (TeeVendor::IntelTdx, _) => {
             crate::intel_tdx::verify_raw_tdx_quote(quote, policy, now_unix_s)?
         }
-        TeeVendor::AwsNitro => {
+        (TeeVendor::AwsNitro, _) => {
             crate::aws_nitro::verify_raw_nitro_doc(quote, expected_nonce, policy, now_unix_s)?
         }
-        TeeVendor::SoftwareDev => {
+        (TeeVendor::SoftwareDev, _) => {
             crate::software_dev::verify_raw_dev_quote(quote)?;
             false
         }

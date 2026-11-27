@@ -207,6 +207,7 @@ impl TeeProvider for AmdSevSnpProvider {
             gpu_binding,
             raw_quote_b64: base64::engine::general_purpose::STANDARD.encode(&raw),
             vendor_cert_chain_pem: Self::load_optional_vendor_chain(),
+            workload_attestation: None,
             generated_at_unix_s: Utc::now().timestamp().max(0) as u64,
         })
     }
@@ -476,6 +477,7 @@ mod tests {
             gpu_binding: None,
             raw_quote_b64: base64::engine::general_purpose::STANDARD.encode(&raw),
             vendor_cert_chain_pem: vec![vcek_cert.pem(), ask_cert.pem(), ark_cert.pem()],
+            workload_attestation: None,
             generated_at_unix_s: now,
         };
         (quote, ark_fp)

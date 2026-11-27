@@ -68,16 +68,11 @@ write_files:
 runcmd:
   - systemctl disable --now firewalld 2>/dev/null || true
   - sysctl --system
-  - dnf upgrade -y
-  - dnf install -y nginx iptables-nft policycoreutils-python-utils
-  - setsebool -P httpd_can_network_connect 1 || true
-  - mkdir -p /etc/pog /etc/nginx/ssl
+  - mkdir -p /etc/pog
   - chmod 0755 /etc/pog
-  - curl -fsSL "${release_tarball_url}" -o /tmp/pog-linux-x86_64.tar.gz
-  - tar -xzf /tmp/pog-linux-x86_64.tar.gz -C /usr/local/bin/
+  - curl -fsSL --retry 5 --retry-delay 3 "${release_tarball_url}" -o /tmp/pog-linux-x86_64.tar.gz && echo "${release_tarball_sha256}  /tmp/pog-linux-x86_64.tar.gz" | sha256sum -c - && tar -xzf /tmp/pog-linux-x86_64.tar.gz -C /usr/local/bin/ && rm -f /tmp/pog-linux-x86_64.tar.gz
   - chmod +x /usr/local/bin/pog-anchor /usr/local/bin/pog-prover /usr/local/bin/pog-cli
   - restorecon -v /usr/local/bin/pog-anchor /usr/local/bin/pog-prover /usr/local/bin/pog-cli || true
-  - rm -f /tmp/pog-linux-x86_64.tar.gz
   - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
   - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
   - systemctl reload sshd || true

@@ -4,10 +4,11 @@
 enable_aws_hnl   = true
 enable_vultr_hnl = true
 
-aws_instance_type  = "t3.medium"        # Smallest SKU in us-west-2-hnl-1a ($47.09/mo + $2.60 gp2 + $3.65 IPv4)
+aws_instance_type  = "t3.medium"        # Smallest SKU in us-west-2-hnl-1a ($47.09/mo + $2.60 gp2 + $3.65 IPv4 = $53.34/mo)
 aws_root_volume_gb = 10                 # gp2 only ($0.26/GB-mo in Honolulu Local Zone)
-vultr_plan         = "vhp-1c-2gb-intel" # $12/mo all-inclusive (or vhp-1c-1gb-intel $6/mo; voc-c-1c-2gb-25s-amd $28/mo)
+vultr_plan         = "vhp-1c-1gb-intel" # $6.00/mo all-inclusive -> $59.34/mo combined fixed (<= $62/mo approved baseline)
 
 ssh_public_key  = "ssh-ed25519 REPLACE_WITH_OPERATOR_PUBLIC_KEY"
 allow_ssh       = false
+allow_https_443 = false
 lockdown_egress = true

@@ -47,9 +47,9 @@ variable "vultr_region" {
 }
 
 variable "vultr_plan" {
-  description = "Vultr Honolulu SKU (e.g., vhp-1c-1gb-intel $6/mo, vhp-1c-2gb-intel $12/mo, or voc-c-1c-2gb-25s-amd $28/mo dedicated vCPU)."
+  description = "Vultr Honolulu SKU (default vhp-1c-1gb-intel $6/mo -> $59.34/mo combined fixed <= $62/mo approved baseline; optional vhp-1c-2gb-intel $12/mo)."
   type        = string
-  default     = "vhp-1c-2gb-intel"
+  default     = "vhp-1c-1gb-intel"
 }
 
 variable "ssh_public_key" {
@@ -58,19 +58,31 @@ variable "ssh_public_key" {
 }
 
 variable "release_tarball_url" {
-  description = "Pinned static musl Linux x86_64 pog-anchor release tarball URL (verify SHA-256 before apply)."
+  description = "Pinned static musl Linux x86_64 pog-anchor release tarball URL."
   type        = string
   default     = "https://github.com/jperla/proof-of-geography/releases/download/v0.1.4/pog-linux-x86_64.tar.gz"
 }
 
+variable "release_tarball_sha256" {
+  description = "Expected SHA-256 hex digest of release_tarball_url (verified by sha256sum before extraction)."
+  type        = string
+  default     = "53f29a28f7814c8e86062413fa41bc7fcd41282b7a5884cf92954eca7b38a489"
+}
+
 variable "allow_ssh" {
-  description = "Temporarily open TCP/22 during initial bootstrap/TLS setup only; set false immediately afterward."
+  description = "Temporarily open TCP/22 during initial bootstrap/TLS setup only; keep false in normal operation."
+  type        = bool
+  default     = false
+}
+
+variable "allow_https_443" {
+  description = "Open TCP/443 only after DNS + TLS reverse proxy is explicitly configured; default false (no unnecessary public ports)."
   type        = bool
   default     = false
 }
 
 variable "lockdown_egress" {
-  description = "Lock down AWS egress and disable IMDS after bootstrap (set false only for initial cloud-init download, then true)."
+  description = "Lock down AWS egress (UDP 1024-65535 + NTP 123 only) and disable IMDS after bootstrap (set false only for initial cloud-init HTTPS tarball pull, then true)."
   type        = bool
   default     = true
 }
