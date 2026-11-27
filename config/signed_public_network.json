@@ -3,12 +3,12 @@
   "network_id": "proofofgeography.com",
   "operator_name": "jperla",
   "root_public_key_hex": "fdff6d6d0b8364e459ffbb921430e39411bd812ec3ce766c2904b39bfa996ee1",
-  "issued_at_unix_s": 1795724682,
-  "expires_at_unix_s": 1827260682,
+  "issued_at_unix_s": 1795757660,
+  "expires_at_unix_s": 1827293660,
   "grid": {
     "version": "2.0.0",
     "grid_name": "pog-live-public-grid-42",
-    "description": "Live locked-down 42-node tri-cloud Rocky Linux 9 Proof of Geography public Anchor grid (14 GCP Hardware TEEs [Intel TDX + AMD SEV-SNP], 14 AWS, 14 Azure across 6 continents)",
+    "description": "Live locked-down 42-node tri-cloud Rocky Linux 9 Proof of Geography pilot Anchor grid (14 GCP, 14 AWS, 14 Azure across 6 continents; non-production SoftwareDev pilot anchors)",
     "anchors": [
       {
         "anchor_id": "aws-ap-northeast-1-tokyo",
@@ -23,7 +23,8 @@
         },
         "endpoint_tcp": "13.192.214.124:7443",
         "endpoint_udp": "13.192.214.124:7444",
-        "public_key_hex": "6bd61b63bbae38f7137dbb79f553f2cc29bfcf31a5d91c7c16882de355cc755d"
+        "public_key_hex": "71df8189a6eed8ddf45729eb912e73fa0358c31bd981f860cd74f8ca68ec4c3a",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "aws-ap-south-1-mumbai",
@@ -38,7 +39,8 @@
         },
         "endpoint_tcp": "13.206.243.206:7443",
         "endpoint_udp": "13.206.243.206:7444",
-        "public_key_hex": "bd9d8c8aa48fbd263bf8f1455d96ab1731dcaca375cc2ebade5059ac29677f59"
+        "public_key_hex": "fb789ffcb1e2cd813bc4de71268ab6062b5ceee301eefda43d35b4a2f03c272a",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "aws-ap-southeast-2-sydney",
@@ -53,7 +55,8 @@
         },
         "endpoint_tcp": "3.107.210.72:7443",
         "endpoint_udp": "3.107.210.72:7444",
-        "public_key_hex": "7043e9f8a8bbbbd302fc5585d5ed9911527c77435dbc33be51f0f86ebafef080"
+        "public_key_hex": "c30fe7f440f15a11a5caf24b4203232e9b796b0a275ecabcfc56831921849992",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "aws-ca-central-1-montreal",
@@ -68,7 +71,8 @@
         },
         "endpoint_tcp": "3.99.220.110:7443",
         "endpoint_udp": "3.99.220.110:7444",
-        "public_key_hex": "c16dddef87c8282daed11c906bd822633e9f0b2f80710ef43ef750b9946c669a"
+        "public_key_hex": "95fcea74ee35ae2d31dee98c0982be8adf9f2e448206096a6dc88b28bad54cf7",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "aws-eu-central-1-frankfurt",
@@ -83,7 +87,8 @@
         },
         "endpoint_tcp": "63.184.126.163:7443",
         "endpoint_udp": "63.184.126.163:7444",
-        "public_key_hex": "bd4a7b24b1bbef339ded55cf6f6ea7d0b27d15599d7e785365022e31c7ac5ab3"
+        "public_key_hex": "3e69e49b56a68391871a88849ed61279dd925c254a5f1d5ccb3a2bff70fd756b",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "aws-eu-north-1-stockholm",
@@ -98,7 +103,8 @@
         },
         "endpoint_tcp": "13.61.151.44:7443",
         "endpoint_udp": "13.61.151.44:7444",
-        "public_key_hex": "76a48e731054c9bac24edf9461359d751f53e92360558a952e7f0d0ab0c6c4ed"
+        "public_key_hex": "7bfb9daacd54635d92867a8a769ad459165adf3ea077c9910cc0c6039481058b",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "aws-eu-south-1-milan",
@@ -113,7 +119,8 @@
         },
         "endpoint_tcp": "16.22.90.141:7443",
         "endpoint_udp": "16.22.90.141:7444",
-        "public_key_hex": "36ec76db4a17168cb1e56a01322c79c66242fccac93fa9edfad003e0461c49d9"
+        "public_key_hex": "972eb8fb30a28286062672d7aa8b39330da28f5bb07eb301b6827b24842b9149",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "aws-eu-west-1-dublin",
@@ -128,7 +135,8 @@
         },
         "endpoint_tcp": "52.212.232.110:7443",
         "endpoint_udp": "52.212.232.110:7444",
-        "public_key_hex": "da969dd8903ab5617bdcb2797488dea257a833dd9e5a681f4f74fafaaf14f357"
+        "public_key_hex": "cce5bcd631447176bd6cdb093e38d073dcab675b15f2d987adef984600453803",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "aws-eu-west-2-london",
@@ -143,7 +151,8 @@
         },
         "endpoint_tcp": "18.170.43.198:7443",
         "endpoint_udp": "18.170.43.198:7444",
-        "public_key_hex": "e194b03d64c682cbdf472edc7728267527b7062277e227a1ae52e3a36d1eec89"
+        "public_key_hex": "96c9c88a6b66ebf8e9f8c467ab01451a0578988cb79bc760f311f6b1e2bc3967",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "aws-sa-east-1-saopaulo",
@@ -158,7 +167,8 @@
         },
         "endpoint_tcp": "54.233.13.128:7443",
         "endpoint_udp": "54.233.13.128:7444",
-        "public_key_hex": "756099cace8dfb37ce4218df964613b8fcc1d659ecbbc248b652d13fe82a2ee0"
+        "public_key_hex": "7abc049d8dc7d267cccb7def9bf016e1062fa8831752b125e4983ad87f7a39e0",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "aws-us-east-1-nvirginia",
@@ -173,7 +183,8 @@
         },
         "endpoint_tcp": "32.198.57.152:7443",
         "endpoint_udp": "32.198.57.152:7444",
-        "public_key_hex": "9685ed033f80e0743acc11d30a8b1eb76b5114c73c8c8b6fda0db8e0a22fe237"
+        "public_key_hex": "d72a5e32940bc568bb7874e6128cb5684745c7fff1d1478d487637e20dc647ce",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "aws-us-east-2-ohio",
@@ -188,7 +199,8 @@
         },
         "endpoint_tcp": "18.188.171.88:7443",
         "endpoint_udp": "18.188.171.88:7444",
-        "public_key_hex": "5f292bf7ad81b4fc68e111aa4519972cbf7a1ece618cf74814487587cfc959ff"
+        "public_key_hex": "3ed34105cc65ed455fd46dbb9f83b6f1a4e960eb65ac6819f191eb2fc60e4488",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "aws-us-west-1-sanjose",
@@ -203,7 +215,8 @@
         },
         "endpoint_tcp": "3.101.151.35:7443",
         "endpoint_udp": "3.101.151.35:7444",
-        "public_key_hex": "15bb9f5a42023d70d9d6c5e28838637d706a81835df52761f104181c8a5d8c7a"
+        "public_key_hex": "f35ecb6eb4924bdb31a38aec5cb5d9c1b961f363ade081db960c398915ada396",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "aws-us-west-2-oregon",
@@ -218,7 +231,8 @@
         },
         "endpoint_tcp": "34.221.78.28:7443",
         "endpoint_udp": "34.221.78.28:7444",
-        "public_key_hex": "f0be9a5692da9786fb9f5c1c683c4e3d859352523cb376d4c071bdcdd4857e46"
+        "public_key_hex": "004f85a42f3afef43eb500311b3be9d6a8beedec4ca01af9982dae2256694ccc",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "azure-canadacentral-toronto",
@@ -233,7 +247,8 @@
         },
         "endpoint_tcp": "20.43.23.224:7443",
         "endpoint_udp": "20.43.23.224:7444",
-        "public_key_hex": "a668f5fd02d38ddedcee48682a0ec1e92ea46baadd0757d56936c49642cbc219"
+        "public_key_hex": "c39020b47346fa180c7070240ed132885a1216d74c867750c122a96a3943f5e1",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "azure-chilecentral-santiago",
@@ -248,7 +263,8 @@
         },
         "endpoint_tcp": "68.211.147.7:7443",
         "endpoint_udp": "68.211.147.7:7444",
-        "public_key_hex": "88532c74bbc389163ea58d41b479d5051ab641812c84a28a8ef576115592d2b8"
+        "public_key_hex": "1f4b7f21f50937ae9aa3763fae314dcf6700d04f2410c3a15078a612171eeb57",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "azure-eastus-virginia",
@@ -263,7 +279,8 @@
         },
         "endpoint_tcp": "20.121.204.205:7443",
         "endpoint_udp": "20.121.204.205:7444",
-        "public_key_hex": "9b766f6af425279860368cc1f843bd2caefe98acb39bf10da32295de085f56e0"
+        "public_key_hex": "375fa095f58368b13e2ea163707913df749ae8828660ed4a46373c15e334945e",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "azure-israelcentral-telaviv",
@@ -278,7 +295,8 @@
         },
         "endpoint_tcp": "20.217.188.13:7443",
         "endpoint_udp": "20.217.188.13:7444",
-        "public_key_hex": "577e00ce66b438390171489bc64676d41f59d8232622845538e37689c405d93c"
+        "public_key_hex": "852ddfba85e61148624e195e9d609dbc179820d759c0a851a25990a1bab29854",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "azure-italynorth-milan",
@@ -293,7 +311,8 @@
         },
         "endpoint_tcp": "172.213.16.253:7443",
         "endpoint_udp": "172.213.16.253:7444",
-        "public_key_hex": "60d789e1812bf6ebc6d0bf75f83e65de34d0bc58c31f6779ccdb7a324d48814f"
+        "public_key_hex": "ee03c0a303e2f788cbc712b4aa1891ddd97f1e2fdbe8685443f80a4994accbf5",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "azure-koreacentral-seoul",
@@ -308,7 +327,8 @@
         },
         "endpoint_tcp": "20.196.205.171:7443",
         "endpoint_udp": "20.196.205.171:7444",
-        "public_key_hex": "e330062f965c3c1f13036a8f70730c10219f541f9cd23630246620353574a5df"
+        "public_key_hex": "67b7b48734369667d9607b2791e457ebb264759aa36080ef7433a4c854799299",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "azure-northcentralus-chicago",
@@ -323,7 +343,8 @@
         },
         "endpoint_tcp": "20.25.254.85:7443",
         "endpoint_udp": "20.25.254.85:7444",
-        "public_key_hex": "1fba7158729bfdedd6ae46106c285856e158c72abb988d9e396175dca5ecaf2d"
+        "public_key_hex": "6be4d73f007a517801f6f7c1f4fb5b31760315ba8a9661a41e77324bd53958b4",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "azure-polandcentral-warsaw",
@@ -338,7 +359,8 @@
         },
         "endpoint_tcp": "74.248.19.23:7443",
         "endpoint_udp": "74.248.19.23:7444",
-        "public_key_hex": "97888130244fc1d73a73b063c9f52b439f847983270bcccad2fe7246e170ef1c"
+        "public_key_hex": "ea2b0d83788d6d58719789dcb4106e907ec85095cb7a503e752bcb48087b3445",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "azure-southafricanorth-johannesburg",
@@ -353,7 +375,8 @@
         },
         "endpoint_tcp": "40.123.244.36:7443",
         "endpoint_udp": "40.123.244.36:7444",
-        "public_key_hex": "7050100fda537fb2eb4bf577546c28ae8d68d91afc27069e969b9e45a8377214"
+        "public_key_hex": "0bc4033518f5817d77bd169e6f4d915dda2a8492e65e11c135de69ba19b00d35",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "azure-southcentralus-sanantonio",
@@ -368,7 +391,8 @@
         },
         "endpoint_tcp": "20.225.64.213:7443",
         "endpoint_udp": "20.225.64.213:7444",
-        "public_key_hex": "df3d4a4b5725f765586fc7780da3b8d2009ae2de8fb19ee8e76e67e32815c900"
+        "public_key_hex": "723ae98613196a376e6dac1c8e6166e4955ce627d33db516446f6291640f8492",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "azure-spaincentral-madrid",
@@ -383,7 +407,8 @@
         },
         "endpoint_tcp": "158.158.117.218:7443",
         "endpoint_udp": "158.158.117.218:7444",
-        "public_key_hex": "7feffcf63de4b77100284355a97880b67f74adeb633687bd145098e2e4db0b48"
+        "public_key_hex": "bfd0526792a9c89645d3e81192016f1253f429565b0f402237df88d9a7bddac3",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "azure-swedencentral-gavle",
@@ -398,7 +423,8 @@
         },
         "endpoint_tcp": "20.240.163.134:7443",
         "endpoint_udp": "20.240.163.134:7444",
-        "public_key_hex": "2f08abd327fb7a6c02f5e72687e3ce4ef03c3bec6dae668c5e1760b6e586ad10"
+        "public_key_hex": "085a5768b8bfc6f1f0cc162540debd035bf8f6354e4bc04202ab180146108b1c",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "azure-uaenorth-dubai",
@@ -413,7 +439,8 @@
         },
         "endpoint_tcp": "20.74.236.111:7443",
         "endpoint_udp": "20.74.236.111:7444",
-        "public_key_hex": "eb2324e0a0925eb503c128213cc3ee52f72d013ceb11a105fe37be4a7a1046fa"
+        "public_key_hex": "86727b73e51329fb7f9c1522e9ef8e7073a67652d7b4c9c78819bc4e82d43d18",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "azure-westus3-phoenix",
@@ -428,7 +455,8 @@
         },
         "endpoint_tcp": "20.168.77.174:7443",
         "endpoint_udp": "20.168.77.174:7444",
-        "public_key_hex": "787b40f63fcb78790a1b0b7427b6dc4cd903f2ef3d3284eaa802293a8ca3661c"
+        "public_key_hex": "b217fbecf0bb5421e96669363b0899090072c608e85725056d949721235c9527",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "gcp-asia-east1-taiwan",
@@ -443,7 +471,8 @@
         },
         "endpoint_tcp": "35.206.211.6:7443",
         "endpoint_udp": "35.206.211.6:7444",
-        "public_key_hex": "171b965259ba838ce693cdb45b562e7c5b9bf30551dc48cb6bf6b19ecc06a3ff"
+        "public_key_hex": "54c884ef916eda11df7d06bf6583c31e9af0668658e52b75684744191c59921f",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "gcp-europe-central2-warsaw",
@@ -458,7 +487,8 @@
         },
         "endpoint_tcp": "34.0.246.202:7443",
         "endpoint_udp": "34.0.246.202:7444",
-        "public_key_hex": "b91ce02ae205db85248789342eac98de44e792649cb0614d7d5cef8003f1df43"
+        "public_key_hex": "b010f0ab6ed05632b37356e615611e5adeba067767b04b55ab14fba5c36e970c",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "gcp-europe-north1-finland",
@@ -473,7 +503,8 @@
         },
         "endpoint_tcp": "35.217.54.139:7443",
         "endpoint_udp": "35.217.54.139:7444",
-        "public_key_hex": "10fbe99195f2e8d783fa02ac6fd40017dace8a8ca7458f2ffd80820a9331fff8"
+        "public_key_hex": "d92db67a41cba76f0d232a25aa36ec9180fe3c46e0abcc80ce38f88640f9b27f",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "gcp-europe-southwest1-madrid",
@@ -488,7 +519,8 @@
         },
         "endpoint_tcp": "34.0.194.213:7443",
         "endpoint_udp": "34.0.194.213:7444",
-        "public_key_hex": "39a58be5f575508ede5f020aca8beae8535b9de4f79c9762aa2e5b8f67f5ca09"
+        "public_key_hex": "d30fdcc5a80175bd05e4c5c62004c19aa04ab2ea727c069c962b89c8e23f1e64",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "gcp-europe-west6-zurich",
@@ -503,7 +535,8 @@
         },
         "endpoint_tcp": "35.216.134.44:7443",
         "endpoint_udp": "35.216.134.44:7444",
-        "public_key_hex": "df41612bc4a5d7156e8e10351c7bedd61c2f2e7de45b59017d7c6ab4cf3e5927"
+        "public_key_hex": "e4320659501bd0b749f03f1d2b0119bc2382f240b001fc71cb89a2b8bced055d",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "gcp-me-central1-doha",
@@ -518,7 +551,8 @@
         },
         "endpoint_tcp": "34.1.45.244:7443",
         "endpoint_udp": "34.1.45.244:7444",
-        "public_key_hex": "a8b3e665951cd0e9ef7ed08f7805fd27c9d8b61171b803f625b40ceb327708f7"
+        "public_key_hex": "3de4007338622e3f5f551ca2ccae78b5cb3a4f0731dba79f9cdf5d219a72463f",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "gcp-me-west1-telaviv",
@@ -533,7 +567,8 @@
         },
         "endpoint_tcp": "34.0.72.189:7443",
         "endpoint_udp": "34.0.72.189:7444",
-        "public_key_hex": "bb2bc42a5bf0c52b36ed347fd9ccddc4b6d91ffd8cdb76eb70576bafd1ed114c"
+        "public_key_hex": "9e77246e0c4810df214deb7cd8aaf05b5f2e24880a5561be61f3a54b1872f8d3",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "gcp-northamerica-northeast1-montreal",
@@ -548,7 +583,8 @@
         },
         "endpoint_tcp": "35.215.29.34:7443",
         "endpoint_udp": "35.215.29.34:7444",
-        "public_key_hex": "44e0c0bb1fde2d5c94969727e2fa8e2836af470672f01acebc094bbec0a74dc4"
+        "public_key_hex": "651bb9ed36d05c37ebec2ed524571d9b7bb0fbc49554459f558673448f8a3c3a",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "gcp-northamerica-south1-queretaro",
@@ -563,7 +599,8 @@
         },
         "endpoint_tcp": "34.2.7.228:7443",
         "endpoint_udp": "34.2.7.228:7444",
-        "public_key_hex": "456f81d2ba7956326bd951d40ef07888c45778628771603f234fe0ff1dda54d9"
+        "public_key_hex": "b0960c0db352ed2729d2df0ae1d54117877594091573f29143ccc97276bc14d2",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "gcp-us-east1-sc",
@@ -578,7 +615,8 @@
         },
         "endpoint_tcp": "35.211.23.253:7443",
         "endpoint_udp": "35.211.23.253:7444",
-        "public_key_hex": "7b3780be75f8186f4fb5c627011844d9a96762aca47c8f4ec789711039c6622f"
+        "public_key_hex": "da4d8e1ddb1bcead8d06374c165d72584b24e7a9e8cd1b42567092eeae1b56e5",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "gcp-us-south1-dallas",
@@ -593,7 +631,8 @@
         },
         "endpoint_tcp": "34.0.136.121:7443",
         "endpoint_udp": "34.0.136.121:7444",
-        "public_key_hex": "d9527aaa16ef31e55685839f10bd0f47f7766c32d43ad6d1edeaa3ad548b33fe"
+        "public_key_hex": "7e0fd12740cca96496a4904e79e8cbc8773faedd9c8b85af1cf85a3c23df493b",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "gcp-us-west2-losangeles",
@@ -608,7 +647,8 @@
         },
         "endpoint_tcp": "34.4.31.61:7443",
         "endpoint_udp": "34.4.31.61:7444",
-        "public_key_hex": "6f742ad228726a8e319b3d75d74d0f717e97021ac993e49cb3285175655abc2d"
+        "public_key_hex": "8e6a4ae8d0796b65abc60a3c15cb22e326cd61fd46b739f4b3c1f06add943f0a",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "gcp-us-west3-saltlakecity",
@@ -623,7 +663,8 @@
         },
         "endpoint_tcp": "35.217.79.137:7443",
         "endpoint_udp": "35.217.79.137:7444",
-        "public_key_hex": "766ba8cf21de2d2d746f5cb16288191eebbe1d967e24cf3bc590780773ad8c85"
+        "public_key_hex": "8263cb8e5b3a8dd317233f3efa8642247f0f61ed43ab456d0f81bcaede1be07a",
+        "coordinate_basis": null
       },
       {
         "anchor_id": "gcp-us-west4-lasvegas",
@@ -638,9 +679,10 @@
         },
         "endpoint_tcp": "35.219.164.8:7443",
         "endpoint_udp": "35.219.164.8:7444",
-        "public_key_hex": "6cf514cf4b29525bf65c336b291b9b864a2ab8106724b8033647db38b32b70dd"
+        "public_key_hex": "bfdc5537dee59979348af6b1e00a84ffc141414e5fbe88de99e18669973dcefa",
+        "coordinate_basis": null
       }
     ]
   },
-  "operator_signature_hex": "51ad4a66c5d70ca8254d0aeb35a4b717468f5610aa533ff7a5de47e82db5077f8f8db311d6b64649c1e59f051b76bd47a0ae147c6907a5a7707d9bc26506be0b"
+  "operator_signature_hex": "017eb25aed455245aeb19794b351d513270a06cf17f3b3f106cfdba258b25e3fc1a12bda424a9a4b54cbc627cf4cd3bcc094c35d875106643e634fb7e3b06e03"
 }
