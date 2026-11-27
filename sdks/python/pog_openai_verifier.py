@@ -38,6 +38,7 @@ import base64
 import hashlib
 import json
 import secrets
+import select
 import socket
 import ssl
 import time
@@ -250,6 +251,27 @@ def _decode_chunked_bytes(data: bytes) -> bytes:
     return bytes(out)
 
 
+def _ssl_io(raw_sock: socket.socket, fn: Any, timeout: float) -> Any:
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return fn()
+        except OpenSSL_SSL.WantReadError:
+            rem = deadline - time.monotonic()
+            if rem <= 0:
+                raise TimeoutError("TLS read timed out")
+            r, _, _ = select.select([raw_sock], [], [], rem)
+            if not r:
+                raise TimeoutError("TLS read timed out")
+        except OpenSSL_SSL.WantWriteError:
+            rem = deadline - time.monotonic()
+            if rem <= 0:
+                raise TimeoutError("TLS write timed out")
+            _, w, _ = select.select([], [raw_sock], [], rem)
+            if not w:
+                raise TimeoutError("TLS write timed out")
+
+
 def _https_raw_tls13_exchange(
     host: str,
     port: int,
@@ -280,66 +302,76 @@ def _https_raw_tls13_exchange(
 
     raw_sock = socket.create_connection((host, port), timeout=timeout)
     conn = OpenSSL_SSL.Connection(ctx, raw_sock)
-    conn.set_tlsext_host_name(host.encode("ascii"))
-    conn.set_connect_state()
-    conn.do_handshake()
+    try:
+        conn.set_tlsext_host_name(host.encode("ascii"))
+        conn.set_connect_state()
+        _ssl_io(raw_sock, conn.do_handshake, timeout)
 
-    proto = conn.get_protocol_version_name()
-    if proto != "TLSv1.3":
-        conn.close()
-        raise PogVerificationError(f"Expected TLSv1.3, negotiated {proto!r}")
+        proto = conn.get_protocol_version_name()
+        if proto != "TLSv1.3":
+            raise PogVerificationError(f"Expected TLSv1.3, negotiated {proto!r}")
 
-    peer_cert = conn.get_peer_certificate()
-    if peer_cert is None:
-        conn.close()
-        raise PogVerificationError("Peer presented no TLS certificate")
-    peer_x509 = peer_cert.to_cryptography()
-    if verify_tls:
-        # Enforce strict hostname / SAN match against requested `host`.
-        from cryptography.x509 import DNSName, ExtensionNotFound, IPAddress
-        from cryptography.x509.oid import ExtensionOID
+        peer_cert = conn.get_peer_certificate()
+        if peer_cert is None:
+            raise PogVerificationError("Peer presented no TLS certificate")
+        peer_x509 = peer_cert.to_cryptography()
+        if verify_tls:
+            # Enforce strict hostname / SAN match against requested `host`.
+            from cryptography.x509 import DNSName, ExtensionNotFound, IPAddress
+            from cryptography.x509.oid import ExtensionOID
 
-        matched = False
-        try:
-            san = peer_x509.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME).value
-            dns_names = san.get_values_for_type(DNSName)
-            ip_names = [str(x) for x in san.get_values_for_type(IPAddress)]
-            if host in dns_names or host in ip_names:
-                matched = True
-        except ExtensionNotFound:
-            pass
-        if not matched:
-            conn.close()
-            raise PogVerificationError(f"TLS leaf certificate SAN does not match host {host!r}")
+            matched = False
+            try:
+                san = peer_x509.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME).value
+                dns_names = san.get_values_for_type(DNSName)
+                ip_names = [str(x) for x in san.get_values_for_type(IPAddress)]
+                if host in dns_names or host in ip_names:
+                    matched = True
+            except ExtensionNotFound:
+                pass
+            if not matched:
+                raise PogVerificationError(f"TLS leaf certificate SAN does not match host {host!r}")
 
-    leaf_der = peer_x509.public_bytes(serialization.Encoding.DER)
-    leaf_sha256_hex = hashlib.sha256(leaf_der).hexdigest()
-    ekm_hex = conn.export_keying_material(TLS_EXPORTER_LABEL, 32).hex()
+        leaf_der = peer_x509.public_bytes(serialization.Encoding.DER)
+        leaf_sha256_hex = hashlib.sha256(leaf_der).hexdigest()
+        ekm_hex = conn.export_keying_material(TLS_EXPORTER_LABEL, 32).hex()
 
-    req_lines = [f"{method} {path} HTTP/1.1", f"Host: {host}", "Connection: close"]
-    has_cl = False
-    for k, v in headers:
-        kl = k.lower()
-        if kl in ("host", "connection", "accept-encoding"):
-            continue
-        if kl == "content-length":
-            has_cl = True
-        req_lines.append(f"{k}: {v}")
-    if not has_cl and (body or method == "POST"):
-        req_lines.append(f"Content-Length: {len(body)}")
-    raw_http = ("\r\n".join(req_lines) + "\r\n\r\n").encode("utf-8") + body
-    conn.sendall(raw_http)
+        req_lines = [f"{method} {path} HTTP/1.1", f"Host: {host}", "Connection: close"]
+        has_cl = False
+        for k, v in headers:
+            kl = k.lower()
+            if kl in ("host", "connection", "accept-encoding"):
+                continue
+            if kl == "content-length":
+                has_cl = True
+            req_lines.append(f"{k}: {v}")
+        if not has_cl and (body or method == "POST"):
+            req_lines.append(f"Content-Length: {len(body)}")
+        raw_http = ("\r\n".join(req_lines) + "\r\n\r\n").encode("utf-8") + body
 
-    chunks: List[bytes] = []
-    while True:
-        try:
-            buf = conn.recv(65536)
-            if not buf:
+        view = memoryview(raw_http)
+        sent = 0
+        while sent < len(view):
+            n = _ssl_io(raw_sock, lambda: conn.send(view[sent:]), timeout)
+            if n <= 0:
+                raise PogVerificationError("TLS connection closed during request send")
+            sent += n
+
+        chunks: List[bytes] = []
+        while True:
+            try:
+                buf = _ssl_io(raw_sock, lambda: conn.recv(65536), timeout)
+                if not buf:
+                    break
+                chunks.append(buf)
+            except OpenSSL_SSL.ZeroReturnError:
                 break
-            chunks.append(buf)
-        except OpenSSL_SSL.ZeroReturnError:
-            break
-    conn.close()
+            except OpenSSL_SSL.SysCallError as e:
+                if e.args and e.args[0] == -1 and chunks:
+                    break
+                raise
+    finally:
+        conn.close()
     raw_resp = b"".join(chunks)
     sep = raw_resp.find(b"\r\n\r\n")
     if sep == -1:
@@ -546,7 +578,7 @@ class PogVerifyingTransport(httpx.BaseTransport):
         verified_digest: Optional[str] = None
         gcp_zone: Optional[str] = None
         wa = quote.get("workload_attestation") or {}
-        if wa.get("kind") == "gcp_confidential_space_oidc":
+        if wa.get("kind") in ("GcpConfidentialSpaceOidc", "gcp_confidential_space_oidc"):
             jwks = self._get_google_jwks()
             claims, jwt_errs = _verify_gcp_cs_jwt(
                 jwt_str=wa["jwt"],
@@ -563,7 +595,7 @@ class PogVerifyingTransport(httpx.BaseTransport):
                 hw_ok = True
                 verified_digest = (claims.get("submods", {}).get("container") or {}).get("image_digest")
                 gcp_zone = (claims.get("submods", {}).get("gce") or {}).get("zone")
-        elif self.allow_dev_tee_local_test and quote.get("vendor") == "software-dev":
+        elif self.allow_dev_tee_local_test and quote.get("vendor") in ("SoftwareDev", "software-dev"):
             hw_ok = True
             verified_digest = "local-dev-test-only"
         else:
