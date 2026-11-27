@@ -1,0 +1,110 @@
+#cloud-config
+users:
+  - default
+  - name: pog
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+write_files:
+  - path: /etc/sysctl.d/99-pog-hardened.conf
+    content: |
+      net.core.busy_poll = 50
+      net.core.busy_read = 50
+      net.core.rmem_max = 16777216
+      net.core.wmem_max = 16777216
+      net.ipv4.tcp_syncookies = 1
+      net.ipv4.tcp_max_syn_backlog = 4096
+      net.ipv4.conf.all.rp_filter = 1
+      net.ipv4.conf.default.rp_filter = 1
+      net.ipv4.conf.all.accept_redirects = 0
+      net.ipv4.conf.all.send_redirects = 0
+      net.ipv4.conf.all.accept_source_route = 0
+      net.ipv4.icmp_echo_ignore_broadcasts = 1
+      kernel.kptr_restrict = 2
+      kernel.dmesg_restrict = 1
+
+  - path: /etc/pog/anchor.env
+    permissions: "0644"
+    content: |
+      POG_ENDORSEMENT_PATH=/etc/pog/endorsement.json
+      POG_ROOT_PUBLIC_KEY_HEX=fdff6d6d0b8364e459ffbb921430e39411bd812ec3ce766c2904b39bfa996ee1
+
+  - path: /etc/systemd/system/pog-nitro-enclave.service
+    content: |
+      [Unit]
+      Description=Proof of Geography AWS Nitro Enclave (Non-Debug Production EIF - ${anchor_id})
+      After=nitro-enclaves-allocator.service
+      Requires=nitro-enclaves-allocator.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStartPre=-/usr/bin/nitro-cli terminate-enclave --all
+      ExecStart=/usr/bin/nitro-cli run-enclave --enclave-cid 16 --cpu-count ${enclave_cpu_count} --memory ${enclave_memory_mib} --eif-path /opt/pog/pog-anchor-arm64.eif
+      ExecStop=/usr/bin/nitro-cli terminate-enclave --all
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/pog-anchor.service
+    content: |
+      [Unit]
+      Description=Proof of Geography Untrusted Parent Vsock Relay (${anchor_id})
+      After=pog-nitro-enclave.service network-online.target
+      Requires=pog-nitro-enclave.service
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      EnvironmentFile=-/etc/pog/anchor.env
+      ExecStart=/usr/local/bin/pog-anchor --anchor-id ${anchor_id} --cloud-provider aws --nitro-host-relay --enclave-cid 16 --enclave-vsock-port 7443 --tcp-listen 0.0.0.0:7443 --udp-bind 0.0.0.0:7444 --udp-port-min 40000 --udp-port-max 40999 --http-info-listen 0.0.0.0:7445 --max-concurrent 64 --max-per-ip-per-min 12 --max-global-per-min 600
+      Restart=always
+      RestartSec=2
+      NoNewPrivileges=yes
+      ProtectSystem=full
+      ProtectHome=yes
+      PrivateTmp=yes
+      ProtectKernelModules=yes
+      ProtectControlGroups=yes
+      RestrictNamespaces=yes
+      LockPersonality=yes
+      MemoryDenyWriteExecute=yes
+      RestrictAddressFamilies=AF_INET AF_INET6 AF_VSOCK
+      ReadOnlyPaths=-/etc/pog
+      MemoryMax=256M
+      LimitNOFILE=4096
+      TasksMax=256
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - sysctl --system
+  - dnf upgrade -y
+  - dnf install -y aws-nitro-enclaves-cli nginx iptables-nft tar gzip
+  - sed -i 's/memory_mib:.*/memory_mib: ${enclave_memory_mib}/' /etc/nitro_enclaves/allocator.yaml
+  - sed -i 's/cpu_count:.*/cpu_count: ${enclave_cpu_count}/' /etc/nitro_enclaves/allocator.yaml
+  - mkdir -p /opt/pog /etc/pog /etc/nginx/ssl
+  - chmod 0755 /opt/pog /etc/pog
+  - curl -fsSL "${arm64_tarball_url}" -o /tmp/pog-linux-aarch64.tar.gz
+  - curl -fsSL "${arm64_tarball_url}.sha256" -o /tmp/pog-linux-aarch64.tar.gz.sha256
+  - (cd /tmp && sha256sum -c pog-linux-aarch64.tar.gz.sha256)
+  - tar -xzf /tmp/pog-linux-aarch64.tar.gz -C /usr/local/bin/
+  - chmod 0755 /usr/local/bin/pog-anchor /usr/local/bin/pog-prover /usr/local/bin/pog-cli
+  - rm -f /tmp/pog-linux-aarch64.tar.gz /tmp/pog-linux-aarch64.tar.gz.sha256
+  - curl -fsSL "${eif_url}" -o /opt/pog/pog-anchor-arm64.eif
+  - curl -fsSL "${eif_url}.sha256" -o /opt/pog/pog-anchor-arm64.eif.sha256
+  - (cd /opt/pog && sha256sum -c pog-anchor-arm64.eif.sha256)
+  - chmod 0644 /opt/pog/pog-anchor-arm64.eif
+  - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+  - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - systemctl reload sshd || true
+  - echo "POG_AWS_HOSTKEY_ED25519 $(awk '{print $1 " " $2}' /etc/ssh/ssh_host_ed25519_key.pub)" > /dev/console || true
+  - systemctl daemon-reload
+  - systemctl enable --now nitro-enclaves-allocator.service
+  - systemctl enable --now pog-nitro-enclave.service
+  - systemctl enable --now pog-anchor.service
+  - sleep 2
+  - echo "POG_NITRO_READY $(curl -fsS --max-time 6 http://127.0.0.1:7445/health || echo failed)" > /dev/console || true

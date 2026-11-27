@@ -13,6 +13,26 @@ variable "instance_type" {
   type    = string
   default = "c6a.large"
 }
+variable "enable_nitro_enclave" {
+  type    = bool
+  default = false
+}
+variable "arm64_tarball_url" {
+  type    = string
+  default = "https://github.com/jperla/proof-of-geography/releases/download/v0.1.7/pog-linux-aarch64.tar.gz"
+}
+variable "nitro_eif_url" {
+  type    = string
+  default = "https://github.com/jperla/proof-of-geography/releases/download/v0.1.7/pog-anchor-arm64.eif"
+}
+variable "enclave_cpu_count" {
+  type    = number
+  default = 1
+}
+variable "enclave_memory_mib" {
+  type    = number
+  default = 1024
+}
 variable "allow_ssh" {
   type    = bool
   default = false
@@ -29,6 +49,24 @@ data "aws_ami" "rocky_9" {
   filter {
     name   = "name"
     values = ["Rocky-9-EC2-Base-9.*x86_64*"]
+  }
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
+data "aws_ami" "al2023_arm64" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-2023.*-kernel-6.12-arm64"]
+  }
+  filter {
+    name   = "architecture"
+    values = ["arm64"]
   }
   filter {
     name   = "virtualization-type"
@@ -146,12 +184,16 @@ resource "aws_key_pair" "pilot" {
 }
 
 resource "aws_instance" "anchor" {
-  ami                         = data.aws_ami.rocky_9.id
-  instance_type               = var.instance_type
+  ami                         = var.enable_nitro_enclave ? data.aws_ami.al2023_arm64.id : data.aws_ami.rocky_9.id
+  instance_type               = var.enable_nitro_enclave ? "c6g.large" : var.instance_type
   subnet_id                   = aws_subnet.public.id
   vpc_security_group_ids      = [aws_security_group.sg.id]
   associate_public_ip_address = true
   key_name                    = aws_key_pair.pilot.key_name
+
+  enclave_options {
+    enabled = var.enable_nitro_enclave
+  }
 
   # Enable IMDSv2 ONLY during initial cloud-init bootstrap; disable IMDS completely in public lockdown mode!
   metadata_options {
@@ -160,7 +202,14 @@ resource "aws_instance" "anchor" {
     http_put_response_hop_limit = 1
   }
 
-  user_data = templatefile("${path.module}/../cloud-init-pilot.yaml", {
+  user_data = var.enable_nitro_enclave ? templatefile("${path.module}/../cloud-init-aws-nitro.yaml", {
+    anchor_id          = var.anchor_id
+    ssh_public_key     = var.ssh_public_key
+    arm64_tarball_url  = var.arm64_tarball_url
+    eif_url            = var.nitro_eif_url
+    enclave_cpu_count  = var.enclave_cpu_count
+    enclave_memory_mib = var.enclave_memory_mib
+  }) : templatefile("${path.module}/../cloud-init-pilot.yaml", {
     anchor_id           = var.anchor_id
     cloud_provider      = "aws"
     release_tarball_url = var.release_tarball_url
@@ -171,8 +220,8 @@ resource "aws_instance" "anchor" {
   tags = {
     Name    = var.anchor_id
     Project = "proof-of-geography-pilot"
-    OS      = "rocky-linux-9"
-    TeeMode = "aws-isolated-pilot"
+    OS      = var.enable_nitro_enclave ? "amazon-linux-2023-arm64" : "rocky-linux-9"
+    TeeMode = var.enable_nitro_enclave ? "aws-nitro-enclave-non-debug" : "aws-isolated-pilot"
   }
 
   lifecycle {
@@ -182,4 +231,12 @@ resource "aws_instance" "anchor" {
 
 output "public_ip" {
   value = aws_instance.anchor.public_ip
+}
+
+output "instance_id" {
+  value = aws_instance.anchor.id
+}
+
+output "security_group_id" {
+  value = aws_security_group.sg.id
 }

@@ -747,6 +747,7 @@ async fn run_nitro_host_relay(args: Args, enclave_cid: u32) -> Result<()> {
     let ep_c = endorsement_path.clone();
     let root_c = operator_root_pk_hex.clone();
     let aid_c = anchor_id.clone();
+    let aid_att = anchor_id.clone();
     tokio::spawn(async move {
         let app = Router::new()
             .route(
@@ -810,7 +811,7 @@ async fn run_nitro_host_relay(args: Args, enclave_cid: u32) -> Result<()> {
                 get({
                     let ep = endorsement_path.clone();
                     let root = operator_root_pk_hex.clone();
-                    let aid = anchor_id.clone();
+                    let aid = aid_att.clone();
                     move |Query(q): Query<AttestQuery>| {
                         let ep = ep.clone();
                         let root = root.clone();
