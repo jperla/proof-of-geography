@@ -85,18 +85,33 @@ jobs:
           echo "${FILES}" | grep -qx 'etc/pog/SHA256SUMS'
           echo "${FILES}" | grep -qx 'etc/ssl/certs/ca-certificates.crt'
 
-          # 3. Verify static musl pog-anchor binary SHA-256 matches embedded SHA256SUMS AND report exact match vs reviewed local SHA-256
+          # 3. Verify static musl pog-anchor binary SHA-256 matches embedded SHA256SUMS AND reviewed local SHA-256
           TMPD=$(mktemp -d)
           docker cp "${CID}:/usr/local/bin/pog-anchor" "${TMPD}/pog-anchor"
           docker cp "${CID}:/etc/pog/SHA256SUMS" "${TMPD}/SHA256SUMS"
-          file "${TMPD}/pog-anchor" | grep -E 'ELF 64-bit.*x86-64.*statically linked'
+          file "${TMPD}/pog-anchor" | grep -E 'ELF 64-bit.*x86-64.*static(-pie|ally) linked'
           (cd "${TMPD}" && sha256sum -c SHA256SUMS)
           ACTUAL_SHA256=$(sha256sum "${TMPD}/pog-anchor" | awk '{print $1}')
           echo "VERIFIED_PINNED_REF=${PINNED}"
           echo "VERIFIED_BINARY_SHA256=${ACTUAL_SHA256}"
           echo "REVIEWED_LOCAL_SHA256=${REVIEWED_LOCAL_SHA256}"
-          if [ "${ACTUAL_SHA256}" = "${REVIEWED_LOCAL_SHA256}" ]; then
-            echo "REPRODUCIBLE_MATCH_VS_REVIEWED_LOCAL=true"
-          else
-            echo "REPRODUCIBLE_MATCH_VS_REVIEWED_LOCAL=false"
-          fi
+          test "${ACTUAL_SHA256}" = "${REVIEWED_LOCAL_SHA256}"
+
+          # 4. Verify anonymous unauthenticated manifest GET by digest succeeds (confirms public pullability)
+          python3 - "${{ github.repository }}/pog-anchor" "${IMAGE_DIGEST}" <<'PY'
+          import json, sys, urllib.request
+          repo, digest = sys.argv[1].lower(), sys.argv[2]
+          with urllib.request.urlopen(f"https://ghcr.io/token?service=ghcr.io&scope=repository:{repo}:pull", timeout=15) as r:
+              tok = json.loads(r.read().decode())["token"]
+          req = urllib.request.Request(
+              f"https://ghcr.io/v2/{repo}/manifests/{digest}",
+              headers={
+                  "Authorization": f"Bearer {tok}",
+                  "Accept": "application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json",
+              },
+          )
+          with urllib.request.urlopen(req, timeout=15) as r:
+              assert r.status == 200, f"expected 200, got {r.status}"
+              assert r.headers.get("Docker-Content-Digest") == digest
+              print("ANONYMOUS_MANIFEST_GET_OK", r.status, digest)
+          PY
