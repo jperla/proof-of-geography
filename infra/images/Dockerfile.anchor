@@ -1,26 +1,30 @@
 # Reproducible static zero-shell, zero-SSH binary builder for AWS Nitro Enclaves (.eif)
+# and immutable Confidential VM containers (AMD SEV-SNP / Intel TDX).
 #
 # Security Invariants (enforced by scripts/release_gate.py):
-# - NEVER passes --allow-dev-tee or --allow-dev-prover inside the production EIF image.
+# - NEVER passes --allow-dev-tee or --allow-dev-prover inside the production image.
 # - Final runtime stage is `FROM scratch`: ZERO SSH server (`sshd`), ZERO `/bin/sh` or
-#   interactive shell, ZERO package manager, ZERO remote command agent inside the measured EIF.
-# - Runs static musl `pog-anchor --cloud-provider aws --vsock-port 7443` inside the Nitro
-#   Enclave where `/dev/nsm` is mounted and ephemeral Ed25519 keys + Phase 2 BLAKE3-MAC timing
-#   live strictly in isolated enclave RAM (zero network interfaces; parent EC2 runs relay).
-FROM rust:1.94-alpine AS builder
-RUN apk add --no-cache musl-dev ca-certificates
+#   interactive shell, ZERO package manager, ZERO remote command agent inside the measured image.
+# - Static musl `pog-anchor` binary compiled with deterministic SOURCE_DATE_EPOCH and
+#   remapped paths; host proc-macros build on glibc while the target binary links static musl.
+FROM rust:1.94-bookworm AS builder
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends musl-tools ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && rustup target add x86_64-unknown-linux-musl
 WORKDIR /src
 ENV SOURCE_DATE_EPOCH=1700000000 \
     TZ=UTC \
     LC_ALL=C \
     CARGO_INCREMENTAL=0 \
-    RUSTFLAGS="--remap-path-prefix=/src=/pog -C target-feature=+crt-static -C debuginfo=0 -C strip=symbols -C codegen-units=1"
+    CARGO_NET_RETRY=5 \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="--remap-path-prefix=/src=/pog -C target-feature=+crt-static -C debuginfo=0 -C strip=symbols -C codegen-units=1"
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY config ./config
-RUN cargo build --release --locked --bin pog-anchor \
+RUN cargo build --release --locked --target x86_64-unknown-linux-musl --bin pog-anchor \
     && mkdir -p /out \
-    && cp target/release/pog-anchor /out/pog-anchor \
+    && cp target/x86_64-unknown-linux-musl/release/pog-anchor /out/pog-anchor \
     && touch -d "@${SOURCE_DATE_EPOCH}" /out/pog-anchor \
     && (cd /out && sha256sum pog-anchor > SHA256SUMS)
 
