@@ -12,6 +12,7 @@
 crash.log
 *.eif
 *.pem
+!crates/pog-tee/certs/*.pem
 *.key
 !tests/fixtures/*
 __pycache__/
