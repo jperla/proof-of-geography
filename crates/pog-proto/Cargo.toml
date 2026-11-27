@@ -24,3 +24,8 @@ libc.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 vsock = "0.5"
+
+[dev-dependencies]
+p384 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
+rcgen = "0.13"
+x509-parser = "0.16"

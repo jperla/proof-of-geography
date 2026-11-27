@@ -1,6 +1,7 @@
 pub mod aws_nitro;
 pub mod azure_cvm;
 pub mod gcp_confidential_space;
+pub mod gpu;
 pub mod intel_tdx;
 pub mod sev_snp;
 pub mod software_dev;
@@ -21,6 +22,11 @@ pub use gcp_confidential_space::{
     verify_gcp_confidential_space_jwt, verify_gcp_confidential_space_quote,
     GcpConfidentialSpaceProvider, JwkSet, RsaJwk, VerifiedGcpConfidentialSpaceToken,
     GCP_CS_DEFAULT_AUDIENCE, GCP_CS_ISSUER, GCP_CS_JWKS_URI, GCP_CS_TEE_SOCKET,
+};
+pub use gpu::{
+    compute_gpu_binding_nonce, verify_gpu_attestation_evidence, GpuAttestationEvidence,
+    GpuCpuLocalityProofLevel, GpuProtectedChannelKind, SignedGpuSpdmQuotePayload,
+    VerifiedGpuBinding,
 };
 pub use intel_tdx::{
     verify_raw_tdx_quote, verify_raw_tdx_quote_with_pinned_roots, IntelTdxProvider,

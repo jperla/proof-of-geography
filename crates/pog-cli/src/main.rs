@@ -11,10 +11,11 @@ use pog_log::{build_router, ContinuousGeoLog};
 use pog_proto::{
     bind_low_latency_udp, compute_challenge_mac, derive_session_key, encode_udp_punch,
     respond_once_udp, select_committee, verify_anchor_fresh_attestation,
-    verify_anchor_info_identity, verify_proof_bundle, AnchorDescriptor, AnchorEndorsement,
-    AnchorFreshAttestResponse, AnchorGrid, AnchorLiveInfo, AnchorReceipt, CommitteeConfig,
-    GeoProofBundle, Phase1InitRequest, Phase1InitResponse, SignedNetworkRegistry,
-    VerificationPolicy,
+    verify_anchor_info_identity, verify_inference_location_claim, verify_proof_bundle,
+    AnchorDescriptor, AnchorEndorsement, AnchorFreshAttestResponse, AnchorGrid, AnchorLiveInfo,
+    AnchorReceipt, CommitteeConfig, ConfidentialInferenceReceipt, ExpectedInferenceRequest,
+    GeoProofBundle, InferenceVerificationPolicy, Phase1InitRequest, Phase1InitResponse,
+    SignedNetworkRegistry, VerificationPolicy,
 };
 use pog_tee::{
     auto_detect_provider, AttestationPolicy, GpuAttestationBinding, SoftwareDevProvider,
@@ -56,7 +57,7 @@ enum Commands {
         #[arg(long, default_value_t = 5000)]
         verify_iters: usize,
     },
-    /// Verify a GeoProofBundle JSON file or base64url X-PoG-Proof header offline.
+    /// Verify a GeoProofBundle JSON file or base64url X-PoG-Proof header offline (prover-only geography).
     Verify {
         #[arg(long, default_value = "config/global_grid_24.json")]
         grid: PathBuf,
@@ -64,6 +65,53 @@ enum Commands {
         bundle_json: Option<PathBuf>,
         #[arg(long)]
         header_value: Option<String>,
+        #[arg(long, default_value_t = false)]
+        allow_dev_tee: bool,
+    },
+    /// Verify the separate ConfidentialGpuInferenceLocation claim fail-closed (post-execution signed receipt + embedded/paired GeoProofBundle + end-to-end TLS 1.3 EKM + mutually coupled Confidential GPU SPDM attestation).
+    VerifyInference {
+        #[arg(long, default_value = "config/global_grid_24.json")]
+        grid: PathBuf,
+        /// Path to ConfidentialInferenceReceipt JSON (may embed pog_proof_bundle directly).
+        #[arg(long)]
+        receipt_json: Option<PathBuf>,
+        /// Base64url X-PoG-Inference-Receipt header value.
+        #[arg(long)]
+        receipt_header: Option<String>,
+        /// Optional external GeoProofBundle JSON (required only when not embedded in the receipt).
+        #[arg(long)]
+        bundle_json: Option<PathBuf>,
+        /// Fresh per-request caller nonce (>= 32 hex chars / 16 random bytes).
+        #[arg(long)]
+        request_nonce_hex: String,
+        #[arg(long)]
+        model_id: String,
+        #[arg(long)]
+        request_text: Option<String>,
+        #[arg(long)]
+        request_file: Option<PathBuf>,
+        #[arg(long)]
+        output_text: Option<String>,
+        #[arg(long)]
+        output_file: Option<PathBuf>,
+        /// 64-hex RFC 8446 §7.5 TLS 1.3 Exported Keying Material (`EXPORTER-pog-inference-v1`) from this exact client↔runtime TLS session.
+        #[arg(long)]
+        tls_ekm_hex: String,
+        /// 64-hex SHA-256 of the leaf TLS certificate presented on this exact TLS 1.3 session.
+        #[arg(long)]
+        tls_cert_sha256_hex: String,
+        /// Optional expected per-TLS-connection request sequence number (`>= 1`).
+        #[arg(long)]
+        tls_request_seq: Option<u64>,
+        /// Allowlisted measured local-only inference runtime digest(s) (fail closed if empty).
+        #[arg(long)]
+        expected_runtime_measurement: Vec<String>,
+        /// Pinned GPU vendor Root CA DER SHA-256 hex digest(s) (fail closed if empty in production).
+        #[arg(long)]
+        pinned_gpu_root_sha256: Vec<String>,
+        /// Reject SPDM-assumed-colocated channels and require hardware-rooted PCIe-IDE physical locality.
+        #[arg(long, default_value_t = false)]
+        require_hardware_locality: bool,
         #[arg(long, default_value_t = false)]
         allow_dev_tee: bool,
     },
@@ -269,6 +317,43 @@ async fn main() -> Result<()> {
             header_value,
             allow_dev_tee,
         } => run_verify(&grid, bundle_json, header_value, allow_dev_tee),
+        Commands::VerifyInference {
+            grid,
+            receipt_json,
+            receipt_header,
+            bundle_json,
+            request_nonce_hex,
+            model_id,
+            request_text,
+            request_file,
+            output_text,
+            output_file,
+            tls_ekm_hex,
+            tls_cert_sha256_hex,
+            tls_request_seq,
+            expected_runtime_measurement,
+            pinned_gpu_root_sha256,
+            require_hardware_locality,
+            allow_dev_tee,
+        } => run_verify_inference(VerifyInferenceArgs {
+            grid_path: grid,
+            receipt_json,
+            receipt_header,
+            bundle_json,
+            request_nonce_hex,
+            model_id,
+            request_text,
+            request_file,
+            output_text,
+            output_file,
+            tls_ekm_hex,
+            tls_cert_sha256_hex,
+            tls_request_seq,
+            expected_runtime_measurement,
+            pinned_gpu_root_sha256,
+            require_hardware_locality,
+            allow_dev_tee,
+        }),
         Commands::ServeLog {
             grid,
             listen,
@@ -380,6 +465,10 @@ fn build_signed_bundle(
         gpu_uuid: "GPU-9f2a1c44-8b10-4e21-a8d7-112233445566".into(),
         spdm_report_hash_hex: hex::encode(blake3::hash(b"spdm-rim-report").as_bytes()),
         driver_measurement_hex: hex::encode(blake3::hash(b"nvidia-cc-driver-550").as_bytes()),
+        gpu_pubkey_hex: None,
+        spdm_session_transcript_hash_hex: None,
+        protected_channel_id: None,
+        evidence: None,
     };
     let mut quote = dev_tee
         .attest(&prover_kp.public_key_bytes(), &epoch, Some(gpu))
@@ -838,6 +927,89 @@ fn run_verify(
     let report = verify_proof_bundle(&bundle, &grid, &policy, now)?;
     println!("{}", serde_json::to_string_pretty(&report)?);
     if !report.overall_valid {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+struct VerifyInferenceArgs {
+    grid_path: PathBuf,
+    receipt_json: Option<PathBuf>,
+    receipt_header: Option<String>,
+    bundle_json: Option<PathBuf>,
+    request_nonce_hex: String,
+    model_id: String,
+    request_text: Option<String>,
+    request_file: Option<PathBuf>,
+    output_text: Option<String>,
+    output_file: Option<PathBuf>,
+    tls_ekm_hex: String,
+    tls_cert_sha256_hex: String,
+    tls_request_seq: Option<u64>,
+    expected_runtime_measurement: Vec<String>,
+    pinned_gpu_root_sha256: Vec<String>,
+    require_hardware_locality: bool,
+    allow_dev_tee: bool,
+}
+
+fn run_verify_inference(args: VerifyInferenceArgs) -> Result<()> {
+    let grid = AnchorGrid::from_json_str(&std::fs::read_to_string(&args.grid_path)?)?;
+    let receipt: ConfidentialInferenceReceipt = if let Some(path) = args.receipt_json {
+        serde_json::from_str(&std::fs::read_to_string(path)?)?
+    } else if let Some(hdr) = args.receipt_header {
+        ConfidentialInferenceReceipt::from_header_value(&hdr)?
+    } else {
+        anyhow::bail!("Provide either --receipt-json or --receipt-header");
+    };
+    let external_bundle: Option<GeoProofBundle> = if let Some(path) = args.bundle_json {
+        Some(serde_json::from_str(&std::fs::read_to_string(path)?)?)
+    } else {
+        None
+    };
+    let req_bytes = if let Some(path) = args.request_file {
+        std::fs::read(path)?
+    } else if let Some(text) = args.request_text {
+        text.into_bytes()
+    } else {
+        anyhow::bail!("Provide either --request-text or --request-file");
+    };
+    let out_bytes = if let Some(path) = args.output_file {
+        std::fs::read(path)?
+    } else if let Some(text) = args.output_text {
+        text.into_bytes()
+    } else {
+        anyhow::bail!("Provide either --output-text or --output-file");
+    };
+
+    let mut policy = InferenceVerificationPolicy::production(
+        args.expected_runtime_measurement,
+        args.pinned_gpu_root_sha256,
+    );
+    policy.require_hardware_rooted_locality = args.require_hardware_locality;
+    if args.allow_dev_tee {
+        policy.geo_policy.tee_policy = AttestationPolicy::allow_dev_software();
+    }
+
+    let expected = ExpectedInferenceRequest {
+        request_nonce_hex: &args.request_nonce_hex,
+        model_id: &args.model_id,
+        request_bytes: &req_bytes,
+        output_bytes: &out_bytes,
+        tls_exporter_ekm_hex: &args.tls_ekm_hex,
+        server_cert_sha256_hex: &args.tls_cert_sha256_hex,
+        expected_tls_connection_request_seq: args.tls_request_seq,
+    };
+    let now = Utc::now().timestamp().max(0) as u64;
+    let report = verify_inference_location_claim(
+        &receipt,
+        external_bundle.as_ref(),
+        &grid,
+        &expected,
+        &policy,
+        now,
+    )?;
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    if !report.inference_location_verified {
         std::process::exit(1);
     }
     Ok(())

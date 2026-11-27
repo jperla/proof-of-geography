@@ -46,14 +46,30 @@ impl TeeVendor {
 }
 
 /// Optional binding to a local Confidential GPU (e.g., NVIDIA H100/B200 CC via SPDM)
-/// attached over PCIe/NVLink to the host CPU TEE.
+/// attached over a protected PCIe/NVLink channel to the host CPU TEE.
+///
+/// NOTE: For the stronger `ConfidentialGpuInferenceLocation` claim, a bare `gpu_uuid` string is
+/// NEVER sufficient — `evidence`, `gpu_pubkey_hex`, `spdm_session_transcript_hash_hex`, and
+/// `protected_channel_id` MUST all be populated and verified against the pinned GPU vendor root CA.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GpuAttestationBinding {
     pub gpu_model: String,
     pub gpu_uuid: String,
-    /// SHA-256 of the NVIDIA RIM/SPDM attestation report bound to the CPU TEE nonce.
+    /// SHA-256 of the signed GPU SPDM/RIM attestation report bound to the CPU TEE nonce.
     pub spdm_report_hash_hex: String,
     pub driver_measurement_hex: String,
+    /// SEC1 P-384 public key hex of the attested local GPU device certificate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gpu_pubkey_hex: Option<String>,
+    /// SHA-256 hex digest of the active SPDM 1.2 mutual handshake transcript between THIS CPU TEE and THIS GPU.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spdm_session_transcript_hash_hex: Option<String>,
+    /// Active protected PCIe/NVLink channel session identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protected_channel_id: Option<String>,
+    /// Full vendor-signed GPU attestation evidence + X.509 chain (mandatory for inference-location claims).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<crate::gpu::GpuAttestationEvidence>,
 }
 
 /// Optional cloud-specific workload-to-silicon attestation evidence binding the exact
@@ -185,6 +201,18 @@ pub fn compute_report_data(
     if let Some(gpu) = gpu_binding {
         hasher.update(gpu.gpu_uuid.as_bytes());
         hasher.update(gpu.spdm_report_hash_hex.as_bytes());
+        if let Some(ref pk) = gpu.gpu_pubkey_hex {
+            hasher.update(b"|gpk:");
+            hasher.update(pk.to_ascii_lowercase().as_bytes());
+        }
+        if let Some(ref tr) = gpu.spdm_session_transcript_hash_hex {
+            hasher.update(b"|spdm:");
+            hasher.update(tr.to_ascii_lowercase().as_bytes());
+        }
+        if let Some(ref ch) = gpu.protected_channel_id {
+            hasher.update(b"|ch:");
+            hasher.update(ch.as_bytes());
+        }
     }
     let digest = hasher.finalize();
     let mut out = [0u8; 64];

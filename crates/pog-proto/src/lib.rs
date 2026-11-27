@@ -1,6 +1,7 @@
 pub mod bundle;
 pub mod committee;
 pub mod federation;
+pub mod inference;
 pub mod socket;
 pub mod vsock;
 pub mod wire;
@@ -19,6 +20,15 @@ pub use federation::{
     AnchorFreshAttestResponse, AnchorIdentityAuditResult, AnchorLiveInfo,
     FederatedVerificationReport, NetworkProofSubmission, PerNetworkVerification,
     SignedNetworkRegistry, TrustedNetwork,
+};
+pub use inference::{
+    compute_gpu_execution_digest, compute_inference_output_hash, compute_inference_request_hash,
+    compute_tls_cert_binding_message, sign_tls_cert_binding, verify_inference_location_claim,
+    verify_prover_only_header_cannot_prove_inference, verify_tls_cert_binding,
+    ConfidentialInferenceReceipt, ExpectedInferenceRequest, InferenceClaimType,
+    InferenceExecutionMode, InferenceLocationVerificationReport, InferenceVerificationPolicy,
+    TlsSessionBinding, CLAIM_MODE_CONFIDENTIAL_GPU_INFERENCE, CLAIM_MODE_PROVER_ONLY,
+    HTTP_HEADER_POG_CLAIM_MODE, HTTP_HEADER_POG_INFERENCE_RECEIPT, TLS_EXPORTER_LABEL,
 };
 pub use socket::{
     bind_low_latency_udp, measure_udp_round, respond_once_udp, TimestampedDatagram,

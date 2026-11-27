@@ -88,6 +88,10 @@ Hardware TEE remote attestation is powerful, but it is **not magic**. The follow
    - Wall-clock Unix timestamps for quote/receipt expiration rely on host/NTP time sync within policy skew bounds, while freshness against replay relies on the **verifier's own unpredictable random nonce** (`caller_nonce_hex` / `epoch_challenge_hex`).
 6. **Cloud Control-Plane Lifecycle & Availability:**
    - The cloud operator or account administrator can stop, reboot, or delete VMs/enclaves. Ephemeral RAM-only Ed25519 keys + strict live-key endorsement matching ensure any restart immediately invalidates old endorsements until fresh re-attestation and re-endorsement occur.
+7. **Inference-Location Boundary & CPU-to-GPU Physical Locality (`ConfidentialGpuInferenceLocation`):**
+   - Reverse-proxy `X-PoG-Proof` (`ProverOnlyGeography`) proves only where the Prover TEE/proxy is located and **never** satisfies an inference-location claim.
+   - The stronger `ConfidentialGpuInferenceLocation` claim (`pog-proto::inference`, `pog-cli verify-inference`) requires: (a) a measured local-only runtime digest with zero remote upstream/fallback; (b) mutually coupled CPU TEE + vendor-rooted GPU SPDM attestation (`CC=ON`, `debug_disabled=true`); (c) a post-execution signed receipt carrying the exact `GeoProofBundle` (or its signed digest + exact bundle), fresh per-request nonce/sequence + request/output commitments, and the exact end-to-end client-to-attested-runtime TLS 1.3 RFC 8446 §7.5 Exported Keying Material (`EXPORTER-pog-inference-v1`).
+   - Where only SPDM 1.2 encrypted PCIe/NVLink evidence is available (without hardware-rooted PCIe-IDE physical topology proof), verification explicitly reports `hardware_locality_established: false` and surfaces `locality_assumptions` rather than overclaiming hardware-proven chassis co-location.
 
 ---
 
