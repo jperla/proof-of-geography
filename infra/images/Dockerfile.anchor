@@ -30,6 +30,9 @@ RUN cargo build --release --locked --target x86_64-unknown-linux-musl --bin pog-
 
 # Strictly minimal zero-shell, zero-SSH runtime image (`FROM scratch`)
 FROM scratch AS runtime
+LABEL org.opencontainers.image.source="https://github.com/jperla/proof-of-geography" \
+      org.opencontainers.image.description="Reproducible zero-shell, zero-SSH static musl Proof of Geography Anchor TEE image" \
+      org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /out/pog-anchor /usr/local/bin/pog-anchor
 COPY --from=builder /out/SHA256SUMS /etc/pog/SHA256SUMS

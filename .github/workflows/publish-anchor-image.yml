@@ -1,0 +1,91 @@
+name: Publish Zero-SSH Anchor OCI Image (Pinned Digest)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - "infra/images/Dockerfile.anchor"
+      - ".github/workflows/publish-anchor-image.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-push-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify measured image recipe hygiene (static lint only)
+        run: |
+          python3 scripts/release_gate.py --self-test
+          python3 scripts/release_gate.py --lint
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push linux/amd64 FROM scratch zero-SSH image to GHCR
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/images/Dockerfile.anchor
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: |
+            ghcr.io/${{ github.repository }}/pog-anchor:nossh-${{ github.sha }}
+            ghcr.io/${{ github.repository }}/pog-anchor:canary-nossh
+
+      - name: Verify remote pinned digest, linux/amd64 architecture, binary SHA-256 & zero-shell/zero-SSH rootfs
+        env:
+          IMAGE_REPO: ghcr.io/${{ github.repository }}/pog-anchor
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          PINNED="${IMAGE_REPO}@${IMAGE_DIGEST}"
+          echo "Pinned OCI reference: ${PINNED}"
+
+          # 1. Verify remote manifest resolves to linux/amd64
+          docker buildx imagetools inspect "${PINNED}"
+          docker pull --platform linux/amd64 "${PINNED}"
+          ARCH=$(docker image inspect "${PINNED}" --format '{{.Os}}/{{.Architecture}}')
+          echo "Verified platform: ${ARCH}"
+          test "${ARCH}" = "linux/amd64"
+
+          # 2. Export pulled container rootfs and verify ZERO sshd / shell / package manager
+          CID=$(docker create --platform linux/amd64 "${PINNED}")
+          trap 'docker rm "${CID}" >/dev/null 2>&1 || true' EXIT
+          FILES=$(docker export "${CID}" | tar -t | sort)
+          echo "--- Pulled image filesystem ---"
+          echo "${FILES}"
+
+          # Forbidden binaries check (must match 0)
+          if echo "${FILES}" | grep -E '(^|/)(sshd|ssh|sh|bash|dash|ash|busybox|apt|apt-get|apk|dnf|yum|curl|wget|python3?|sudo|su|google_guest_agent|cloud-init)$'; then
+            echo "ERROR: Forbidden shell/SSH/admin binary found in zero-SSH image!" >&2
+            exit 1
+          fi
+
+          # Required files check
+          echo "${FILES}" | grep -qx 'usr/local/bin/pog-anchor'
+          echo "${FILES}" | grep -qx 'etc/pog/SHA256SUMS'
+          echo "${FILES}" | grep -qx 'etc/ssl/certs/ca-certificates.crt'
+
+          # 3. Verify static musl pog-anchor binary SHA-256 matches embedded SHA256SUMS
+          TMPD=$(mktemp -d)
+          docker cp "${CID}:/usr/local/bin/pog-anchor" "${TMPD}/pog-anchor"
+          docker cp "${CID}:/etc/pog/SHA256SUMS" "${TMPD}/SHA256SUMS"
+          file "${TMPD}/pog-anchor" | grep -E 'ELF 64-bit.*x86-64.*statically linked'
+          (cd "${TMPD}" && sha256sum -c SHA256SUMS)
+          echo "VERIFIED_PINNED_REF=${PINNED}"
+          echo "VERIFIED_BINARY_SHA256=$(awk '{print $1}' "${TMPD}/SHA256SUMS")"
