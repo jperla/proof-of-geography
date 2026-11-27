@@ -57,5 +57,6 @@ COPY --from=builder /model/tokenizer.json /opt/pog/model/tokenizer.json
 COPY --from=builder /model/LICENSE /opt/pog/model/LICENSE
 COPY --from=builder /src/config/public_anchors.json /etc/pog/public_anchors.json
 COPY --from=builder /out/SHA256SUMS /etc/pog/SHA256SUMS
+EXPOSE 443/tcp
 ENTRYPOINT ["/usr/local/bin/pog-llm-demo"]
 CMD ["--domain", "llm.proofofgeography.com", "--https-listen", "0.0.0.0:443", "--tls-mode", "acme-prod", "--model-dir", "/opt/pog/model", "--grid-path", "/etc/pog/public_anchors.json", "--oidc-audience", "https://llm.proofofgeography.com", "--claimed-lat", "48.8566", "--claimed-lon", "2.3522"]
