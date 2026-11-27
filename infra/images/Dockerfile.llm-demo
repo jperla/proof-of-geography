@@ -1,0 +1,61 @@
+# Reproducible static zero-shell, zero-SSH CPU-only Confidential Space Intel TDX Verified LLM image.
+#
+# Security & Measurement Invariants:
+# - Final stage is `FROM scratch`: ZERO SSH server (`sshd`), ZERO `/bin/sh`, ZERO interactive shell,
+#   ZERO package manager, ZERO GPU driver, ZERO external inference upstream, ZERO `--local-test-no-teeserver`.
+# - Bakes pinned redistributable Apache-2.0 open weights (`Qwen/Qwen2.5-0.5B-Instruct-GGUF` Q4_K_M),
+#   `tokenizer.json`, and `LICENSE` directly into the measured container image after strict SHA-256 verification.
+# - The SAME measured binary serves the demo HTML UI, terminates end-to-end TLS 1.3 (`rustls` + ACME
+#   TLS-ALPN-01 on `:443`), exposes OpenAI-compatible `/v1/chat/completions`, runs local CPU inference,
+#   answers fresh hardware attestation & PoG challenges, and signs post-execution receipts with its
+#   enclave-held nonexportable Ed25519 key.
+# - Baked `CMD` requires EMPTY `cmd_override: []` and EMPTY `env_override: {}` in Confidential Space!
+FROM rust:1.94-bookworm AS builder
+ARG POG_GIT_REV=unknown
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends musl-tools ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && rustup target add x86_64-unknown-linux-musl
+
+# Download and SHA-256-verify pinned Apache-2.0 model weights, tokenizer, and LICENSE at image build time!
+RUN mkdir -p /model \
+    && curl -fsSL "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf" \
+        -o /model/qwen2.5-0.5b-instruct-q4_k_m.gguf \
+    && curl -fsSL "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json" \
+        -o /model/tokenizer.json \
+    && curl -fsSL "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/LICENSE" \
+        -o /model/LICENSE \
+    && echo "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db  /model/qwen2.5-0.5b-instruct-q4_k_m.gguf" | sha256sum -c - \
+    && echo "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539  /model/tokenizer.json" | sha256sum -c - \
+    && echo "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e  /model/LICENSE" | sha256sum -c -
+
+WORKDIR /src
+ENV SOURCE_DATE_EPOCH=1700000000 \
+    TZ=UTC \
+    LC_ALL=C \
+    CARGO_INCREMENTAL=0 \
+    CARGO_NET_RETRY=5 \
+    POG_GIT_REV=${POG_GIT_REV} \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="--remap-path-prefix=/src=/pog -C target-feature=+crt-static,+avx2,+fma,+f16c -C debuginfo=0 -C strip=symbols -C codegen-units=1"
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+COPY config ./config
+RUN cargo build --release --locked --target x86_64-unknown-linux-musl --bin pog-llm-demo \
+    && mkdir -p /out \
+    && cp target/x86_64-unknown-linux-musl/release/pog-llm-demo /out/pog-llm-demo \
+    && touch -d "@${SOURCE_DATE_EPOCH}" /out/pog-llm-demo /model/qwen2.5-0.5b-instruct-q4_k_m.gguf /model/tokenizer.json /model/LICENSE \
+    && (sha256sum /out/pog-llm-demo /model/qwen2.5-0.5b-instruct-q4_k_m.gguf /model/tokenizer.json /model/LICENSE > /out/SHA256SUMS)
+
+FROM scratch AS runtime-llm-demo
+LABEL org.opencontainers.image.source="https://github.com/jperla/proof-of-geography" \
+      org.opencontainers.image.description="Reproducible zero-SSH, zero-shell CPU-only Intel TDX Confidential Space Verified LLM Demo (Qwen2.5-0.5B-Instruct Apache-2.0)" \
+      org.opencontainers.image.licenses="Apache-2.0"
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=builder /out/pog-llm-demo /usr/local/bin/pog-llm-demo
+COPY --from=builder /model/qwen2.5-0.5b-instruct-q4_k_m.gguf /opt/pog/model/qwen2.5-0.5b-instruct-q4_k_m.gguf
+COPY --from=builder /model/tokenizer.json /opt/pog/model/tokenizer.json
+COPY --from=builder /model/LICENSE /opt/pog/model/LICENSE
+COPY --from=builder /src/config/public_anchors.json /etc/pog/public_anchors.json
+COPY --from=builder /out/SHA256SUMS /etc/pog/SHA256SUMS
+ENTRYPOINT ["/usr/local/bin/pog-llm-demo"]
+CMD ["--domain", "llm.proofofgeography.com", "--https-listen", "0.0.0.0:443", "--tls-mode", "acme-prod", "--model-dir", "/opt/pog/model", "--grid-path", "/etc/pog/public_anchors.json", "--oidc-audience", "https://llm.proofofgeography.com", "--claimed-lat", "48.8566", "--claimed-lon", "2.3522"]

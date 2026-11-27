@@ -1,5 +1,6 @@
 pub mod bundle;
 pub mod committee;
+pub mod cpu_inference;
 pub mod federation;
 pub mod inference;
 pub mod socket;
@@ -13,6 +14,18 @@ pub use bundle::{
 pub use committee::{
     select_committee, AnchorDescriptor, AnchorEligibility, AnchorGrid, CommitteeConfig,
     CommitteeSelection, CoordinateBasis,
+};
+pub use cpu_inference::{
+    compute_blinded_output_commitment, compute_blinded_request_commitment,
+    compute_hardware_quote_digest, verify_cpu_inference_evidence, ClientObservedEvidence,
+    ConfidentialCpuEvidenceBundle, ConfidentialCpuInferenceReceipt,
+    CpuInferenceVerificationPolicy, CpuInferenceVerificationReport, DiagnosticAnchorObservation,
+    GeographicProofStatus, ModelRuntimeIdentity, CLAIM_MODE_CONFIDENTIAL_CPU_TEE_INFERENCE,
+    HTTP_HEADER_POG_CLIENT_NONCE, HTTP_HEADER_POG_COMMITMENT_SALT, HTTP_HEADER_POG_RECEIPT_ID,
+    HTTP_HEADER_POG_RECEIPT_SHA256, LLM_DEMO_DEFAULT_AUDIENCE, PINNED_INFERENCE_ENGINE,
+    PINNED_MODEL_ID, PINNED_MODEL_LICENSE, PINNED_MODEL_LICENSE_SHA256, PINNED_MODEL_REPO,
+    PINNED_MODEL_TOKENIZER_FILE, PINNED_MODEL_TOKENIZER_SHA256, PINNED_MODEL_WEIGHTS_FILE,
+    PINNED_MODEL_WEIGHTS_SHA256,
 };
 pub use federation::{
     attest_pop_signing_message, verify_anchor_fresh_attestation, verify_anchor_info_identity,

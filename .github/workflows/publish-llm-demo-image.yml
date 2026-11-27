@@ -1,0 +1,78 @@
+name: Publish Zero-SSH Verified LLM Demo Image (Intel TDX)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/images/Dockerfile.llm-demo'
+      - 'crates/pog-llm-demo/**'
+      - 'crates/pog-proto/src/cpu_inference.rs'
+      - 'crates/pog-tee/src/gcp_confidential_space.rs'
+      - '.github/workflows/publish-llm-demo-image.yml'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-publish-llm-demo:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push FROM scratch CPU-only Verified LLM OCI image (by immutable digest)
+        id: build_llm_demo
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/images/Dockerfile.llm-demo
+          target: runtime-llm-demo
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          build-args: |
+            POG_GIT_REV=${{ github.sha }}
+          tags: |
+            ghcr.io/jperla/proof-of-geography/pog-llm-demo:latest
+            ghcr.io/jperla/proof-of-geography/pog-llm-demo:sha-${{ github.sha }}
+          cache-from: type=gha,scope=llm-demo
+          cache-to: type=gha,mode=max,scope=llm-demo
+
+      - name: Verify anonymous public manifest GET and zero-shell rootfs
+        env:
+          IMAGE_DIGEST: ${{ steps.build_llm_demo.outputs.digest }}
+        run: |
+          set -euo pipefail
+          IMAGE_REF="ghcr.io/jperla/proof-of-geography/pog-llm-demo@${IMAGE_DIGEST}"
+          echo "Published digest-pinned image: ${IMAGE_REF}"
+          docker pull "${IMAGE_REF}"
+          CID="$(docker create "${IMAGE_REF}")"
+          trap 'docker rm -f "${CID}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p /tmp/llm-rootfs
+          docker export "${CID}" | tar -C /tmp/llm-rootfs -xf -
+          test -f /tmp/llm-rootfs/usr/local/bin/pog-llm-demo
+          test -f /tmp/llm-rootfs/opt/pog/model/qwen2.5-0.5b-instruct-q4_k_m.gguf
+          test -f /tmp/llm-rootfs/opt/pog/model/tokenizer.json
+          test -f /tmp/llm-rootfs/opt/pog/model/LICENSE
+          test ! -e /tmp/llm-rootfs/bin/sh
+          test ! -e /tmp/llm-rootfs/usr/sbin/sshd
+          cat /tmp/llm-rootfs/etc/pog/SHA256SUMS
+          echo "=== Anonymous GHCR manifest GET check ==="
+          ANON_TOK="$(curl -fsSL "https://ghcr.io/token?service=ghcr.io&scope=repository:jperla/proof-of-geography/pog-llm-demo:pull" | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')"
+          HTTP_CODE="$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${ANON_TOK}" -H "Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" "https://ghcr.io/v2/jperla/proof-of-geography/pog-llm-demo/manifests/${IMAGE_DIGEST}")"
+          echo "Anonymous manifest GET HTTP status: ${HTTP_CODE}"
+          if [ "${HTTP_CODE}" != "200" ]; then
+            echo "NOTE: Set ghcr.io/jperla/proof-of-geography/pog-llm-demo visibility to Public so Confidential Space can pull anonymously!"
+          fi

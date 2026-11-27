@@ -9,6 +9,7 @@ members = [
     "crates/pog-anchor",
     "crates/pog-prover",
     "crates/pog-cli",
+    "crates/pog-llm-demo",
 ]
 
 [workspace.package]
@@ -44,3 +45,11 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 socket2 = "0.5"
 libc = "0.2"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+webpki-roots = "1.0"
+rustls-pemfile = "2.2"
+rcgen = "0.13"
+ring = "0.17"
+hyper = { version = "1.5", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio", "http1", "server", "service"] }

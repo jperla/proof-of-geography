@@ -1,3 +1,5 @@
+mod demo_client;
+
 use anyhow::Result;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
@@ -210,6 +212,44 @@ enum Commands {
         #[command(subcommand)]
         action: NetworkAction,
     },
+    /// Independent external TLS 1.3 client for the Verified LLM demo: establishes its own real TLS 1.3 session,
+    /// extracts RFC 8446 §7.5 EKM, sends a fresh prompt/nonce, fetches live Google JWKS, and verifies fail-closed.
+    DemoClient {
+        /// Base HTTPS URL of the Verified LLM demo (e.g. https://llm.proofofgeography.com)
+        url: String,
+        #[arg(long)]
+        prompt: String,
+        #[arg(long, default_value_t = 64)]
+        max_tokens: usize,
+        #[arg(long, default_value_t = 0.2)]
+        temperature: f64,
+        #[arg(long, default_value = "config/public_anchors.json")]
+        grid: PathBuf,
+        #[arg(long)]
+        expected_image_digest: Vec<String>,
+        #[arg(long)]
+        out_evidence: Option<PathBuf>,
+        /// Also exit non-zero unless a production multi-cloud hardware TEE geographic quorum verified.
+        #[arg(long, default_value_t = false)]
+        require_geo_quorum: bool,
+    },
+    /// Offline fail-closed verifier for a saved ConfidentialCpuEvidenceBundle JSON (including tamper/replay checks).
+    VerifyLlmEvidence {
+        #[arg(long)]
+        evidence: PathBuf,
+        #[arg(long, default_value = "config/public_anchors.json")]
+        grid: PathBuf,
+        #[arg(long)]
+        jwks_file: Option<PathBuf>,
+        #[arg(long)]
+        expected_image_digest: Vec<String>,
+        #[arg(long, default_value = "https://llm.proofofgeography.com")]
+        expected_audience: String,
+        #[arg(long, default_value_t = false)]
+        require_geo_quorum: bool,
+        #[arg(long, default_value_t = false)]
+        allow_dev_tee: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -414,6 +454,45 @@ async fn main() -> Result<()> {
             baseline_grid,
         } => run_audit_coverage(&grid, baseline_grid.as_ref()),
         Commands::Network { action } => run_network_action(action).await,
+        Commands::DemoClient {
+            url,
+            prompt,
+            max_tokens,
+            temperature,
+            grid,
+            expected_image_digest,
+            out_evidence,
+            require_geo_quorum,
+        } => {
+            demo_client::run_demo_client(demo_client::DemoClientArgs {
+                url,
+                prompt,
+                max_tokens,
+                temperature,
+                grid_path: grid,
+                expected_image_digest,
+                out_evidence,
+                require_geo_quorum,
+            })
+            .await
+        }
+        Commands::VerifyLlmEvidence {
+            evidence,
+            grid,
+            jwks_file,
+            expected_image_digest,
+            expected_audience,
+            require_geo_quorum,
+            allow_dev_tee,
+        } => demo_client::run_verify_llm_evidence(demo_client::VerifyLlmEvidenceArgs {
+            evidence_json: evidence,
+            grid_path: grid,
+            jwks_file,
+            expected_image_digest,
+            expected_audience,
+            require_geo_quorum,
+            allow_dev_tee,
+        }),
     }
 }
 

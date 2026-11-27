@@ -51,6 +51,12 @@ pub struct VerifiedGcpConfidentialSpaceToken {
     pub secboot: bool,
     pub image_digest: String,
     pub image_digest_hex: String,
+    #[serde(default)]
+    pub gce_zone: Option<String>,
+    #[serde(default)]
+    pub gce_project_id: Option<String>,
+    #[serde(default)]
+    pub gce_instance_name: Option<String>,
     pub iat: u64,
     pub exp: u64,
     pub kid: String,
@@ -84,6 +90,13 @@ impl GcpConfidentialSpaceProvider {
         Self {
             socket_path: GCP_CS_TEE_SOCKET.to_string(),
             audience,
+        }
+    }
+
+    pub fn with_audience(audience: impl Into<String>) -> Self {
+        Self {
+            socket_path: GCP_CS_TEE_SOCKET.to_string(),
+            audience: audience.into(),
         }
     }
 
@@ -590,6 +603,19 @@ pub fn verify_gcp_confidential_space_jwt(
         ));
     }
 
+    let gce_zone = claims
+        .pointer("/submods/gce/zone")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let gce_project_id = claims
+        .pointer("/submods/gce/project_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let gce_instance_name = claims
+        .pointer("/submods/gce/instance_name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
     Ok(VerifiedGcpConfidentialSpaceToken {
         issuer: iss.to_string(),
         audience: expected_audience.to_string(),
@@ -599,6 +625,9 @@ pub fn verify_gcp_confidential_space_jwt(
         secboot,
         image_digest: canonical_digest,
         image_digest_hex: digest_hex,
+        gce_zone,
+        gce_project_id,
+        gce_instance_name,
         iat,
         exp,
         kid: kid.to_string(),
