@@ -574,3 +574,18 @@ test("untrusted registry strings, quotes, literal angle brackets, colors, and UR
   assert.equal(tipNode.textContent, `${inertCity} · ok`);
   assert.deepEqual(Array.from(new Set(collectTags(tipNode))).sort(), ["span", "strong"]);
 });
+
+test("index.html displays the prominent network-conditions disclaimer next to the live probe button without mentioning hardware attestations", () => {
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const probeIdx = html.indexOf('id="btn-probe-live"');
+  const discMatch = html.match(/<div id="network-disclaimer"[^>]*>([\s\S]*?)<\/div>/);
+  assert.ok(probeIdx > 0, "btn-probe-live must exist");
+  assert.ok(discMatch, "network-disclaimer element must exist");
+  assert.ok(discMatch.index > probeIdx && discMatch.index - probeIdx < 600, "network-disclaimer must appear right next to btn-probe-live");
+  const text = discMatch[1].replace(/\s+/g, " ").trim();
+  assert.equal(
+    text,
+    "This test is designed for high-speed datacenter connections, not home or mobile networks. Mobile connections in particular can be slow and noisy, making location estimates unreliable."
+  );
+  assert.equal(/attest|hardware|tee|enclave/i.test(text), false, "network-disclaimer must stay strictly about network conditions");
+});

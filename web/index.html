@@ -22,7 +22,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=10" />
+  <link rel="stylesheet" href="/styles.css?v=11" />
 </head>
 <body>
   <div id="map"></div>
@@ -80,6 +80,9 @@
           <button id="btn-spoof-toggle" class="btn-secondary" type="button" title="Test whether a claimed city violates speed-of-light bounds">
             🕵️ Try to Spoof
           </button>
+        </div>
+        <div id="network-disclaimer" class="network-disclaimer" role="note">
+          This test is designed for high-speed datacenter connections, not home or mobile networks. Mobile connections in particular can be slow and noisy, making location estimates unreliable.
         </div>
         <div id="probe-progress-wrap" class="progress-wrap hidden">
           <div class="progress-bar"><div id="probe-progress-fill" class="progress-fill"></div></div>

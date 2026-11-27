@@ -322,6 +322,18 @@ html, body {
 .disclaimer-box p strong { color: #f8fafc; font-weight: 600; }
 
 .cta-row { display: flex; gap: 8px; align-items: center; }
+.network-disclaimer {
+  margin-top: 9px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  border-left: 3px solid var(--amber);
+  color: #fef3c7;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.42;
+}
 .btn-primary {
   flex: 1;
   display: inline-flex;
@@ -809,6 +821,18 @@ html, body {
     transform: translateY(calc(100% + 14px));
   }
   .panel-toggle { display: none; }
+  .tab-pane { padding: 10px; }
+  .hero-box { padding: 10px 11px; margin-bottom: 9px; }
+  .hero-box h1 { font-size: 15px; margin-bottom: 4px; }
+  .lead { font-size: 11px; line-height: 1.38; margin-bottom: 8px; }
+  .btn-primary { padding: 8px 11px; font-size: 12px; }
+  .btn-secondary { padding: 7.5px 9px; font-size: 11.5px; }
+  .network-disclaimer {
+    margin-top: 7px;
+    padding: 6.5px 9px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
 
   .map-legend {
     left: 8px;
