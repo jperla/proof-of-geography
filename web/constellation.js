@@ -132,6 +132,9 @@
       https_url: validatedHttps,
       public_key_hex: raw.public_key_hex ? String(raw.public_key_hex) : null,
       endpoint_tcp: raw.endpoint_tcp ? String(raw.endpoint_tcp) : null,
+      failure_domain: raw.failure_domain ? String(raw.failure_domain) : null,
+      asn: Number.isInteger(Number(raw.asn)) && Number(raw.asn) > 0 ? Number(raw.asn) : null,
+      diagnostic_only: Boolean(raw.diagnostic_only || normTee === "SoftwareDev"),
       os: raw.os ? String(raw.os) : null,
       kernel: raw.kernel ? String(raw.kernel) : null,
       officialMember: Boolean(isOfficial),
@@ -218,7 +221,7 @@
       if (!info) continue;
       reachable++;
       const badge = teeBadgeForVendor(info.tee_vendor || "SoftwareDev", a.cloud);
-      if (badge.isHw) {
+      if (badge.isHw && !a.diagnostic_only) {
         hwTee++;
         hardwareByVendor[badge.vendor] = (hardwareByVendor[badge.vendor] || 0) + 1;
       } else {
@@ -234,7 +237,7 @@
         info.operator_endorsement.anchor_public_key_hex.toLowerCase() === info.public_key_hex.toLowerCase()
       );
       if (pkMatch) keyMatched++;
-      if (badge.isHw && pkMatch && endMatch) attestedAndEnrolled++;
+      if (badge.isHw && !a.diagnostic_only && pkMatch && endMatch) attestedAndEnrolled++;
     }
 
     return Object.freeze({

@@ -69,9 +69,24 @@ pub struct AnchorDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub https_url: Option<String>,
     pub public_key_hex: String,
+    /// Optional explicit failure-domain label (e.g., "aws-us-west-2-hnl-1a/AS16509" or
+    /// "vultr-hnl-drfortress/AS20473") to distinguish independent networks/facilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_domain: Option<String>,
+    /// Optional Autonomous System Number (e.g., 16509 for AWS, 20473 for Vultr).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asn: Option<u32>,
+    /// Explicit diagnostic-only marker: when true, this Anchor may join diagnostic/calibration
+    /// rosters but MUST NEVER enter the production hardware proof quorum.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub diagnostic_only: bool,
     /// Separate audited physical location provenance (never conflated with TEE attestation).
     #[serde(default)]
     pub coordinate_basis: Option<CoordinateBasis>,
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
 }
 
 impl AnchorDescriptor {
@@ -83,9 +98,10 @@ impl AnchorDescriptor {
             .unwrap_or(35.0)
     }
 
-    /// True iff this descriptor declares a production hardware TEE (not `SoftwareDev`).
+    /// True iff this descriptor declares a production hardware TEE (not `SoftwareDev`)
+    /// AND is not marked `diagnostic_only`.
     pub fn is_production_hardware_tee(&self) -> bool {
-        self.tee_vendor.is_production_hardware_tee()
+        !self.diagnostic_only && self.tee_vendor.is_production_hardware_tee()
     }
 }
 
@@ -343,6 +359,9 @@ mod tests {
                 endpoint_udp: "1.2.3.4:7444".into(),
                 https_url: None,
                 public_key_hex: "aa".repeat(32),
+                failure_domain: None,
+                asn: None,
+                diagnostic_only: false,
                 coordinate_basis: None,
             }],
         };
@@ -354,5 +373,78 @@ mod tests {
             &CommitteeConfig::default(),
         );
         assert!(sel.selected.is_empty(), "SoftwareDev anchor MUST be excluded by default");
+    }
+
+    #[test]
+    fn test_honolulu_two_provider_diagnostic_only_excluded_from_prod_quorum() {
+        let grid = AnchorGrid {
+            version: "2.0.0".into(),
+            grid_name: "hnl-two-provider-diag".into(),
+            description: "Honolulu AWS Local Zone + Vultr DRFortress diagnostic pair".into(),
+            anchors: vec![
+                AnchorDescriptor {
+                    anchor_id: "aws-us-west-2-hnl-honolulu".into(),
+                    cloud_provider: "aws".into(),
+                    region: "us-west-2-hnl-1a".into(),
+                    city: "Honolulu, HI, USA (AWS Local Zone)".into(),
+                    tee_vendor: TeeVendor::SoftwareDev,
+                    instance_type: "t3.medium".into(),
+                    location: LatLon::new(21.3069, -157.8583),
+                    endpoint_tcp: "198.51.100.11:7443".into(),
+                    endpoint_udp: "198.51.100.11:7444".into(),
+                    https_url: Some("https://hnl-aws.a.proofofgeography.com".into()),
+                    public_key_hex: "11".repeat(32),
+                    failure_domain: Some("aws-us-west-2-hnl-1a/AS16509".into()),
+                    asn: Some(16509),
+                    diagnostic_only: true,
+                    coordinate_basis: None,
+                },
+                AnchorDescriptor {
+                    anchor_id: "vultr-hnl-honolulu".into(),
+                    cloud_provider: "vultr".into(),
+                    region: "hnl".into(),
+                    city: "Honolulu, HI, USA (Vultr DRFortress)".into(),
+                    tee_vendor: TeeVendor::SoftwareDev,
+                    instance_type: "vhp-1c-2gb-intel".into(),
+                    location: LatLon::new(21.3282, -157.9225),
+                    endpoint_tcp: "198.51.100.22:7443".into(),
+                    endpoint_udp: "198.51.100.22:7444".into(),
+                    https_url: Some("https://hnl-vultr.a.proofofgeography.com".into()),
+                    public_key_hex: "22".repeat(32),
+                    failure_domain: Some("vultr-hnl-drfortress/AS20473".into()),
+                    asn: Some(20473),
+                    diagnostic_only: true,
+                    coordinate_basis: None,
+                },
+            ],
+        };
+
+        // Production default MUST exclude both diagnostic_only Honolulu anchors!
+        assert!(grid.production_hardware_only().anchors.is_empty());
+        let prod_sel = select_committee(
+            &grid,
+            "prover-pk",
+            b"epoch-hnl",
+            LatLon::new(21.31, -157.86),
+            &CommitteeConfig::default(),
+        );
+        assert!(prod_sel.selected.is_empty(), "diagnostic_only Honolulu anchors MUST NOT enter production quorum");
+
+        // Diagnostic mode explicitly selects BOTH across 2 distinct networks / failure domains!
+        let diag_cfg = CommitteeConfig {
+            allow_software_dev_anchors: true,
+            ..Default::default()
+        };
+        let diag_sel = select_committee(
+            &grid,
+            "prover-pk",
+            b"epoch-hnl",
+            LatLon::new(21.31, -157.86),
+            &diag_cfg,
+        );
+        assert_eq!(diag_sel.selected.len(), 2);
+        assert_eq!(diag_sel.distinct_clouds, 2);
+        assert_ne!(diag_sel.selected[0].asn, diag_sel.selected[1].asn);
+        assert_ne!(diag_sel.selected[0].failure_domain, diag_sel.selected[1].failure_domain);
     }
 }

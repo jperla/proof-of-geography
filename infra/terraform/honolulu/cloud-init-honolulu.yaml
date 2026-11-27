@@ -1,0 +1,85 @@
+#cloud-config
+# Diagnostic-Only Honolulu Anchor Bootstrap (NOT hardware-attested production!)
+# Generates a fresh ephemeral Ed25519 signing key strictly in process RAM on every boot
+# (never injects or shares static private keys across nodes).
+users:
+  - name: pog
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+write_files:
+  - path: /etc/sysctl.d/99-pog-hardened.conf
+    content: |
+      net.core.busy_poll = 50
+      net.core.busy_read = 50
+      net.core.rmem_max = 16777216
+      net.core.wmem_max = 16777216
+      net.ipv4.tcp_syncookies = 1
+      net.ipv4.tcp_max_syn_backlog = 4096
+      net.ipv4.conf.all.rp_filter = 1
+      net.ipv4.conf.default.rp_filter = 1
+      net.ipv4.conf.all.accept_redirects = 0
+      net.ipv4.conf.all.send_redirects = 0
+      net.ipv4.conf.all.accept_source_route = 0
+      net.ipv4.icmp_echo_ignore_broadcasts = 1
+      kernel.kptr_restrict = 2
+      kernel.dmesg_restrict = 1
+
+  - path: /etc/pog/failure_domain.txt
+    content: |
+      anchor_id=${anchor_id}
+      cloud_provider=${cloud_provider}
+      failure_domain=${failure_domain}
+      diagnostic_only=true
+
+  - path: /etc/systemd/system/pog-anchor.service
+    content: |
+      [Unit]
+      Description=Proof of Geography Diagnostic Anchor (${anchor_id} / ${failure_domain})
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      EnvironmentFile=-/etc/pog/anchor.env
+      ExecStart=/usr/local/bin/pog-anchor --anchor-id ${anchor_id} --cloud-provider ${cloud_provider} --tcp-listen 0.0.0.0:7443 --udp-bind 0.0.0.0:7444 --udp-port-min 40000 --udp-port-max 40999 --http-info-listen 0.0.0.0:7445 --max-concurrent 64 --max-per-ip-per-min 12 --max-global-per-min 600 ${extra_flags}
+      Restart=always
+      RestartSec=2
+      NoNewPrivileges=yes
+      ProtectSystem=full
+      ProtectHome=yes
+      PrivateTmp=yes
+      ProtectKernelModules=yes
+      ProtectControlGroups=yes
+      RestrictNamespaces=yes
+      LockPersonality=yes
+      MemoryDenyWriteExecute=yes
+      RestrictAddressFamilies=AF_INET AF_INET6
+      ReadOnlyPaths=-/etc/pog
+      MemoryMax=256M
+      LimitNOFILE=4096
+      TasksMax=256
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - systemctl disable --now firewalld 2>/dev/null || true
+  - sysctl --system
+  - dnf upgrade -y
+  - dnf install -y nginx iptables-nft policycoreutils-python-utils
+  - setsebool -P httpd_can_network_connect 1 || true
+  - mkdir -p /etc/pog /etc/nginx/ssl
+  - chmod 0755 /etc/pog
+  - curl -fsSL "${release_tarball_url}" -o /tmp/pog-linux-x86_64.tar.gz
+  - tar -xzf /tmp/pog-linux-x86_64.tar.gz -C /usr/local/bin/
+  - chmod +x /usr/local/bin/pog-anchor /usr/local/bin/pog-prover /usr/local/bin/pog-cli
+  - restorecon -v /usr/local/bin/pog-anchor /usr/local/bin/pog-prover /usr/local/bin/pog-cli || true
+  - rm -f /tmp/pog-linux-x86_64.tar.gz
+  - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+  - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - systemctl reload sshd || true
+  - systemctl daemon-reload
+  - systemctl enable --now pog-anchor.service

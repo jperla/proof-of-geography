@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "status": "STAGED_LOCALLY_NOT_APPLIED_AND_NOT_SIGNED",
+  "target_network": "proofofgeography.com",
+  "enrollment_mode": "DIAGNOSTIC_ONLY_EXCLUDED_FROM_PRODUCTION_HARDWARE_QUORUM",
+  "rollback_note": "Untouched 42-node official rosters remain in config/public_anchors.json, config/signed_public_network.json, and web/data/anchors.json. Removing these 2 entries restores the exact 42-node baseline.",
+  "production_quorum_policy": {
+    "hardware_tee_required_for_prod": true,
+    "diagnostic_only_excluded_from_prod": true,
+    "third_party_test_endpoints_forbidden_in_roster": true
+  },
+  "candidate_anchors": [
+    {
+      "anchor_id": "aws-us-west-2-hnl-honolulu",
+      "slug": "hnl-aws",
+      "cloud_provider": "aws",
+      "region": "us-west-2-hnl-1a",
+      "city": "Honolulu, HI, USA (AWS Local Zone)",
+      "tee_vendor": "SoftwareDev",
+      "diagnostic_only": true,
+      "failure_domain": "aws-us-west-2-hnl-1a/AS16509",
+      "asn": 16509,
+      "instance_type": "t3.medium",
+      "location": {
+        "lat": 21.3069,
+        "lon": -157.8583
+      },
+      "https_url": "https://hnl-aws.a.proofofgeography.com",
+      "endpoint_tcp": null,
+      "endpoint_udp": null,
+      "public_key_hex": null,
+      "key_provisioning": "EPHEMERAL_IN_RAM_FROM_LIVE_INFO_AFTER_APPROVED_APPLY",
+      "coordinate_basis": {
+        "source": "operator_region_audit_pending_live_c0_check",
+        "uncertainty_km": 15.0,
+        "audited_at_unix_s": null,
+        "hardware_identity_proves_coordinates": false,
+        "audit_note": "AWS Honolulu Local Zone (us-west-2-hnl-1a, AS16509). Diagnostic SoftwareDev only (Local Zones do not support Nitro Enclaves); requires live on-island RTT/c0 consistency check after provisioning."
+      }
+    },
+    {
+      "anchor_id": "vultr-hnl-honolulu",
+      "slug": "hnl-vultr",
+      "cloud_provider": "vultr",
+      "region": "hnl",
+      "city": "Honolulu, HI, USA (Vultr DRFortress)",
+      "tee_vendor": "SoftwareDev",
+      "diagnostic_only": true,
+      "failure_domain": "vultr-hnl-drfortress/AS20473",
+      "asn": 20473,
+      "instance_type": "vhp-1c-2gb-intel",
+      "location": {
+        "lat": 21.3282,
+        "lon": -157.9225
+      },
+      "https_url": "https://hnl-vultr.a.proofofgeography.com",
+      "endpoint_tcp": null,
+      "endpoint_udp": null,
+      "public_key_hex": null,
+      "key_provisioning": "EPHEMERAL_IN_RAM_FROM_LIVE_INFO_AFTER_APPROVED_APPLY",
+      "coordinate_basis": {
+        "source": "operator_region_audit_pending_live_c0_check",
+        "uncertainty_km": 15.0,
+        "audited_at_unix_s": null,
+        "hardware_identity_proves_coordinates": false,
+        "audit_note": "Vultr Honolulu (DRFortress HNL, AS20473). Diagnostic SoftwareDev only (no SEV-SNP/TDX SKU in Vultr hnl); requires live on-island RTT/c0 consistency check after provisioning."
+      }
+    }
+  ]
+}

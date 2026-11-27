@@ -900,6 +900,9 @@ mod tests {
                 endpoint_udp: "35.207.136.128:7444".into(),
                 https_url: None,
                 public_key_hex: "aa".repeat(32),
+                failure_domain: None,
+                asn: None,
+                diagnostic_only: false,
                 coordinate_basis: None,
             }],
         };
@@ -956,6 +959,9 @@ mod tests {
             endpoint_udp: "1.2.3.4:7444".into(),
             https_url: None,
             public_key_hex: old_pk.clone(),
+            failure_domain: None,
+            asn: None,
+            diagnostic_only: false,
             coordinate_basis: None,
         };
         let old_cert = AnchorEndorsement::sign_new(
@@ -1029,6 +1035,9 @@ mod tests {
                 endpoint_udp: "edge-us-hnl.pog.example:7444".into(),
                 https_url: None,
                 public_key_hex: "01".repeat(32),
+                failure_domain: None,
+                asn: None,
+                diagnostic_only: false,
                 coordinate_basis: None,
             }],
         };
@@ -1048,6 +1057,9 @@ mod tests {
             endpoint_udp: "35.207.136.128:7444".into(),
             https_url: Some("https://fra-gcp.a.proofofgeography.com".into()),
             public_key_hex: node_pk_hex.clone(),
+            failure_domain: None,
+            asn: None,
+            diagnostic_only: false,
             coordinate_basis: None,
         };
         let cert = AnchorEndorsement::sign_new(

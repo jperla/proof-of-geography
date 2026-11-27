@@ -589,3 +589,55 @@ test("index.html displays the prominent network-conditions disclaimer next to th
   );
   assert.equal(/attest|hardware|tee|enclave/i.test(text), false, "network-disclaimer must stay strictly about network conditions");
 });
+
+test("staged Honolulu two-provider diagnostic anchors carry distinct failure domains/ASNs and never enter production hardware counts", () => {
+  const officialJson = JSON.parse(readFileSync(new URL("./data/anchors.json", import.meta.url), "utf8"));
+  const hnlPatch = JSON.parse(readFileSync(new URL("../config/honolulu_diagnostic_patch.json", import.meta.url), "utf8"));
+  assert.equal(hnlPatch.candidate_anchors.length, 2);
+
+  // Merge strictly in-memory (live official anchors.json remains 42 nodes untouched!)
+  const combinedPayload = {
+    ...officialJson,
+    anchors: [
+      ...officialJson.anchors,
+      ...hnlPatch.candidate_anchors.map((c) => ({
+        id: c.anchor_id,
+        slug: c.slug,
+        city: c.city,
+        cloud: c.cloud_provider,
+        region: c.region,
+        lat: c.location.lat,
+        lon: c.location.lon,
+        defaultTee: c.tee_vendor,
+        https_url: c.https_url,
+        failure_domain: c.failure_domain,
+        asn: c.asn,
+        diagnostic_only: c.diagnostic_only,
+      })),
+    ],
+  };
+
+  const store = PogConstellation.createConstellationStore(combinedPayload, {
+    pageOrigin: "https://proofofgeography.com",
+  });
+  const active = store.getActive();
+  assert.equal(active.anchors.length, 44);
+  const awsHnl = active.anchors.find((a) => a.id === "aws-us-west-2-hnl-honolulu");
+  const vultrHnl = active.anchors.find((a) => a.id === "vultr-hnl-honolulu");
+  assert.ok(awsHnl && vultrHnl);
+  assert.equal(awsHnl.asn, 16509);
+  assert.equal(vultrHnl.asn, 20473);
+  assert.notEqual(awsHnl.failure_domain, vultrHnl.failure_domain);
+  assert.equal(awsHnl.diagnostic_only, true);
+  assert.equal(vultrHnl.diagnostic_only, true);
+
+  // Even if a live /info endpoint erroneously claimed a hardware vendor string, diagnostic_only=true MUST keep HW & prod counts at 0!
+  store.recordLiveInfo("aws-us-west-2-hnl-honolulu", { tee_vendor: "AwsNitro", public_key_hex: "11".repeat(32) });
+  store.recordLiveInfo("vultr-hnl-honolulu", { tee_vendor: "AmdSevSnp", public_key_hex: "22".repeat(32) });
+  const audit = store.getActiveAudit(null);
+  assert.equal(audit.configured, 44);
+  assert.equal(audit.reachable, 2);
+  assert.equal(audit.hwTee, 0);
+  assert.equal(audit.officialHwTee, 0);
+  assert.equal(audit.officialProofEligible, 0);
+});
