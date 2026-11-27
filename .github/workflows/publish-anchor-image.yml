@@ -18,7 +18,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify measured image recipe hygiene (static lint only)
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build real pog-cli verifier for release-gate self-tests
+        run: cargo build --release --bin pog-cli
+
+      - name: Verify measured image recipe hygiene (real-verifier self-tests + static lint only)
         run: |
           python3 scripts/release_gate.py --self-test
           python3 scripts/release_gate.py --lint
@@ -47,10 +52,11 @@ jobs:
             ghcr.io/${{ github.repository }}/pog-anchor:nossh-${{ github.sha }}
             ghcr.io/${{ github.repository }}/pog-anchor:canary-nossh
 
-      - name: Verify remote pinned digest, linux/amd64 architecture, binary SHA-256 & zero-shell/zero-SSH rootfs
+      - name: Verify remote pinned digest, linux/amd64 architecture, reproducible binary SHA-256 & zero-shell/zero-SSH rootfs
         env:
           IMAGE_REPO: ghcr.io/${{ github.repository }}/pog-anchor
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          REVIEWED_LOCAL_SHA256: 774fb046526e78c304c648353ae93fd541bc08fa6a4371e0c1fa0e856496f477
         run: |
           set -euo pipefail
           PINNED="${IMAGE_REPO}@${IMAGE_DIGEST}"
@@ -70,22 +76,27 @@ jobs:
           echo "--- Pulled image filesystem ---"
           echo "${FILES}"
 
-          # Forbidden binaries check (must match 0)
           if echo "${FILES}" | grep -E '(^|/)(sshd|ssh|sh|bash|dash|ash|busybox|apt|apt-get|apk|dnf|yum|curl|wget|python3?|sudo|su|google_guest_agent|cloud-init)$'; then
             echo "ERROR: Forbidden shell/SSH/admin binary found in zero-SSH image!" >&2
             exit 1
           fi
 
-          # Required files check
           echo "${FILES}" | grep -qx 'usr/local/bin/pog-anchor'
           echo "${FILES}" | grep -qx 'etc/pog/SHA256SUMS'
           echo "${FILES}" | grep -qx 'etc/ssl/certs/ca-certificates.crt'
 
-          # 3. Verify static musl pog-anchor binary SHA-256 matches embedded SHA256SUMS
+          # 3. Verify static musl pog-anchor binary SHA-256 matches embedded SHA256SUMS AND report exact match vs reviewed local SHA-256
           TMPD=$(mktemp -d)
           docker cp "${CID}:/usr/local/bin/pog-anchor" "${TMPD}/pog-anchor"
           docker cp "${CID}:/etc/pog/SHA256SUMS" "${TMPD}/SHA256SUMS"
           file "${TMPD}/pog-anchor" | grep -E 'ELF 64-bit.*x86-64.*statically linked'
           (cd "${TMPD}" && sha256sum -c SHA256SUMS)
+          ACTUAL_SHA256=$(sha256sum "${TMPD}/pog-anchor" | awk '{print $1}')
           echo "VERIFIED_PINNED_REF=${PINNED}"
-          echo "VERIFIED_BINARY_SHA256=$(awk '{print $1}' "${TMPD}/SHA256SUMS")"
+          echo "VERIFIED_BINARY_SHA256=${ACTUAL_SHA256}"
+          echo "REVIEWED_LOCAL_SHA256=${REVIEWED_LOCAL_SHA256}"
+          if [ "${ACTUAL_SHA256}" = "${REVIEWED_LOCAL_SHA256}" ]; then
+            echo "REPRODUCIBLE_MATCH_VS_REVIEWED_LOCAL=true"
+          else
+            echo "REPRODUCIBLE_MATCH_VS_REVIEWED_LOCAL=false"
+          fi
