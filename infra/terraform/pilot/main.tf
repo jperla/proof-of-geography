@@ -54,6 +54,12 @@ variable "azure_subscription_id" {
   default = "2fc83893-ca6c-48e4-b090-8860fba33d33"
 }
 
+variable "paris_llm_demo_external_managed" {
+  type        = bool
+  default     = true
+  description = "When true, gcp-europe-west9-paris VM instance lifecycle is owned by the isolated Confidential Space Verified LLM demo (subnet and static IP remain managed here; all other regions and fleet safeguards remain untouched)."
+}
+
 provider "google" {
   project = var.gcp_project_id
 }
@@ -269,7 +275,10 @@ resource "google_compute_address" "gcp_ips" {
 }
 
 resource "google_compute_instance" "gcp_nodes" {
-  for_each                  = local.gcp_pilot_nodes
+  for_each = {
+    for k, v in local.gcp_pilot_nodes : k => v
+    if !(var.paris_llm_demo_external_managed && k == "gcp-europe-west9-paris")
+  }
   name                      = each.key
   machine_type              = each.value.machine
   min_cpu_platform          = each.value.min_cpu
