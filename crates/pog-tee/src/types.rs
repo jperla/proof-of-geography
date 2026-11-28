@@ -72,6 +72,23 @@ pub struct GpuAttestationBinding {
     pub evidence: Option<crate::gpu::GpuAttestationEvidence>,
 }
 
+/// Deserializer for `BTreeMap<u32, String>` inside internally-tagged `#[serde(tag = "kind")]`
+/// enums, where serde buffers JSON object keys as strings (`"0"`, `"4"`, `"7"`, ...).
+fn deserialize_u32_string_map<'de, D>(
+    deserializer: D,
+) -> Result<std::collections::BTreeMap<u32, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw: std::collections::BTreeMap<String, String> = serde::Deserialize::deserialize(deserializer)?;
+    let mut out = std::collections::BTreeMap::new();
+    for (k, v) in raw {
+        let idx = k.parse::<u32>().map_err(serde::de::Error::custom)?;
+        out.insert(idx, v);
+    }
+    Ok(out)
+}
+
 /// Optional cloud-specific workload-to-silicon attestation evidence binding the exact
 /// immutable zero-SSH workload image/PCRs to the vendor hardware root of trust.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,6 +112,7 @@ pub enum WorkloadAttestation {
         hcl_report_b64: String,
         vtpm_quote_b64: String,
         vtpm_quote_sig_b64: String,
+        #[serde(deserialize_with = "deserialize_u32_string_map")]
         pcr_values: std::collections::BTreeMap<u32, String>,
         ak_pub_jwk_json: String,
     },

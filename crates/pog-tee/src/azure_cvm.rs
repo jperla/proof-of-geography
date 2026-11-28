@@ -1169,8 +1169,10 @@ mod tests {
         let mut pol = AttestationPolicy::production();
         pol.allowed_measurements = vec![quote.workload_measurement_hex.clone()];
 
-        // 1. Valid synthetic Azure CVM HCL+SEV-SNP+vTPM chain PASSES against its pinned ARK!
-        assert!(verify_azure_cvm_quote_with_pinned_roots(&quote, nonce, &pol, now, &[&ark_fp]).unwrap());
+        // 1. Valid synthetic Azure CVM HCL+SEV-SNP+vTPM chain roundtrips through JSON AND PASSES against its pinned ARK!
+        let roundtripped: TeeAttestationQuote =
+            serde_json::from_str(&serde_json::to_string(&quote).unwrap()).unwrap();
+        assert!(verify_azure_cvm_quote_with_pinned_roots(&roundtripped, nonce, &pol, now, &[&ark_fp]).unwrap());
 
         // 2. Unpinned self-signed ARK MUST FAIL against real production pinned AMD ARK roots!
         assert!(verify_azure_cvm_quote(&quote, nonce, &pol, now).is_err());

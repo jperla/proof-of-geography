@@ -1,8 +1,128 @@
 {
   "version": "2.0.0",
-  "grid_name": "pog-live-hw-tee-grid-7",
-  "description": "Live locked-down 7-node GCP Hardware Confidential Computing TEE Anchor grid (2 Intel TDX + 5 AMD SEV-SNP on Rocky Linux 9, SELinux Enforcing)",
+  "grid_name": "pog-live-hw-tee-grid-15",
+  "description": "Live locked-down 15-node tri-cloud Hardware TEE Anchor grid (1 AWS Nitro Enclave + 7 GCP Intel TDX/AMD SEV-SNP + 7 Zero-SSH Azure Confidential VMs AMD SEV-SNP Genoa/Milan)",
   "anchors": [
+    {
+      "anchor_id": "aws-us-east-1-nvirginia",
+      "cloud_provider": "aws",
+      "region": "us-east-1",
+      "city": "Ashburn, VA, USA",
+      "tee_vendor": "AwsNitro",
+      "instance_type": "c6g.large",
+      "location": {
+        "lat": 39.018,
+        "lon": -77.459
+      },
+      "endpoint_tcp": "44.221.61.118:7443",
+      "endpoint_udp": "44.221.61.118:7444",
+      "public_key_hex": "27ecfd8d8d41a97a04a5b54aef484404bf7c92d772fd0fe23be5496b46323d37"
+    },
+    {
+      "anchor_id": "azure-eastus-ashburn-cvm",
+      "cloud_provider": "azure",
+      "region": "eastus",
+      "city": "Ashburn, VA, USA",
+      "tee_vendor": "AmdSevSnp",
+      "instance_type": "Standard_DC2as_v6",
+      "location": {
+        "lat": 39.0438,
+        "lon": -77.4874
+      },
+      "endpoint_tcp": "20.115.112.196:7443",
+      "endpoint_udp": "20.115.112.196:7444",
+      "public_key_hex": "9f27e88d7ee03ecda42d04644315c7d009d03edab10573ca171718c7ac5cde98"
+    },
+    {
+      "anchor_id": "azure-koreacentral-seoul-cvm",
+      "cloud_provider": "azure",
+      "region": "koreacentral",
+      "city": "Seoul, South Korea",
+      "tee_vendor": "AmdSevSnp",
+      "instance_type": "Standard_DC2as_v6",
+      "location": {
+        "lat": 37.5665,
+        "lon": 126.978
+      },
+      "endpoint_tcp": "52.231.70.240:7443",
+      "endpoint_udp": "52.231.70.240:7444",
+      "public_key_hex": "3f2b4652ba4587b074be8474cfa00810381bae83dc2d80d50aea16f8dd8267d8"
+    },
+    {
+      "anchor_id": "azure-polandcentral-warsaw-cvm",
+      "cloud_provider": "azure",
+      "region": "polandcentral",
+      "city": "Warsaw, Poland",
+      "tee_vendor": "AmdSevSnp",
+      "instance_type": "Standard_DC2as_v6",
+      "location": {
+        "lat": 52.2297,
+        "lon": 21.0122
+      },
+      "endpoint_tcp": "74.248.34.212:7443",
+      "endpoint_udp": "74.248.34.212:7444",
+      "public_key_hex": "2545032692f23fef7954ba37148de8a97c1272cc991e4132c615dd763bbeffb9"
+    },
+    {
+      "anchor_id": "azure-southcentralus-sanantonio-cvm",
+      "cloud_provider": "azure",
+      "region": "southcentralus",
+      "city": "San Antonio, TX, USA",
+      "tee_vendor": "AmdSevSnp",
+      "instance_type": "Standard_DC2as_v6",
+      "location": {
+        "lat": 29.4241,
+        "lon": -98.4936
+      },
+      "endpoint_tcp": "20.114.65.56:7443",
+      "endpoint_udp": "20.114.65.56:7444",
+      "public_key_hex": "23022232fabc234a6f9876510b1837b06c468e84dc38e806749fd578f8cb0904"
+    },
+    {
+      "anchor_id": "azure-swedencentral-gavle-cvm",
+      "cloud_provider": "azure",
+      "region": "swedencentral",
+      "city": "G\u00e4vle, Sweden",
+      "tee_vendor": "AmdSevSnp",
+      "instance_type": "Standard_DC2as_v6",
+      "location": {
+        "lat": 60.6749,
+        "lon": 17.1413
+      },
+      "endpoint_tcp": "20.91.210.172:7443",
+      "endpoint_udp": "20.91.210.172:7444",
+      "public_key_hex": "4cb1e401b390a535c84dd5fda460bdf87adad74c9842558aaf89b2913757a242"
+    },
+    {
+      "anchor_id": "azure-uaenorth-dubai-cvm",
+      "cloud_provider": "azure",
+      "region": "uaenorth",
+      "city": "Dubai, UAE",
+      "tee_vendor": "AmdSevSnp",
+      "instance_type": "Standard_DC2ads_v5",
+      "location": {
+        "lat": 25.2048,
+        "lon": 55.2708
+      },
+      "endpoint_tcp": "40.123.207.7:7443",
+      "endpoint_udp": "40.123.207.7:7444",
+      "public_key_hex": "7191683d9244fd24f7884afc2580cb7a83a9eafd4d40f57ca2ecdf39fa4a9ea1"
+    },
+    {
+      "anchor_id": "azure-westus3-phoenix-cvm",
+      "cloud_provider": "azure",
+      "region": "westus3",
+      "city": "Phoenix, AZ, USA",
+      "tee_vendor": "AmdSevSnp",
+      "instance_type": "Standard_DC2as_v6",
+      "location": {
+        "lat": 33.4484,
+        "lon": -112.074
+      },
+      "endpoint_tcp": "20.38.0.16:7443",
+      "endpoint_udp": "20.38.0.16:7444",
+      "public_key_hex": "3334b268dcb116dc6351d94b014b189c6eb6623e8d29f9362d6ae1e8c10d160f"
+    },
     {
       "anchor_id": "gcp-asia-southeast1-singapore",
       "cloud_provider": "gcp",
