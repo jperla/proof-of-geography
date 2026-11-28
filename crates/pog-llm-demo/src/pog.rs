@@ -159,20 +159,43 @@ async fn try_probe_hardware_committee(
     let pk_hex = keypair.public_key_hex();
     let prover_quote = tee_provider.attest(&pk_bytes, &epoch, None)?;
 
-    let sel = select_committee(hw_grid, &pk_hex, &epoch, target, &CommitteeConfig::default());
+    let sel = select_committee(
+        hw_grid,
+        &pk_hex,
+        &epoch,
+        target,
+        &CommitteeConfig {
+            committee_size: 16,
+            max_regional_km: 7_500.0,
+            ..CommitteeConfig::default()
+        },
+    );
     let mut tasks = Vec::new();
     for anchor in sel.selected {
         let q = prover_quote.clone();
         let eh = epoch_hex.clone();
         let pk = pk_hex.clone();
+        let aid = anchor.anchor_id.clone();
         tasks.push(tokio::spawn(async move {
-            probe_single_anchor(&anchor, q, &eh, &epoch, &pk, 6).await
+            (aid, probe_single_anchor(&anchor, q, &eh, &epoch, &pk, 6).await)
         }));
     }
     let mut receipts = Vec::new();
     for t in tasks {
-        if let Ok(Ok(r)) = t.await {
-            receipts.push(r);
+        if let Ok((aid, res)) = t.await {
+            match res {
+                Ok(r) => {
+                    tracing::info!(
+                        anchor_id = %aid,
+                        rtt_min_us = r.rtt_min_us,
+                        "Hardware TEE anchor issued signed PoG UDP receipt"
+                    );
+                    receipts.push(r);
+                }
+                Err(e) => {
+                    tracing::warn!(anchor_id = %aid, error = %e, "Hardware TEE anchor probe did not complete");
+                }
+            }
         }
     }
     if receipts.is_empty() {
@@ -184,7 +207,7 @@ async fn try_probe_hardware_committee(
         epoch_challenge_hex: epoch_hex,
         client_nonce_hex: None,
         target_location: target,
-        required_radius_km: 500.0,
+        required_radius_km: 2_500.0,
         prover_quote,
         receipts,
         calibrated_velocity_km_per_s: Some(145_000.0),

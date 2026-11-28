@@ -3,13 +3,45 @@
   "network_id": "proofofgeography.com",
   "operator_name": "jperla",
   "root_public_key_hex": "fdff6d6d0b8364e459ffbb921430e39411bd812ec3ce766c2904b39bfa996ee1",
-  "issued_at_unix_s": 1795835003,
-  "expires_at_unix_s": 1827371003,
+  "issued_at_unix_s": 1795837951,
+  "expires_at_unix_s": 1803613951,
   "grid": {
     "version": "2.0.0",
-    "grid_name": "pog-live-hw-tee-grid-28",
-    "description": "Live locked-down 28-node tri-cloud Hardware TEE Anchor grid (14 AWS Nitro Enclaves + 2 GCP Intel TDX + 5 GCP AMD SEV-SNP + 7 Azure CVM AMD SEV-SNP)",
+    "grid_name": "pog-live-hw-tee-grid-44",
+    "description": "Live locked-down 44-node tri-cloud Hardware TEE Anchor grid (27 AWS Nitro Enclaves + 2 GCP Intel TDX + 5 GCP AMD SEV-SNP + 10 Azure CVM AMD SEV-SNP)",
     "anchors": [
+      {
+        "anchor_id": "aws-af-south-1-capetown",
+        "cloud_provider": "aws",
+        "region": "af-south-1",
+        "city": "Cape Town, South Africa",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6g.large",
+        "location": {
+          "lat": -33.9249,
+          "lon": 18.4241
+        },
+        "endpoint_tcp": "13.245.77.91:7443",
+        "endpoint_udp": "13.245.77.91:7444",
+        "public_key_hex": "88ed0682f5a80cc1451afbe51dd7e316c1538fbe12645bc23d7a00849a27f4da",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "aws-ap-east-1-hongkong",
+        "cloud_provider": "aws",
+        "region": "ap-east-1",
+        "city": "Hong Kong",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6g.large",
+        "location": {
+          "lat": 22.3193,
+          "lon": 114.1694
+        },
+        "endpoint_tcp": "95.40.73.70:7443",
+        "endpoint_udp": "95.40.73.70:7444",
+        "public_key_hex": "21060256b7a7da3ef7c2cca79aac43f5e84c589b960f12141527ff50c43f1750",
+        "coordinate_basis": null
+      },
       {
         "anchor_id": "aws-ap-northeast-1-tokyo",
         "cloud_provider": "aws",
@@ -24,6 +56,38 @@
         "endpoint_tcp": "3.112.66.164:7443",
         "endpoint_udp": "3.112.66.164:7444",
         "public_key_hex": "d7e716f97dfb5cbbbc1d088b8679fb965690b4abfa80b0741df5294c931ebf6b",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "aws-ap-northeast-2-seoul",
+        "cloud_provider": "aws",
+        "region": "ap-northeast-2",
+        "city": "Seoul, South Korea",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6g.large",
+        "location": {
+          "lat": 37.5665,
+          "lon": 126.978
+        },
+        "endpoint_tcp": "3.36.64.107:7443",
+        "endpoint_udp": "3.36.64.107:7444",
+        "public_key_hex": "5be3743df92aa976a8086e0305a45fe8daaa25c9ef889eadd35e0999d48c56b3",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "aws-ap-northeast-3-osaka",
+        "cloud_provider": "aws",
+        "region": "ap-northeast-3",
+        "city": "Osaka, Japan",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6g.large",
+        "location": {
+          "lat": 34.6937,
+          "lon": 135.5023
+        },
+        "endpoint_tcp": "15.168.131.118:7443",
+        "endpoint_udp": "15.168.131.118:7444",
+        "public_key_hex": "f43b1c72b35a0a038af4fa49c34da078025c800c821c0a0ec9c25cf9b6a0d67e",
         "coordinate_basis": null
       },
       {
@@ -43,6 +107,22 @@
         "coordinate_basis": null
       },
       {
+        "anchor_id": "aws-ap-southeast-1-singapore",
+        "cloud_provider": "aws",
+        "region": "ap-southeast-1",
+        "city": "Singapore",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6g.large",
+        "location": {
+          "lat": 1.3521,
+          "lon": 103.8198
+        },
+        "endpoint_tcp": "13.212.123.78:7443",
+        "endpoint_udp": "13.212.123.78:7444",
+        "public_key_hex": "700b09a09b4dd5e60f9b5deb8add4506685b49a2536cbe4acf197170af0ae298",
+        "coordinate_basis": null
+      },
+      {
         "anchor_id": "aws-ap-southeast-2-sydney",
         "cloud_provider": "aws",
         "region": "ap-southeast-2",
@@ -56,6 +136,38 @@
         "endpoint_tcp": "54.253.235.190:7443",
         "endpoint_udp": "54.253.235.190:7444",
         "public_key_hex": "169be7922aea17093ab803302471f5d2992f868e5c184259f1e40746a136a096",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "aws-ap-southeast-3-jakarta",
+        "cloud_provider": "aws",
+        "region": "ap-southeast-3",
+        "city": "Jakarta, Indonesia",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6g.large",
+        "location": {
+          "lat": -6.2088,
+          "lon": 106.8456
+        },
+        "endpoint_tcp": "15.232.26.141:7443",
+        "endpoint_udp": "15.232.26.141:7444",
+        "public_key_hex": "43813989ffe1c78fb1ac413f64da3e60d0e399cae42e6e2325aa092c31318e2d",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "aws-ap-southeast-6-auckland",
+        "cloud_provider": "aws",
+        "region": "ap-southeast-6",
+        "city": "Auckland, New Zealand",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6g.large",
+        "location": {
+          "lat": -36.8485,
+          "lon": 174.7633
+        },
+        "endpoint_tcp": "3.102.191.64:7443",
+        "endpoint_udp": "3.102.191.64:7444",
+        "public_key_hex": "b43cbdf0ce86f80b45c48712daea4d9cc5be1fb0b1bcfb58991383f17bf3dac5",
         "coordinate_basis": null
       },
       {
@@ -75,6 +187,22 @@
         "coordinate_basis": null
       },
       {
+        "anchor_id": "aws-ca-west-1-calgary",
+        "cloud_provider": "aws",
+        "region": "ca-west-1",
+        "city": "Calgary, AB, Canada",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6g.large",
+        "location": {
+          "lat": 51.0447,
+          "lon": -114.0719
+        },
+        "endpoint_tcp": "16.174.161.16:7443",
+        "endpoint_udp": "16.174.161.16:7444",
+        "public_key_hex": "bc5224430d3b5582ca5a39028e89d0a6ce9d409efb6710a2a3595892e9832106",
+        "coordinate_basis": null
+      },
+      {
         "anchor_id": "aws-eu-central-1-frankfurt",
         "cloud_provider": "aws",
         "region": "eu-central-1",
@@ -88,6 +216,22 @@
         "endpoint_tcp": "3.69.238.172:7443",
         "endpoint_udp": "3.69.238.172:7444",
         "public_key_hex": "59cba527a84b8aed946010c3b54e38afde9dd4a1195dad7763a2f9abd17a3a74",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "aws-eu-central-2-zurich",
+        "cloud_provider": "aws",
+        "region": "eu-central-2",
+        "city": "Zurich, Switzerland",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6g.large",
+        "location": {
+          "lat": 47.3769,
+          "lon": 8.5417
+        },
+        "endpoint_tcp": "16.18.184.186:7443",
+        "endpoint_udp": "16.18.184.186:7444",
+        "public_key_hex": "73b9df3e2de36e7fa3742c4adc232aceaa57c347ccf956372aace8b48e27a264",
         "coordinate_basis": null
       },
       {
@@ -123,6 +267,22 @@
         "coordinate_basis": null
       },
       {
+        "anchor_id": "aws-eu-south-2-spain",
+        "cloud_provider": "aws",
+        "region": "eu-south-2",
+        "city": "Zaragoza, Spain",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6g.large",
+        "location": {
+          "lat": 41.6488,
+          "lon": -0.8891
+        },
+        "endpoint_tcp": "89.60.251.8:7443",
+        "endpoint_udp": "89.60.251.8:7444",
+        "public_key_hex": "f2725b4c07e3cc4257fbbb41ab1080a70e5c491743ce8f44ec653e71b4e78a87",
+        "coordinate_basis": null
+      },
+      {
         "anchor_id": "aws-eu-west-1-dublin",
         "cloud_provider": "aws",
         "region": "eu-west-1",
@@ -152,6 +312,54 @@
         "endpoint_tcp": "18.171.222.160:7443",
         "endpoint_udp": "18.171.222.160:7444",
         "public_key_hex": "b7cd5eb19d81a7ac5c7d19e784dbd87251d320974011cce04dfbecb20d8ea6bb",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "aws-eu-west-3-paris",
+        "cloud_provider": "aws",
+        "region": "eu-west-3",
+        "city": "Paris, France",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6g.large",
+        "location": {
+          "lat": 48.8566,
+          "lon": 2.3522
+        },
+        "endpoint_tcp": "51.44.182.9:7443",
+        "endpoint_udp": "51.44.182.9:7444",
+        "public_key_hex": "11e7192a243ac22d7bb15c67d26d24a3526e69534d91b4203eecdc29b74dba6c",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "aws-il-central-1-telaviv",
+        "cloud_provider": "aws",
+        "region": "il-central-1",
+        "city": "Tel Aviv, Israel",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6g.large",
+        "location": {
+          "lat": 32.0853,
+          "lon": 34.7818
+        },
+        "endpoint_tcp": "51.17.8.242:7443",
+        "endpoint_udp": "51.17.8.242:7444",
+        "public_key_hex": "b757b478b07c18a83eef14801e7772be4a848aa683d592d0e12ab30ff495133c",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "aws-mx-central-1-queretaro",
+        "cloud_provider": "aws",
+        "region": "mx-central-1",
+        "city": "Querétaro, Mexico",
+        "tee_vendor": "AwsNitro",
+        "instance_type": "c6g.large",
+        "location": {
+          "lat": 20.5888,
+          "lon": -100.3899
+        },
+        "endpoint_tcp": "78.12.243.190:7443",
+        "endpoint_udp": "78.12.243.190:7444",
+        "public_key_hex": "9476715a39a4a031e73e9604881064c46a0273a22626ee2d5610629c12f7708a",
         "coordinate_basis": null
       },
       {
@@ -247,7 +455,39 @@
         },
         "endpoint_tcp": "20.115.112.196:7443",
         "endpoint_udp": "20.115.112.196:7444",
-        "public_key_hex": "9f27e88d7ee03ecda42d04644315c7d009d03edab10573ca171718c7ac5cde98",
+        "public_key_hex": "50e89155d91f5b320a0fe6305056703e394fabc36d85f214c5b1bd29f3c48e5a",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "azure-germanywestcentral-frankfurt-cvm",
+        "cloud_provider": "azure",
+        "region": "germanywestcentral",
+        "city": "Frankfurt, Germany",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "Standard_DC2as_v5",
+        "location": {
+          "lat": 50.1109,
+          "lon": 8.6821
+        },
+        "endpoint_tcp": "20.113.24.39:7443",
+        "endpoint_udp": "20.113.24.39:7444",
+        "public_key_hex": "415a52f3f8502aa269a80b7d5d3daed9321fa1675e1cd24c69d0245533207a84",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "azure-italynorth-milan-cvm",
+        "cloud_provider": "azure",
+        "region": "italynorth",
+        "city": "Milan, Italy",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "Standard_DC2as_v5",
+        "location": {
+          "lat": 45.4642,
+          "lon": 9.19
+        },
+        "endpoint_tcp": "4.232.93.138:7443",
+        "endpoint_udp": "4.232.93.138:7444",
+        "public_key_hex": "83fc7a833051b1e816596d035260b4ae98f923c85817bca65c0cabd946191c50",
         "coordinate_basis": null
       },
       {
@@ -263,7 +503,7 @@
         },
         "endpoint_tcp": "52.231.70.240:7443",
         "endpoint_udp": "52.231.70.240:7444",
-        "public_key_hex": "3f2b4652ba4587b074be8474cfa00810381bae83dc2d80d50aea16f8dd8267d8",
+        "public_key_hex": "0aa2346160721e5ed64fd0cb2b9143d4d34eff91ac6b6949cbb2a5194093ff34",
         "coordinate_basis": null
       },
       {
@@ -279,7 +519,7 @@
         },
         "endpoint_tcp": "74.248.34.212:7443",
         "endpoint_udp": "74.248.34.212:7444",
-        "public_key_hex": "2545032692f23fef7954ba37148de8a97c1272cc991e4132c615dd763bbeffb9",
+        "public_key_hex": "d7dff3e21a3d2009cc43a47d4d5d2d819f4b84a7259d0818be73994df7889145",
         "coordinate_basis": null
       },
       {
@@ -295,7 +535,7 @@
         },
         "endpoint_tcp": "20.114.65.56:7443",
         "endpoint_udp": "20.114.65.56:7444",
-        "public_key_hex": "23022232fabc234a6f9876510b1837b06c468e84dc38e806749fd578f8cb0904",
+        "public_key_hex": "d059cb4f0871d9a93671f126710761a35c9b0df8445459a95e21ec85558b681a",
         "coordinate_basis": null
       },
       {
@@ -311,7 +551,7 @@
         },
         "endpoint_tcp": "20.91.210.172:7443",
         "endpoint_udp": "20.91.210.172:7444",
-        "public_key_hex": "4cb1e401b390a535c84dd5fda460bdf87adad74c9842558aaf89b2913757a242",
+        "public_key_hex": "b47f5e61b490aa719c2b5a10be0af5d28310879d33beb74468a892de06ecfb40",
         "coordinate_basis": null
       },
       {
@@ -327,7 +567,23 @@
         },
         "endpoint_tcp": "40.123.207.7:7443",
         "endpoint_udp": "40.123.207.7:7444",
-        "public_key_hex": "7191683d9244fd24f7884afc2580cb7a83a9eafd4d40f57ca2ecdf39fa4a9ea1",
+        "public_key_hex": "022e497d6e6cf273b5d4b08a61a70ab9516edad307555063060d746bee2aab0b",
+        "coordinate_basis": null
+      },
+      {
+        "anchor_id": "azure-uksouth-london-cvm",
+        "cloud_provider": "azure",
+        "region": "uksouth",
+        "city": "London, UK",
+        "tee_vendor": "AmdSevSnp",
+        "instance_type": "Standard_DC2as_v6",
+        "location": {
+          "lat": 51.5074,
+          "lon": -0.1278
+        },
+        "endpoint_tcp": "20.68.226.243:7443",
+        "endpoint_udp": "20.68.226.243:7444",
+        "public_key_hex": "7c962c40d8015b4a1dbbe011e3b14522d759b4a20470d40fc6431140e919f08e",
         "coordinate_basis": null
       },
       {
@@ -343,7 +599,7 @@
         },
         "endpoint_tcp": "20.38.0.16:7443",
         "endpoint_udp": "20.38.0.16:7444",
-        "public_key_hex": "3334b268dcb116dc6351d94b014b189c6eb6623e8d29f9362d6ae1e8c10d160f",
+        "public_key_hex": "46c782c327b4656f783e3a1fcf24ea911f688089ef6d903889fef151fc4aee5a",
         "coordinate_basis": null
       },
       {
@@ -460,5 +716,5 @@
       }
     ]
   },
-  "operator_signature_hex": "95e025ee37dc7a5afadce805bf4f52cd66b55dfd7fb7ee342d931e1194769814baadb70ec24391f05dade4da0b9ff44d4167ad0845f90907f486e7c52ec04802"
+  "operator_signature_hex": "9bc7deeb6fc2ca0b95bb729a163fb1d29da6962718c7072ba659da58f99abf2cc9719a92aae7f0cc4d720daa8d268483f37f628d7d806edacc385b3a70ebd207"
 }
