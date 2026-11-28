@@ -70,6 +70,10 @@ pub struct GpuAttestationBinding {
     /// Full vendor-signed GPU attestation evidence + X.509 chain (mandatory for inference-location claims).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence: Option<crate::gpu::GpuAttestationEvidence>,
+    /// Optional seeded physical silicon fingerprint / PUF evidence (Tee & Happel, arXiv:2605.01930v1)
+    /// providing defense-in-depth against physical FIB/LSM hardware key extraction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub physical_fingerprint: Option<crate::gpu::GpuPhysicalFingerprintEvidence>,
 }
 
 /// Deserializer for `BTreeMap<u32, String>` inside internally-tagged `#[serde(tag = "kind")]`

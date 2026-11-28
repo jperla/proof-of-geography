@@ -383,6 +383,236 @@ pub fn verify_gpu_attestation_evidence(
     })
 }
 
+// =============================================================================
+// Physical Silicon GPU Fingerprinting / PUF Extension (Tee & Happel, arXiv:2605.01930v1)
+//
+// Motivation: NVIDIA Hopper/Blackwell Confidential Compute is NOT designed to resist
+// invasive physical decapping (FIB / Laser Scanning Microscope) key extraction.
+// A seeded physical silicon fingerprint (PUF) adds defense-in-depth against key-cloned
+// software emulators — while explicitly surfacing the physics timing-headroom caveat
+// (a 2.9 s PUF kernel with 1% jitter = 29 ms = ~4,347 km vacuum relay margin, so
+// multi-second PUFs NEVER replace sub-ms BLAKE3-MAC speed-of-light distance bounding!).
+// =============================================================================
+
+/// Pluggable GPU physical fingerprinting / PUF algorithm families (supports multi-function
+/// challenge diversity per Tee & Happel §5 so an adversary cannot pre-model one fixed kernel).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GpuPufAlgorithm {
+    /// Parameterized cross-SM `atomicAdd` race-condition ordering fingerprint (Tee & Happel 2026 / Hohentanner 2025).
+    AtomicAddSmRaceV1,
+    /// Low-latency compute-API timing PUF (LockedApart / DrawnApart style, targeting < 5–20 ms runtime).
+    LockedApartComputeTimingV1,
+    /// Intrinsic SRAM / memory-bank contention error/timing PUF (G-PUF family).
+    MemoryBankConflictV1,
+    /// Custom or newly rotated challenge kernel family (prevents static modeling).
+    Custom(String),
+}
+
+impl GpuPufAlgorithm {
+    pub fn domain_label(&self) -> String {
+        match self {
+            GpuPufAlgorithm::AtomicAddSmRaceV1 => "atomic_add_sm_race_v1".into(),
+            GpuPufAlgorithm::LockedApartComputeTimingV1 => "locked_apart_compute_timing_v1".into(),
+            GpuPufAlgorithm::MemoryBankConflictV1 => "memory_bank_conflict_v1".into(),
+            GpuPufAlgorithm::Custom(s) => format!("custom:{s}"),
+        }
+    }
+}
+
+/// Seeded GPU silicon fingerprint challenge response attached alongside SPDM attestation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuPhysicalFingerprintEvidence {
+    pub algorithm: GpuPufAlgorithm,
+    pub gpu_uuid: String,
+    /// Deterministic unpredictable challenge seed = `compute_gpu_puf_challenge_seed(prover_pk, epoch_challenge, algorithm)`.
+    pub challenge_seed_hex: String,
+    /// One or more fingerprint measurement vectors collected on the live GPU (paired runs = 2 vectors
+    /// per Tee & Happel §4.2, achieving 100% re-identification accuracy in H200 evaluation).
+    pub run_vectors: Vec<Vec<i64>>,
+    /// Wall-clock kernel execution duration (ms) for a single fingerprint run (e.g., ~2,900 ms for
+    /// arXiv:2605.01930v1 vs. ~2–10 ms for low-latency compute PUFs).
+    pub measured_compute_ms: f64,
+    /// Conservative compute-time jitter / overclocking margin (ms) that an adversary could shave
+    /// off via optimization or clock boosting to hide network transit latency.
+    pub max_compute_jitter_ms: f64,
+    pub generated_at_unix_s: u64,
+}
+
+/// Pre-deployment factory/registration reference set for a specific physical GPU and challenge seed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuFingerprintReference {
+    pub gpu_uuid: String,
+    pub algorithm: GpuPufAlgorithm,
+    pub challenge_seed_hex: String,
+    /// Multiple reference runs captured during trusted registration (e.g., 8 runs per Tee & Happel §4.2).
+    pub registered_vectors: Vec<Vec<i64>>,
+    /// Maximum acceptable L1 distance between a live verification run and the closest registered vector.
+    pub max_l1_distance: f64,
+}
+
+/// Authoritative verification report for a GPU physical silicon fingerprint (PUF).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifiedGpuFingerprint {
+    pub matched_gpu_uuid: String,
+    pub algorithm: GpuPufAlgorithm,
+    pub best_l1_distance: f64,
+    pub paired_runs_used: usize,
+    /// Vacuum light-travel radius (km) an attacker could hide inside `max_compute_jitter_ms`:
+    /// `0.5 * c_0 * max_compute_jitter_ms * 1e-3`.
+    pub puf_timing_relay_headroom_km: f64,
+    /// True ONLY when both compute time (`<= 25 ms`) and jitter headroom (`<= 500 km`) are tight
+    /// enough to physically resist remote-GPU relay; false for multi-second PUFs (e.g., 2.9 s),
+    /// which still raise anti-emulation cost against key extraction when paired with sub-ms UDP PoG.
+    pub bounds_physical_relay_alone: bool,
+    pub security_notes: Vec<String>,
+}
+
+/// Compute the deterministic unpredictable challenge seed binding a GPU PUF challenge to
+/// THIS Prover key, THIS epoch challenge, and THIS specific PUF algorithm family.
+pub fn compute_gpu_puf_challenge_seed(
+    prover_public_key: &[u8; 32],
+    epoch_challenge: &[u8],
+    algorithm: &GpuPufAlgorithm,
+) -> [u8; 32] {
+    let mut h = Sha256::new();
+    h.update(b"pog-gpu-puf-v1");
+    h.update(prover_public_key);
+    h.update(epoch_challenge);
+    h.update(algorithm.domain_label().as_bytes());
+    let d = h.finalize();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&d);
+    out
+}
+
+fn l1_distance(a: &[i64], b: &[i64]) -> Option<f64> {
+    if a.is_empty() || a.len() != b.len() {
+        return None;
+    }
+    let sum: f64 = a
+        .iter()
+        .zip(b.iter())
+        .map(|(&x, &y)| ((x as i128) - (y as i128)).unsigned_abs() as f64)
+        .sum();
+    Some(sum)
+}
+
+/// Verify a live GPU physical silicon fingerprint against pre-deployment registration references:
+/// 1. Enforces fresh unpredictable seed binding (`compute_gpu_puf_challenge_seed`) — blocks static replay!
+/// 2. Evaluates L1 distance across all live runs (supports paired-run best-match per Tee & Happel §4.2)
+///    against ALL candidate registered GPUs so another chip cannot impersonate `evidence.gpu_uuid`.
+/// 3. Computes `puf_timing_relay_headroom_km` explicitly so verifiers never mistake a 2.9 s PUF
+///    for a sub-millisecond speed-of-light distance bound!
+pub fn verify_gpu_physical_fingerprint(
+    evidence: &GpuPhysicalFingerprintEvidence,
+    reference_set: &[GpuFingerprintReference],
+    prover_public_key: &[u8; 32],
+    epoch_challenge: &[u8],
+) -> Result<VerifiedGpuFingerprint, TeeError> {
+    if evidence.run_vectors.is_empty() {
+        return Err(TeeError::VerificationFailed(
+            "GPU PUF evidence contains zero run_vectors".into(),
+        ));
+    }
+    if reference_set.is_empty() {
+        return Err(TeeError::VerificationFailed(
+            "GPU PUF reference_set is empty (fail-closed)".into(),
+        ));
+    }
+    let expected_seed = hex::encode(compute_gpu_puf_challenge_seed(
+        prover_public_key,
+        epoch_challenge,
+        &evidence.algorithm,
+    ));
+    if !evidence
+        .challenge_seed_hex
+        .eq_ignore_ascii_case(&expected_seed)
+    {
+        return Err(TeeError::VerificationFailed(
+            "GPU PUF challenge_seed_hex does not match fresh epoch/prover binding (replay rejected)"
+                .into(),
+        ));
+    }
+
+    let mut best_overall: Option<(&GpuFingerprintReference, f64)> = None;
+    let mut target_ref_found = false;
+
+    for r in reference_set {
+        if r.algorithm != evidence.algorithm
+            || !r.challenge_seed_hex.eq_ignore_ascii_case(&expected_seed)
+        {
+            continue;
+        }
+        if r.gpu_uuid == evidence.gpu_uuid {
+            target_ref_found = true;
+        }
+        for live_vec in &evidence.run_vectors {
+            for reg_vec in &r.registered_vectors {
+                if let Some(d) = l1_distance(live_vec, reg_vec) {
+                    if best_overall.map(|(_, bd)| d < bd).unwrap_or(true) {
+                        best_overall = Some((r, d));
+                    }
+                }
+            }
+        }
+    }
+
+    if !target_ref_found {
+        return Err(TeeError::VerificationFailed(format!(
+            "No registered GPU PUF reference found for gpu_uuid={} algorithm={} and fresh seed",
+            evidence.gpu_uuid,
+            evidence.algorithm.domain_label()
+        )));
+    }
+
+    let (best_ref, best_dist) = best_overall.ok_or_else(|| {
+        TeeError::VerificationFailed("GPU PUF vector dimension mismatch against references".into())
+    })?;
+
+    if best_ref.gpu_uuid != evidence.gpu_uuid {
+        return Err(TeeError::VerificationFailed(format!(
+            "GPU PUF re-identification mismatch: claimed {} but closest silicon match is {} (L1={:.1})",
+            evidence.gpu_uuid, best_ref.gpu_uuid, best_dist
+        )));
+    }
+    if best_dist > best_ref.max_l1_distance {
+        return Err(TeeError::VerificationFailed(format!(
+            "GPU PUF L1 distance {:.1} exceeds threshold {:.1} for {}",
+            best_dist, best_ref.max_l1_distance, evidence.gpu_uuid
+        )));
+    }
+
+    const C0_KM_PER_S: f64 = 299_792.458;
+    let jitter_ms = evidence.max_compute_jitter_ms.max(0.0);
+    let relay_headroom_km = 0.5 * C0_KM_PER_S * (jitter_ms * 1e-3);
+    let bounds_physical_relay_alone =
+        evidence.measured_compute_ms <= 25.0 && relay_headroom_km <= 500.0;
+
+    let mut security_notes = Vec::new();
+    if !bounds_physical_relay_alone {
+        security_notes.push(format!(
+            "PUF TIMING CAVEAT: compute={:.1} ms / jitter={:.1} ms allows up to {:.0} km vacuum relay headroom — raises anti-emulation cost against FIB/LSM key extraction, but MUST stay decoupled from sub-ms UDP BLAKE3-MAC speed-of-light distance bounding!",
+            evidence.measured_compute_ms, jitter_ms, relay_headroom_km
+        ));
+    } else {
+        security_notes.push(format!(
+            "Low-latency GPU PUF ({:.2} ms compute, {:.2} ms jitter -> {:.1} km vacuum headroom) strengthens physical anti-relay resistance alongside SPDM + UDP distance bounding.",
+            evidence.measured_compute_ms, jitter_ms, relay_headroom_km
+        ));
+    }
+
+    Ok(VerifiedGpuFingerprint {
+        matched_gpu_uuid: best_ref.gpu_uuid.clone(),
+        algorithm: evidence.algorithm.clone(),
+        best_l1_distance: best_dist,
+        paired_runs_used: evidence.run_vectors.len(),
+        puf_timing_relay_headroom_km: relay_headroom_km,
+        bounds_physical_relay_alone,
+        security_notes,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -473,6 +703,7 @@ mod tests {
             spdm_session_transcript_hash_hex: Some(transcript_hex.into()),
             protected_channel_id: Some(payload.protected_channel_id),
             evidence: Some(ev),
+            physical_fingerprint: None,
         };
         (binding, root_fp)
     }
@@ -520,5 +751,91 @@ mod tests {
         assert!(verify_gpu_attestation_evidence(&no_cc, &prover_pk, &cpu_nonce, &pol, now + 5, &[&fp1]).is_err());
         let (dbg_gpu, fp2) = make_signed_gpu_binding(&prover_pk, &cpu_nonce, "GPU-DBG", &transcript, None, true, false, now);
         assert!(verify_gpu_attestation_evidence(&dbg_gpu, &prover_pk, &cpu_nonce, &pol, now + 5, &[&fp2]).is_err());
+    }
+
+    #[test]
+    fn test_gpu_puf_reidentification_paired_runs_and_2900ms_relay_headroom_warning() {
+        let prover_pk = [0x55u8; 32];
+        let epoch = b"epoch-puf-2026-11-28";
+        let seed_atomic = hex::encode(compute_gpu_puf_challenge_seed(
+            &prover_pk,
+            epoch,
+            &GpuPufAlgorithm::AtomicAddSmRaceV1,
+        ));
+        let seed_fast = hex::encode(compute_gpu_puf_challenge_seed(
+            &prover_pk,
+            epoch,
+            &GpuPufAlgorithm::LockedApartComputeTimingV1,
+        ));
+
+        let refs = vec![
+            GpuFingerprintReference {
+                gpu_uuid: "GPU-H200-A".into(),
+                algorithm: GpuPufAlgorithm::AtomicAddSmRaceV1,
+                challenge_seed_hex: seed_atomic.clone(),
+                registered_vectors: vec![vec![10, 42, 108, 7, 91], vec![11, 41, 109, 8, 90]],
+                max_l1_distance: 25.0,
+            },
+            GpuFingerprintReference {
+                gpu_uuid: "GPU-H200-B".into(),
+                algorithm: GpuPufAlgorithm::AtomicAddSmRaceV1,
+                challenge_seed_hex: seed_atomic.clone(),
+                registered_vectors: vec![vec![90, 12, 30, 88, 14]],
+                max_l1_distance: 25.0,
+            },
+            GpuFingerprintReference {
+                gpu_uuid: "GPU-H200-A".into(),
+                algorithm: GpuPufAlgorithm::LockedApartComputeTimingV1,
+                challenge_seed_hex: seed_fast.clone(),
+                registered_vectors: vec![vec![500, 512, 495, 508]],
+                max_l1_distance: 20.0,
+            },
+        ];
+
+        // 1. Paired verification runs (one noisy outlier + one clean match, Tee & Happel §4.2) on 2.9s PUF:
+        //    PASSES re-identification AND explicitly warns about ~4,347 km relay headroom!
+        let ev_2900ms = GpuPhysicalFingerprintEvidence {
+            algorithm: GpuPufAlgorithm::AtomicAddSmRaceV1,
+            gpu_uuid: "GPU-H200-A".into(),
+            challenge_seed_hex: seed_atomic.clone(),
+            run_vectors: vec![vec![50, 90, 10, 80, 10], vec![12, 43, 107, 7, 92]],
+            measured_compute_ms: 2900.0,
+            max_compute_jitter_ms: 29.0, // 1% timing jitter on 2.9s kernel!
+            generated_at_unix_s: 1_795_800_000,
+        };
+        let v_slow = verify_gpu_physical_fingerprint(&ev_2900ms, &refs, &prover_pk, epoch).unwrap();
+        assert_eq!(v_slow.matched_gpu_uuid, "GPU-H200-A");
+        assert_eq!(v_slow.paired_runs_used, 2);
+        assert!(v_slow.best_l1_distance <= 10.0);
+        assert!(v_slow.puf_timing_relay_headroom_km > 4_300.0);
+        assert!(!v_slow.bounds_physical_relay_alone);
+
+        // 2. Wrong GPU (GPU-H200-B vector claiming GPU-H200-A) MUST FAIL!
+        let ev_impersonator = GpuPhysicalFingerprintEvidence {
+            run_vectors: vec![vec![91, 13, 29, 89, 15]],
+            ..ev_2900ms.clone()
+        };
+        assert!(verify_gpu_physical_fingerprint(&ev_impersonator, &refs, &prover_pk, epoch).is_err());
+
+        // 3. Stale/replayed seed MUST FAIL!
+        let ev_replay = GpuPhysicalFingerprintEvidence {
+            challenge_seed_hex: "00".repeat(32),
+            ..ev_2900ms
+        };
+        assert!(verify_gpu_physical_fingerprint(&ev_replay, &refs, &prover_pk, epoch).is_err());
+
+        // 4. Low-latency PUF (3.0 ms compute, 0.5 ms jitter -> ~75 km headroom) qualifies as relay-bounding!
+        let ev_fast = GpuPhysicalFingerprintEvidence {
+            algorithm: GpuPufAlgorithm::LockedApartComputeTimingV1,
+            gpu_uuid: "GPU-H200-A".into(),
+            challenge_seed_hex: seed_fast,
+            run_vectors: vec![vec![501, 511, 496, 509]],
+            measured_compute_ms: 3.0,
+            max_compute_jitter_ms: 0.5,
+            generated_at_unix_s: 1_795_800_000,
+        };
+        let v_fast = verify_gpu_physical_fingerprint(&ev_fast, &refs, &prover_pk, epoch).unwrap();
+        assert!(v_fast.bounds_physical_relay_alone);
+        assert!(v_fast.puf_timing_relay_headroom_km < 100.0);
     }
 }

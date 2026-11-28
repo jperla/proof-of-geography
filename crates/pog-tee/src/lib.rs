@@ -25,9 +25,10 @@ pub use gcp_confidential_space::{
     GCP_CS_TEE_SOCKET, PINNED_OFFICIAL_GCP_CS_JWKS_JSON,
 };
 pub use gpu::{
-    compute_gpu_binding_nonce, verify_gpu_attestation_evidence, GpuAttestationEvidence,
-    GpuCpuLocalityProofLevel, GpuProtectedChannelKind, SignedGpuSpdmQuotePayload,
-    VerifiedGpuBinding,
+    compute_gpu_binding_nonce, compute_gpu_puf_challenge_seed, verify_gpu_attestation_evidence,
+    verify_gpu_physical_fingerprint, GpuAttestationEvidence, GpuCpuLocalityProofLevel,
+    GpuFingerprintReference, GpuPhysicalFingerprintEvidence, GpuProtectedChannelKind,
+    GpuPufAlgorithm, SignedGpuSpdmQuotePayload, VerifiedGpuBinding, VerifiedGpuFingerprint,
 };
 pub use intel_tdx::{
     verify_raw_tdx_quote, verify_raw_tdx_quote_with_pinned_roots, IntelTdxProvider,

@@ -3,17 +3,22 @@ pub mod committee;
 pub mod cpu_inference;
 pub mod federation;
 pub mod inference;
+pub mod lease;
 pub mod socket;
 pub mod vsock;
 pub mod wire;
 
 pub use bundle::{
-    verify_proof_bundle, AnchorObservedIp, GeoProofBundle, ProofStatus, ProofVerificationReport,
-    UnverifiedReceiptRecord, VerificationPolicy, HTTP_HEADER_POG_PROOF,
+    verify_proof_bundle, AnchorObservedIp, ChipRegistry, GeoProofBundle, ProofStatus,
+    ProofVerificationReport, RegisteredChipPolicy, UnverifiedReceiptRecord, VerificationPolicy,
+    HTTP_HEADER_POG_PROOF,
 };
 pub use committee::{
-    select_committee, AnchorDescriptor, AnchorEligibility, AnchorGrid, CommitteeConfig,
-    CommitteeSelection, CoordinateBasis,
+    infer_country_code_from_city_or_region, select_committee, AnchorDescriptor, AnchorEligibility,
+    AnchorGrid, CommitteeConfig, CommitteeSelection, CoordinateBasis,
+};
+pub use lease::{
+    issue_coarse_jurisdiction_lease, CoarseJurisdictionLease, HTTP_HEADER_POG_LEASE,
 };
 pub use cpu_inference::{
     compute_blinded_output_commitment, compute_blinded_request_commitment,

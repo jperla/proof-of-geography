@@ -756,21 +756,51 @@ def run_self_tests() -> None:
         for rel in ("infra/images/Dockerfile.anchor", "infra/reproducible/Dockerfile", "infra/images/flake.nix"):
             assert not check_zero_ssh_image_spec(repo_root / rel), f"Repo image spec failed: {rel}"
 
-        # 2. Real `pog-cli` rejects BOTH the current SoftwareDev public roster AND simulated grid_72 for production!
+        # 2. Real `pog-cli` ACCEPTS our 100% Hardware TEE public roster in strict production mode,
+        #    and REJECTS simulated grid_72 and any SoftwareDev roster!
         pub_ok, pub_msg = run_real_cli_verify_registry(
             pog_cli, repo_root / PUBLIC_ROSTER_SIGNED_REL, OFFICIAL_PRODUCTION_ROOT_PK_HEX, OFFICIAL_NETWORK_ID, allow_dev_anchors=False
         )
-        assert not pub_ok and "SoftwareDev" in pub_msg, f"Expected SoftwareDev public roster rejection, got: {pub_ok} {pub_msg}"
-
-        pub_sig_ok, _ = run_real_cli_verify_registry(
-            pog_cli, repo_root / PUBLIC_ROSTER_SIGNED_REL, OFFICIAL_PRODUCTION_ROOT_PK_HEX, OFFICIAL_NETWORK_ID, allow_dev_anchors=True
-        )
-        assert pub_sig_ok, "Public signed registry Ed25519 signature should verify when --allow-dev-anchors is set for diagnostic inspection"
+        assert pub_ok, f"Expected 100% Hardware TEE public roster to pass strict production verify, got: {pub_ok} {pub_msg}"
 
         sim_ok, sim_msg = run_real_cli_verify_registry(
             pog_cli, repo_root / SIMULATED_GRID_REL, OFFICIAL_PRODUCTION_ROOT_PK_HEX, OFFICIAL_NETWORK_ID, allow_dev_anchors=False
         )
         assert not sim_ok, f"Expected simulated grid_72 rejection, got: {sim_msg}"
+
+        # Also verify a signed SoftwareDev roster is strictly rejected when allow_dev_anchors=False!
+        dev_key = d / "dev_op_key.json"
+        subprocess.run(
+            [str(pog_cli), "network", "init", "--network-id", "dev-test.invalid", "--operator", "test", "--key-out", str(dev_key)],
+            check=True, capture_output=True,
+        )
+        dev_pk = json.loads(dev_key.read_text())["public_key_hex"]
+        dev_grid_data = json.loads((repo_root / PUBLIC_ROSTER_SIGNED_REL).read_text())["grid"]
+        dev_grid_data["anchors"] = dev_grid_data["anchors"][:1]
+        dev_grid_data["anchors"][0]["tee_vendor"] = "SoftwareDev"
+        dev_grid_path = d / "dev_grid.json"
+        dev_grid_path.write_text(json.dumps(dev_grid_data))
+        dev_signed_path = d / "dev_signed.json"
+        subprocess.run(
+            [
+                str(pog_cli), "network", "sign-registry",
+                "--key", str(dev_key),
+                "--network-id", "dev-test.invalid",
+                "--operator", "test",
+                "--grid", str(dev_grid_path),
+                "--out", str(dev_signed_path),
+                "--allow-dev-anchors",
+            ],
+            check=True, capture_output=True,
+        )
+        dev_ok, dev_msg = run_real_cli_verify_registry(
+            pog_cli, dev_signed_path, dev_pk, "dev-test.invalid", allow_dev_anchors=False
+        )
+        assert not dev_ok and "SoftwareDev" in dev_msg, f"Expected SoftwareDev rejection, got: {dev_ok} {dev_msg}"
+        dev_diag_ok, _ = run_real_cli_verify_registry(
+            pog_cli, dev_signed_path, dev_pk, "dev-test.invalid", allow_dev_anchors=True
+        )
+        assert dev_diag_ok, "SoftwareDev signed registry should verify only when --allow-dev-anchors is set"
 
         # Also verify an all-HW-TEE simulated grid with placeholder 0101.. keys / *.pog.example is rejected!
         sim_hw_key = d / "sim_op_key.json"

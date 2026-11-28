@@ -6,22 +6,26 @@ use clap::{Parser, Subcommand};
 use ed25519_dalek::SigningKey;
 use pog_geo::bounds::starlink_vs_fiber_crossover_km;
 use pog_geo::{
-    effective_radius_km, starlink_min_rtt_ms, AnchorPairMeasurement, BoundTier, CalibrationMatrix,
-    DiskConstraint, LatLon, StarlinkModel, C_FIBER_KM_PER_S, EARTH_RADIUS_KM,
+    builtin_jurisdiction_polygon, effective_radius_km, evaluate_anti_smuggling_city_coverage,
+    starlink_min_rtt_ms, AnchorPairMeasurement, BoundTier, CalibrationMatrix, DiskConstraint,
+    GeoPolygon, GeofencePolicy, LatLon, StarlinkModel, C_FIBER_KM_PER_S, EARTH_RADIUS_KM,
 };
 use pog_log::{build_router, ContinuousGeoLog};
 use pog_proto::{
     bind_low_latency_udp, compute_challenge_mac, derive_session_key, encode_udp_punch,
-    respond_once_udp, select_committee, verify_anchor_fresh_attestation,
-    verify_anchor_info_identity, verify_inference_location_claim, verify_proof_bundle,
-    AnchorDescriptor, AnchorEndorsement, AnchorFreshAttestResponse, AnchorGrid, AnchorLiveInfo,
-    AnchorReceipt, CommitteeConfig, ConfidentialInferenceReceipt, ExpectedInferenceRequest,
-    GeoProofBundle, InferenceVerificationPolicy, Phase1InitRequest, Phase1InitResponse,
-    SignedNetworkRegistry, VerificationPolicy,
+    issue_coarse_jurisdiction_lease, respond_once_udp, select_committee,
+    verify_anchor_fresh_attestation, verify_anchor_info_identity, verify_inference_location_claim,
+    verify_proof_bundle, AnchorDescriptor, AnchorEndorsement, AnchorFreshAttestResponse,
+    AnchorGrid, AnchorLiveInfo, AnchorReceipt, ChipRegistry, CoarseJurisdictionLease,
+    CommitteeConfig, ConfidentialInferenceReceipt, ExpectedInferenceRequest, GeoProofBundle,
+    InferenceVerificationPolicy, Phase1InitRequest, Phase1InitResponse, RegisteredChipPolicy,
+    SignedNetworkRegistry, VerificationPolicy, HTTP_HEADER_POG_LEASE,
 };
 use pog_tee::{
-    auto_detect_provider, AttestationPolicy, GpuAttestationBinding, SoftwareDevProvider,
-    TeeProvider, WorkloadKeypair,
+    auto_detect_provider, compute_gpu_puf_challenge_seed, verify_gpu_physical_fingerprint,
+    AttestationPolicy, GpuAttestationBinding, GpuFingerprintReference,
+    GpuPhysicalFingerprintEvidence, GpuPufAlgorithm, SoftwareDevProvider, TeeProvider,
+    WorkloadKeypair,
 };
 use pog_telemetry::{fuse_ipinfo_telemetry, parse_rfc8805_geofeed, TracerouteHop};
 use rand::rngs::OsRng;
@@ -67,6 +71,33 @@ enum Commands {
         bundle_json: Option<PathBuf>,
         #[arg(long)]
         header_value: Option<String>,
+        /// Verifier-enforced expected latitude (overrides untrusted bundle.target_location).
+        #[arg(long)]
+        expected_lat: Option<f64>,
+        /// Verifier-enforced expected longitude (overrides untrusted bundle.target_location).
+        #[arg(long)]
+        expected_lon: Option<f64>,
+        /// Verifier-enforced maximum containment radius in km (caps untrusted bundle.required_radius_km).
+        #[arg(long)]
+        max_radius_km: Option<f64>,
+        /// Optional path to a verifier-owned ChipRegistry JSON binding prover keys/GPU UUIDs to authorized facilities.
+        #[arg(long)]
+        chip_registry: Option<PathBuf>,
+        /// ISO-2 country codes of Anchors to EXCLUDE from quorum ("striking distance" filter, e.g. HK, CN, RU).
+        #[arg(long)]
+        exclude_anchor_country: Vec<String>,
+        /// Optional ISO-2 country allowlist for Anchors accepted into quorum (e.g. US, JP, DE).
+        #[arg(long)]
+        allow_anchor_country: Vec<String>,
+        /// Minimum distinct Anchor jurisdictions (ISO-2 country codes) required across verified receipts.
+        #[arg(long, default_value_t = 0)]
+        min_distinct_countries: usize,
+        /// Negative anti-smuggling exclusion polygons (built-in codes: CN, RU, KALININGRAD, RU-KGD — or path to GeoPolygon JSON).
+        #[arg(long)]
+        restricted_polygon: Vec<String>,
+        /// Positive allowed jurisdiction polygons (built-in codes: US-CONUS, EU-CORE, JP — or path to GeoPolygon JSON).
+        #[arg(long)]
+        allowed_polygon: Vec<String>,
         #[arg(long, default_value_t = false)]
         allow_dev_tee: bool,
     },
@@ -200,12 +231,23 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         allow_dev_tee: bool,
     },
-    /// Audit global localization precision & 4-quadrant border-city coverage across an Anchor grid (optionally comparing against a baseline grid).
+    /// Audit global localization precision, 4-quadrant border-city GDOP, and optional Brass & Aarne anti-smuggling polygon clearance across a Constellation.
     AuditCoverage {
         #[arg(long, default_value = "config/global_grid_72.json")]
         grid: PathBuf,
         #[arg(long)]
         baseline_grid: Option<PathBuf>,
+        /// Optional restricted exclusion polygon (built-in: CN, RU, KALININGRAD — or path to GeoPolygon JSON) for anti-smuggling coverage audit.
+        #[arg(long)]
+        restricted_polygon: Option<String>,
+        /// ISO-2 Anchor country codes to exclude when computing anti-smuggling committees (e.g., HK).
+        #[arg(long)]
+        exclude_anchor_country: Vec<String>,
+    },
+    /// Issue or verify privacy-preserving Coarse Jurisdiction Leases / On-Chip Operating Licenses (`X-PoG-Lease`).
+    Lease {
+        #[command(subcommand)]
+        action: LeaseAction,
     },
     /// Manage local operator root keys, sign federated Anchor network registries, and issue per-Anchor endorsements.
     Network {
@@ -345,6 +387,68 @@ enum NetworkAction {
     },
 }
 
+#[derive(Subcommand, Debug)]
+enum LeaseAction {
+    /// Verify a GeoProofBundle against geofence/policy rules and sign a privacy-preserving CoarseJurisdictionLease (no exact coords, RTTs, or IPs exposed).
+    Issue {
+        #[arg(long, default_value = "config/public_anchors.json")]
+        grid: PathBuf,
+        #[arg(long)]
+        key: PathBuf,
+        #[arg(long, default_value = "proofofgeography.com")]
+        network_id: String,
+        #[arg(long)]
+        bundle_json: Option<PathBuf>,
+        #[arg(long)]
+        header_value: Option<String>,
+        #[arg(long)]
+        expected_lat: Option<f64>,
+        #[arg(long)]
+        expected_lon: Option<f64>,
+        #[arg(long)]
+        max_radius_km: Option<f64>,
+        #[arg(long)]
+        exclude_anchor_country: Vec<String>,
+        #[arg(long)]
+        allow_anchor_country: Vec<String>,
+        #[arg(long, default_value_t = 0)]
+        min_distinct_countries: usize,
+        #[arg(long)]
+        restricted_polygon: Vec<String>,
+        #[arg(long)]
+        allowed_polygon: Vec<String>,
+        /// Lease TTL in seconds (also enforces on-chip `max_monotonic_lease_seconds`).
+        #[arg(long, default_value_t = 3600)]
+        ttl_seconds: u64,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long, default_value_t = false)]
+        print_header: bool,
+        #[arg(long, default_value_t = false)]
+        allow_dev_tee: bool,
+    },
+    /// Verify a CoarseJurisdictionLease JSON or X-PoG-Lease base64url header offline (including optional on-chip monotonic elapsed check).
+    Verify {
+        #[arg(long)]
+        lease_json: Option<PathBuf>,
+        #[arg(long)]
+        header_value: Option<String>,
+        #[arg(long)]
+        pinned_issuer_pk: String,
+        #[arg(long)]
+        expected_prover_pk: Option<String>,
+        #[arg(long)]
+        require_allowed: Option<String>,
+        #[arg(long)]
+        require_excluded: Option<String>,
+        /// Elapsed seconds since boot/issuance read from an on-chip monotonic counter (triggers region-lock if > max_monotonic_lease_seconds).
+        #[arg(long)]
+        elapsed_monotonic_seconds: Option<u64>,
+        #[arg(long, default_value_t = false)]
+        allow_dev_tee: bool,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -355,8 +459,30 @@ async fn main() -> Result<()> {
             grid,
             bundle_json,
             header_value,
+            expected_lat,
+            expected_lon,
+            max_radius_km,
+            chip_registry,
+            exclude_anchor_country,
+            allow_anchor_country,
+            min_distinct_countries,
+            restricted_polygon,
+            allowed_polygon,
             allow_dev_tee,
-        } => run_verify(&grid, bundle_json, header_value, allow_dev_tee),
+        } => run_verify(VerifyArgs {
+            grid_path: grid,
+            bundle_json,
+            header_value,
+            expected_location: expected_lat.zip(expected_lon).map(|(la, lo)| LatLon::new(la, lo)),
+            max_radius_km,
+            chip_registry,
+            exclude_anchor_country,
+            allow_anchor_country,
+            min_distinct_countries,
+            restricted_polygon,
+            allowed_polygon,
+            allow_dev_tee,
+        }),
         Commands::VerifyInference {
             grid,
             receipt_json,
@@ -452,7 +578,15 @@ async fn main() -> Result<()> {
         Commands::AuditCoverage {
             grid,
             baseline_grid,
-        } => run_audit_coverage(&grid, baseline_grid.as_ref()),
+            restricted_polygon,
+            exclude_anchor_country,
+        } => run_audit_coverage(
+            &grid,
+            baseline_grid.as_ref(),
+            restricted_polygon.as_deref(),
+            &exclude_anchor_country,
+        ),
+        Commands::Lease { action } => run_lease_action(action),
         Commands::Network { action } => run_network_action(action).await,
         Commands::DemoClient {
             url,
@@ -548,6 +682,7 @@ fn build_signed_bundle(
         spdm_session_transcript_hash_hex: None,
         protected_channel_id: None,
         evidence: None,
+        physical_fingerprint: None,
     };
     let mut quote = dev_tee
         .attest(&prover_kp.public_key_bytes(), &epoch, Some(gpu))
@@ -893,7 +1028,220 @@ fn run_simulations(grid_path: &PathBuf) -> Result<()> {
     println!("    Worst congested single-hour Tier 1B (Fiber) radius: {:.1} km ({:.1} mi)", worst_single, worst_single * 0.621371);
     println!("    24h Multi-Hour Min-RTT Converged Tier 1B (f=1):     {:.1} km ({:.1} mi) [Tightened by {:.1}%!]", converged, converged * 0.621371, (1.0 - converged / worst_single) * 100.0);
     println!("    24h Calibrated Linear Bestline (Tier 2B, f=0):      {:.1} km ({:.1} mi)", cal_24h, cal_24h * 0.621371);
-    println!("    24h Calibrated Internet 68% Confidence (MLE):       {:.1} km ({:.1} mi) [MLE error {:.1} km / {:.1} mi!]", prob.confidence_68_radius_km, prob.confidence_68_radius_km * 0.621371, mle_err, mle_err * 0.621371);
+    println!("    24h Calibrated Internet 68% Confidence (MLE):       {:.1} km ({:.1} mi) [MLE error {:.1} km / {:.1} mi!]\n", prob.confidence_68_radius_km, prob.confidence_68_radius_km * 0.621371, mle_err, mle_err * 0.621371);
+
+    // -----------------------------------------------------------------------
+    // SCENARIO 7: Anti-Smuggling Negative Geofencing + Striking-Distance Country Filter
+    // + Verifier-Enforced Target/ChipRegistry + Coarse Jurisdiction Lease (Brass & Aarne)
+    // -----------------------------------------------------------------------
+    let shanghai = LatLon::new(31.2304, 121.4737);
+    let cn_poly = builtin_jurisdiction_polygon("CN").expect("CN polygon");
+    let chip_kp = WorkloadKeypair::generate();
+    let chip_reg = ChipRegistry {
+        entries: vec![RegisteredChipPolicy {
+            prover_pk_hex: Some(chip_kp.public_key_hex()),
+            gpu_uuid: Some("GPU-9f2a1c44-8b10-4e21-a8d7-112233445566".into()),
+            facility_label: "Tokyo-TY2-Export-Controlled".into(),
+            expected_location: tokyo,
+            max_radius_km: 500.0,
+            allowed_jurisdictions: vec!["JP".into()],
+        }],
+    };
+    let anti_smuggle_policy = VerificationPolicy {
+        tee_policy: AttestationPolicy::allow_dev_software(),
+        max_byzantine: 1,
+        min_anchors: 4,
+        min_cloud_providers: 2,
+        min_distinct_countries: 2,
+        max_proof_age_seconds: 3_900,
+        enforce_tier: BoundTier::Vacuum,
+        chip_registry: Some(chip_reg),
+        excluded_anchor_countries: vec!["HK".into(), "CN".into(), "RU".into()],
+        geofence: Some(GeofencePolicy {
+            allowed_polygons: vec![],
+            restricted_polygons: vec![cn_poly],
+        }),
+        ..Default::default()
+    };
+    // Honest Tokyo chip proves exclusion from CN while excluding Hong Kong ("HK") Anchors!
+    let b7_ok = build_signed_bundle(
+        &grid,
+        &keys,
+        &chip_kp,
+        SimBundleSpec {
+            true_location: tokyo,
+            claimed_location: tokyo,
+            required_radius_km: 9_999.0, // Verifier ChipRegistry overrides this down to 500 km!
+            epoch_label: "anti-smuggle-tokyo-ok",
+            seq: 0,
+            prev_hash: None,
+            now_unix_s: now,
+            stretch: 1.28,
+            overhead_ms: 0.9,
+            colluding_anchor_override: None,
+        },
+    );
+    let rep7_ok = verify_proof_bundle(&b7_ok, &grid, &anti_smuggle_policy, now)?;
+    // Smuggled chip in Shanghai tries to self-declare Shanghai + 5,000 km radius:
+    let b7_smuggled = build_signed_bundle(
+        &grid,
+        &keys,
+        &chip_kp,
+        SimBundleSpec {
+            true_location: shanghai,
+            claimed_location: shanghai,
+            required_radius_km: 5_000.0,
+            epoch_label: "anti-smuggle-shanghai-caught",
+            seq: 0,
+            prev_hash: None,
+            now_unix_s: now,
+            stretch: 1.28,
+            overhead_ms: 0.9,
+            colluding_anchor_override: None,
+        },
+    );
+    let rep7_smuggled = verify_proof_bundle(&b7_smuggled, &grid, &anti_smuggle_policy, now)?;
+    let lease_sk = SigningKey::generate(&mut OsRng);
+    let lease_pk = hex::encode(lease_sk.verifying_key().to_bytes());
+    let lease_msg = if rep7_ok.overall_valid {
+        let lease = issue_coarse_jurisdiction_lease(
+            &b7_ok,
+            &rep7_ok,
+            &lease_sk,
+            "proofofgeography.com",
+            vec!["JP".into()],
+            vec!["CN".into()],
+            "tier1a_vacuum",
+            3_600,
+            false,
+            now,
+        )?;
+        let hdr_len = lease.to_header_value()?.len();
+        let mono_locked = lease
+            .verify(&lease_pk, Some(&chip_kp.public_key_hex()), Some("JP"), Some("CN"), false, now + 60, Some(3_601))
+            .is_err();
+        format!("issued {HTTP_HEADER_POG_LEASE} ({hdr_len} bytes, zero coords/IPs; on-chip monotonic expiry locks={mono_locked})")
+    } else {
+        format!("skipped (failures={:?})", rep7_ok.failure_reasons)
+    };
+    let clr7 = rep7_ok
+        .geofence_evaluation
+        .as_ref()
+        .and_then(|g| g.min_clearance_to_restricted_km)
+        .unwrap_or(0.0);
+    println!("[7] ANTI-SMUGGLING GEOFENCE + STRIKING-DISTANCE FILTER + CHIP REGISTRY + COARSE LEASE (Brass & Aarne)");
+    println!(
+        "    Honest Tokyo (HK/CN/RU Anchors excluded, {} distinct countries): Valid={} | CN clearance={:.1} km",
+        rep7_ok.distinct_countries, rep7_ok.overall_valid, clr7
+    );
+    println!(
+        "    Smuggled Shanghai chip claiming self-target+5000km: Valid={} (CAUGHT! CN exclusion={})",
+        rep7_smuggled.overall_valid,
+        rep7_smuggled
+            .geofence_evaluation
+            .as_ref()
+            .map(|g| g.restricted_exclusion_verified)
+            .unwrap_or(false)
+    );
+    println!("    Privacy-Preserving Lease: {lease_msg}\n");
+
+    // -----------------------------------------------------------------------
+    // SCENARIO 8: GPU PUF 2.9s Timing-Headroom Physics Audit (Tee & Happel arXiv:2605.01930v1)
+    // + Silent-Prover & Multi-Chip Cluster Rack-Divergence Detection
+    // -----------------------------------------------------------------------
+    let puf_epoch = *blake3::hash(b"epoch-gpu-puf-audit").as_bytes();
+    let puf_algo = GpuPufAlgorithm::AtomicAddSmRaceV1;
+    let puf_seed = compute_gpu_puf_challenge_seed(&tokyo_kp.public_key_bytes(), &puf_epoch, &puf_algo);
+    let puf_seed_hex = hex::encode(puf_seed);
+    let reference_set = vec![
+        GpuFingerprintReference {
+            gpu_uuid: "GPU-H100-TY2-001".into(),
+            algorithm: puf_algo.clone(),
+            challenge_seed_hex: puf_seed_hex.clone(),
+            registered_vectors: vec![
+                vec![1020, 4450, 8810, 1230, 6110, 7740, 3420, 9200],
+                vec![1035, 4460, 8790, 1245, 6100, 7725, 3410, 9215],
+            ],
+            max_l1_distance: 250.0,
+        },
+        GpuFingerprintReference {
+            gpu_uuid: "GPU-H100-OTHER-002".into(),
+            algorithm: puf_algo.clone(),
+            challenge_seed_hex: puf_seed_hex.clone(),
+            registered_vectors: vec![vec![5500, 1200, 3300, 8900, 1400, 2100, 7800, 4100]],
+            max_l1_distance: 250.0,
+        },
+    ];
+    let puf_ev = GpuPhysicalFingerprintEvidence {
+        algorithm: puf_algo,
+        gpu_uuid: "GPU-H100-TY2-001".into(),
+        challenge_seed_hex: puf_seed_hex,
+        run_vectors: vec![
+            vec![1025, 4455, 8800, 1235, 6105, 7735, 3418, 9205],
+            vec![1032, 4458, 8794, 1242, 6102, 7728, 3412, 9212],
+        ],
+        measured_compute_ms: 2_900.0,
+        max_compute_jitter_ms: 29.0, // 1% timing jitter on a 2.9s SM contention kernel
+        generated_at_unix_s: now,
+    };
+    let puf_rep = verify_gpu_physical_fingerprint(
+        &puf_ev,
+        &reference_set,
+        &tokyo_kp.public_key_bytes(),
+        &puf_epoch,
+    )?;
+    // Multi-chip cluster + rack divergence + silent prover detection on ContinuousGeoLog!
+    let mut cluster_policy = policy.clone();
+    cluster_policy.max_proof_age_seconds = 3_600 * 48;
+    let mut cluster_log = ContinuousGeoLog::new(grid.clone(), cluster_policy);
+    let rack_kp_a = WorkloadKeypair::generate();
+    let rack_kp_b = WorkloadKeypair::generate();
+    let rack_kp_smuggled = WorkloadKeypair::generate();
+    for (kp_x, loc_x, lbl) in [
+        (&rack_kp_a, tokyo, "rack-a"),
+        (&rack_kp_b, tokyo, "rack-b"),
+        (&rack_kp_smuggled, shanghai, "rack-smuggled"),
+    ] {
+        let bx = build_signed_bundle(
+            &grid,
+            &keys,
+            kp_x,
+            SimBundleSpec {
+                true_location: loc_x,
+                claimed_location: loc_x,
+                required_radius_km: 8_000.0,
+                epoch_label: lbl,
+                seq: 0,
+                prev_hash: None,
+                now_unix_s: now,
+                stretch: 1.30,
+                overhead_ms: 1.0,
+                colluding_anchor_override: None,
+            },
+        );
+        cluster_log.append_bundle(bx, now)?;
+    }
+    cluster_log.register_expected_cluster(
+        "tokyo-h100-rack-01",
+        vec![
+            rack_kp_a.public_key_hex(),
+            rack_kp_b.public_key_hex(),
+            rack_kp_smuggled.public_key_hex(),
+        ],
+    );
+    let cluster_rep = cluster_log.analyze_prover_clusters(1.5, 4, 5.0);
+    let silent_alerts = cluster_log.detect_silent_provers(now + 10_800, 3_600);
+    println!("[8] GPU PUF 2.9s RELAY-HEADROOM PHYSICS AUDIT + CLUSTER RACK-DIVERGENCE & SILENCE ALERTS");
+    println!(
+        "    GPU Silicon PUF Re-ID: matched={} (L1={:.1}, paired_runs={}) | 1% jitter on 2.9s kernel = {:.0} km vacuum relay headroom -> bounds_physical_relay_alone={}!",
+        puf_rep.matched_gpu_uuid, puf_rep.best_l1_distance, puf_rep.paired_runs_used, puf_rep.puf_timing_relay_headroom_km, puf_rep.bounds_physical_relay_alone
+    );
+    println!(
+        "    Multi-Chip Cluster Audit: detected_colocated_clusters={} | rack_divergence_alerts={} (caught smuggled rack member!) | silent_provers_after_3h={}",
+        cluster_rep.detected_clusters.len(),
+        cluster_rep.rack_divergence_alerts.len(),
+        silent_alerts.len()
+    );
 
     Ok(())
 }
@@ -980,28 +1328,108 @@ fn run_benchmarks(grid_path: &PathBuf, verify_iters: usize) -> Result<()> {
     Ok(())
 }
 
-fn run_verify(
-    grid_path: &PathBuf,
+fn load_geo_polygon(spec: &str) -> Result<GeoPolygon> {
+    if let Some(poly) = builtin_jurisdiction_polygon(spec) {
+        return Ok(poly);
+    }
+    let path = PathBuf::from(spec);
+    if path.exists() {
+        let raw = std::fs::read_to_string(&path)?;
+        return Ok(serde_json::from_str(&raw)?);
+    }
+    anyhow::bail!(
+        "unknown jurisdiction polygon '{spec}' (expected built-in code CN, RU, KALININGRAD, RU-KGD, US-CONUS, EU-CORE, JP or path to GeoPolygon JSON)"
+    );
+}
+
+struct VerifyArgs {
+    grid_path: PathBuf,
     bundle_json: Option<PathBuf>,
     header_value: Option<String>,
+    expected_location: Option<LatLon>,
+    max_radius_km: Option<f64>,
+    chip_registry: Option<PathBuf>,
+    exclude_anchor_country: Vec<String>,
+    allow_anchor_country: Vec<String>,
+    min_distinct_countries: usize,
+    restricted_polygon: Vec<String>,
+    allowed_polygon: Vec<String>,
     allow_dev_tee: bool,
-) -> Result<()> {
-    let grid = AnchorGrid::from_json_str(&std::fs::read_to_string(grid_path)?)?;
-    let bundle = if let Some(path) = bundle_json {
-        serde_json::from_str(&std::fs::read_to_string(path)?)?
-    } else if let Some(hdr) = header_value {
-        GeoProofBundle::from_header_value(&hdr)?
-    } else {
-        anyhow::bail!("Provide either --bundle-json or --header-value");
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_verification_policy(
+    allow_dev_tee: bool,
+    expected_location: Option<LatLon>,
+    max_radius_km: Option<f64>,
+    chip_registry_path: Option<PathBuf>,
+    exclude_anchor_country: Vec<String>,
+    allow_anchor_country: Vec<String>,
+    min_distinct_countries: usize,
+    restricted_polygon: &[String],
+    allowed_polygon: &[String],
+) -> Result<VerificationPolicy> {
+    let chip_registry = match chip_registry_path {
+        Some(p) => Some(serde_json::from_str::<ChipRegistry>(&std::fs::read_to_string(p)?)?),
+        None => None,
     };
-    let policy = VerificationPolicy {
+    let mut restricted_polygons = Vec::new();
+    for spec in restricted_polygon {
+        restricted_polygons.push(load_geo_polygon(spec)?);
+    }
+    let mut allowed_polygons = Vec::new();
+    for spec in allowed_polygon {
+        allowed_polygons.push(load_geo_polygon(spec)?);
+    }
+    let geofence = if restricted_polygons.is_empty() && allowed_polygons.is_empty() {
+        None
+    } else {
+        Some(GeofencePolicy {
+            allowed_polygons,
+            restricted_polygons,
+        })
+    };
+    Ok(VerificationPolicy {
         tee_policy: if allow_dev_tee {
             AttestationPolicy::allow_dev_software()
         } else {
             AttestationPolicy::production()
         },
+        expected_target_location: expected_location,
+        max_allowed_radius_km: max_radius_km,
+        chip_registry,
+        geofence,
+        excluded_anchor_countries: exclude_anchor_country,
+        allowed_anchor_countries: if allow_anchor_country.is_empty() {
+            None
+        } else {
+            Some(allow_anchor_country)
+        },
+        min_distinct_countries,
         ..Default::default()
+    })
+}
+
+fn run_verify(args: VerifyArgs) -> Result<()> {
+    let grid = AnchorGrid::from_json_str(&std::fs::read_to_string(&args.grid_path)?)?;
+    let bundle = if let Some(path) = args.bundle_json {
+        serde_json::from_str(&std::fs::read_to_string(path)?)?
+    } else if let Some(hdr) = args.header_value {
+        GeoProofBundle::from_header_value(&hdr)?
+    } else {
+        anyhow::bail!("Provide either --bundle-json or --header-value");
     };
+    let policy = build_verification_policy(
+        args.allow_dev_tee,
+        args.expected_location,
+        args.max_radius_km,
+        args.chip_registry,
+        args.exclude_anchor_country,
+        args.allow_anchor_country,
+        args.min_distinct_countries,
+        &args.restricted_polygon,
+        &args.allowed_polygon,
+    )?;
     let now = Utc::now().timestamp() as u64;
     let report = verify_proof_bundle(&bundle, &grid, &policy, now)?;
     println!("{}", serde_json::to_string_pretty(&report)?);
@@ -1009,6 +1437,132 @@ fn run_verify(
         std::process::exit(1);
     }
     Ok(())
+}
+
+fn run_lease_action(action: LeaseAction) -> Result<()> {
+    let now = Utc::now().timestamp().max(0) as u64;
+    match action {
+        LeaseAction::Issue {
+            grid,
+            key,
+            network_id,
+            bundle_json,
+            header_value,
+            expected_lat,
+            expected_lon,
+            max_radius_km,
+            exclude_anchor_country,
+            allow_anchor_country,
+            min_distinct_countries,
+            restricted_polygon,
+            allowed_polygon,
+            ttl_seconds,
+            out,
+            print_header,
+            allow_dev_tee,
+        } => {
+            let anchor_grid = AnchorGrid::from_json_str(&std::fs::read_to_string(&grid)?)?;
+            let issuer_sk = load_operator_key(&key)?;
+            let bundle = if let Some(path) = bundle_json {
+                serde_json::from_str(&std::fs::read_to_string(path)?)?
+            } else if let Some(hdr) = header_value {
+                GeoProofBundle::from_header_value(&hdr)?
+            } else {
+                anyhow::bail!("Provide either --bundle-json or --header-value");
+            };
+            let policy = build_verification_policy(
+                allow_dev_tee,
+                expected_lat.zip(expected_lon).map(|(la, lo)| LatLon::new(la, lo)),
+                max_radius_km,
+                None,
+                exclude_anchor_country,
+                allow_anchor_country,
+                min_distinct_countries,
+                &restricted_polygon,
+                &allowed_polygon,
+            )?;
+            let report = verify_proof_bundle(&bundle, &anchor_grid, &policy, now)?;
+            let allowed_ids: Vec<String> = policy
+                .geofence
+                .as_ref()
+                .map(|g| g.allowed_polygons.iter().map(|p| p.id.clone()).collect())
+                .unwrap_or_default();
+            let restricted_ids: Vec<String> = policy
+                .geofence
+                .as_ref()
+                .map(|g| g.restricted_polygons.iter().map(|p| p.id.clone()).collect())
+                .unwrap_or_default();
+            let lease = issue_coarse_jurisdiction_lease(
+                &bundle,
+                &report,
+                &issuer_sk,
+                network_id,
+                allowed_ids,
+                restricted_ids,
+                "tier1a_vacuum",
+                ttl_seconds,
+                !allow_dev_tee,
+                now,
+            )?;
+            let pretty = serde_json::to_string_pretty(&lease)?;
+            if let Some(out_path) = out {
+                std::fs::write(&out_path, &pretty)?;
+            }
+            if print_header {
+                println!("{}: {}", HTTP_HEADER_POG_LEASE, lease.to_header_value()?);
+            } else {
+                println!("{pretty}");
+            }
+            Ok(())
+        }
+        LeaseAction::Verify {
+            lease_json,
+            header_value,
+            pinned_issuer_pk,
+            expected_prover_pk,
+            require_allowed,
+            require_excluded,
+            elapsed_monotonic_seconds,
+            allow_dev_tee,
+        } => {
+            let lease: CoarseJurisdictionLease = if let Some(path) = lease_json {
+                serde_json::from_str(&std::fs::read_to_string(path)?)?
+            } else if let Some(hdr) = header_value {
+                CoarseJurisdictionLease::from_header_value(&hdr)?
+            } else {
+                anyhow::bail!("Provide either --lease-json or --header-value");
+            };
+            let res = lease.verify(
+                &pinned_issuer_pk,
+                expected_prover_pk.as_deref(),
+                require_allowed.as_deref(),
+                require_excluded.as_deref(),
+                !allow_dev_tee,
+                now,
+                elapsed_monotonic_seconds,
+            );
+            let out_json = json!({
+                "valid": res.is_ok(),
+                "error": res.as_ref().err().map(|e| e.to_string()),
+                "lease_id": lease.lease_id,
+                "issuer_network_id": lease.issuer_network_id,
+                "prover_pk_hex": lease.prover_pk_hex,
+                "gpu_uuid": lease.gpu_uuid,
+                "allowed_jurisdictions": lease.allowed_jurisdictions,
+                "excluded_restricted_regions": lease.excluded_restricted_regions,
+                "hardware_attested": lease.hardware_attested,
+                "distinct_clouds": lease.distinct_clouds,
+                "distinct_countries": lease.distinct_countries,
+                "expires_at_unix_s": lease.expires_at_unix_s,
+                "max_monotonic_lease_seconds": lease.max_monotonic_lease_seconds,
+            });
+            println!("{}", serde_json::to_string_pretty(&out_json)?);
+            if res.is_err() {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
+    }
 }
 
 struct VerifyInferenceArgs {
@@ -1793,9 +2347,14 @@ fn run_inspect_telemetry(
     Ok(())
 }
 
-/// Evaluate 4-quadrant surround & realistic calibrated/fiber localization precision on 20 global
-/// interior & border/coastal cities (comparing e.g. 72-node rim-surrounded grid vs 24-node starter).
-fn run_audit_coverage(grid_path: &PathBuf, baseline_path: Option<&PathBuf>) -> Result<()> {
+/// Evaluate 4-quadrant surround, realistic calibrated/fiber localization precision, and optional
+/// Brass & Aarne anti-smuggling polygon exclusion coverage (`min(||L - R||) > D`) across a Constellation.
+fn run_audit_coverage(
+    grid_path: &PathBuf,
+    baseline_path: Option<&PathBuf>,
+    restricted_polygon: Option<&str>,
+    exclude_anchor_countries: &[String],
+) -> Result<()> {
     let grid = AnchorGrid::from_json_str(&std::fs::read_to_string(grid_path)?)?;
     let baseline = match baseline_path {
         Some(p) => Some(AnchorGrid::from_json_str(&std::fs::read_to_string(p)?)?),
@@ -1942,6 +2501,97 @@ fn run_audit_coverage(grid_path: &PathBuf, baseline_path: Option<&PathBuf>) -> R
             "  SUMMARY (f=1 Byzantine): mean Calibrated = {:.1} mi | full 4/4 quadrant surround = {}/20 cities",
             sum72 / n,
             q4_72
+        );
+    }
+
+    if let Some(poly_spec) = restricted_polygon {
+        let poly = load_geo_polygon(poly_spec)?;
+        let anti_cities: &[(&str, f64, f64)] = &[
+            ("Tokyo, JP", 35.6762, 139.6503),
+            ("Osaka, JP", 34.6937, 135.5023),
+            ("Seoul, KR", 37.5665, 126.9780),
+            ("Taipei, TW", 25.0330, 121.5654),
+            ("Singapore, SG", 1.3521, 103.8198),
+            ("Sydney, AU", -33.8688, 151.2093),
+            ("Frankfurt, DE", 50.1109, 8.6821),
+            ("Warsaw, PL", 52.2297, 21.0122),
+            ("Stockholm, SE", 59.3293, 18.0686),
+            ("Helsinki, FI", 60.1699, 24.9384),
+            ("London, UK", 51.5074, -0.1278),
+            ("Ashburn, US", 39.0438, -77.4874),
+            ("San Jose, US", 37.3382, -121.8863),
+        ];
+        println!("\n==========================================================================================================");
+        println!(
+            "  BRASS & AARNE ANTI-SMUGGLING COVERAGE AUDIT: min(||L - R||) > D vs {} ({}) | Excluded Anchor Countries: {:?}",
+            poly.name, poly.id, exclude_anchor_countries
+        );
+        println!("==========================================================================================================");
+        println!(
+            "  {:<16} | {:>10} | {:>10} | {:>10} | {:>10} | {:>8} | {:>8}",
+            "Allied City", "Dist->R", "Vac D(f=1)", "Fib D(f=1)", "Vac Margin", "Vac Pass", "Fib Pass"
+        );
+        println!("----------------------------------------------------------------------------------------------------------");
+        let mut vac_pass = 0usize;
+        let mut fib_pass = 0usize;
+        let polys = vec![poly];
+        for &(cname, lat, lon) in anti_cities {
+            let target = LatLon::new(lat, lon);
+            let cfg = CommitteeConfig {
+                committee_size: 6,
+                min_cloud_providers: 2,
+                max_metro_anchors: 2,
+                metro_radius_km: 150.0,
+                max_regional_km: 7_500.0,
+                excluded_anchor_countries: exclude_anchor_countries.to_vec(),
+                ..Default::default()
+            };
+            let sel = select_committee(&grid, "anti_smuggle_audit", b"anti_smuggle_epoch_0000000000000", target, &cfg);
+            let make_disks = |tier: BoundTier| -> Vec<DiskConstraint> {
+                sel.selected
+                    .iter()
+                    .map(|a| {
+                        let d_km = target.distance_km(a.location);
+                        let rtt_s = (2.0 * d_km * 1.32 / C_FIBER_KM_PER_S) + 0.0008;
+                        let rtt_us = (rtt_s * 1e6).round().max(400.0) as u64;
+                        DiskConstraint::from_rtt(&a.anchor_id, a.location, rtt_us, tier, &a.cloud_provider)
+                    })
+                    .collect()
+            };
+            let f = if sel.selected.len() >= 4 { 1 } else { 0 };
+            let vac_r = pog_geo::verify_byzantine_core(&make_disks(BoundTier::Vacuum), f, target, f64::MAX, None)
+                .map(|r| r.proven_max_radius_km)
+                .unwrap_or(20_015.0);
+            let fib_r = pog_geo::verify_byzantine_core(&make_disks(BoundTier::Fiber), f, target, f64::MAX, None)
+                .map(|r| r.proven_max_radius_km)
+                .unwrap_or(20_015.0);
+            if let Some(cov) = evaluate_anti_smuggling_city_coverage(cname, target, vac_r, fib_r, &polys) {
+                if cov.vacuum_excludes_restricted {
+                    vac_pass += 1;
+                }
+                if cov.fiber_excludes_restricted {
+                    fib_pass += 1;
+                }
+                println!(
+                    "  {:<16} | {:7.0} km | {:7.0} km | {:7.0} km | {:+7.0} km | {:^8} | {:^8}",
+                    cov.city,
+                    cov.distance_to_restricted_km,
+                    cov.proven_vacuum_radius_km,
+                    cov.proven_fiber_radius_km,
+                    cov.vacuum_clearance_km,
+                    if cov.vacuum_excludes_restricted { "PASS" } else { "TOO CLOSE" },
+                    if cov.fiber_excludes_restricted { "PASS" } else { "TOO CLOSE" },
+                );
+            }
+        }
+        println!("----------------------------------------------------------------------------------------------------------");
+        println!(
+            "  ANTI-SMUGGLING SUMMARY: {}/{} cities provably exclude {} under hard Vacuum c0 (f=1); {}/{} under Fiber 1B.",
+            vac_pass,
+            anti_cities.len(),
+            polys[0].id,
+            fib_pass,
+            anti_cities.len(),
         );
     }
     Ok(())

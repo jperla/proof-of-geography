@@ -1,6 +1,7 @@
 pub mod bounds;
 pub mod byzantine;
 pub mod calibration;
+pub mod geofence;
 pub mod sphere;
 
 pub use bounds::{
@@ -12,9 +13,14 @@ pub use byzantine::{
     verify_byzantine_core, ByzantineCoreResult, DiskConstraint, GeoError,
 };
 pub use calibration::{
-    compute_spatial_likelihood, estimate_probabilistic_location, route_instability_spread_ms,
-    AnchorPairMeasurement, CalibrationAnomaly, CalibrationMatrix, CalibrationModel,
-    LikelihoodObservation, LikelihoodPeak, MovementAnomaly, MovementReport,
-    ProbabilisticGeoEstimate, SpatialLikelihoodConfig, SpatialLikelihoodSurface, TimedGeoSnapshot,
+    analyze_continuous_chain, analyze_continuous_chain_with_cadence, compute_spatial_likelihood,
+    estimate_probabilistic_location, route_instability_spread_ms, AnchorPairMeasurement,
+    CalibrationAnomaly, CalibrationMatrix, CalibrationModel, LikelihoodObservation, LikelihoodPeak,
+    MovementAnomaly, MovementReport, ProbabilisticGeoEstimate, SpatialLikelihoodConfig,
+    SpatialLikelihoodSurface, TimedGeoSnapshot,
+};
+pub use geofence::{
+    builtin_jurisdiction_polygon, evaluate_anti_smuggling_city_coverage, evaluate_geofence,
+    AntiSmugglingCityCoverage, GeoPolygon, GeofenceEvaluation, GeofencePolicy,
 };
 pub use sphere::{CompassQuadrant, LatLon, Vec3, EARTH_RADIUS_KM};

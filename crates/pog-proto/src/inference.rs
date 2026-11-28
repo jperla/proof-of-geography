@@ -1019,6 +1019,7 @@ mod tests {
             spdm_session_transcript_hash_hex: Some(transcript_hex.into()),
             protected_channel_id: Some(payload.protected_channel_id),
             evidence: Some(ev),
+            physical_fingerprint: None,
         };
         (binding, root_fp)
     }
@@ -1155,6 +1156,7 @@ mod tests {
                     cloud_provider: "aws".into(),
                     region: "us-east-1".into(),
                     city: "Ashburn, VA".into(),
+                    country_code: Some("US".into()),
                     tee_vendor: TeeVendor::AwsNitro,
                     instance_type: "c6a.xlarge".into(),
                     location: LatLon::new(39.0438, -77.4874),
@@ -1172,6 +1174,7 @@ mod tests {
                     cloud_provider: "gcp".into(),
                     region: "us-east4".into(),
                     city: "Ashburn, VA".into(),
+                    country_code: Some("US".into()),
                     tee_vendor: TeeVendor::IntelTdx,
                     instance_type: "c3-standard-4".into(),
                     location: LatLon::new(39.0438, -77.4874),

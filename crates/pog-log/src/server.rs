@@ -1,6 +1,6 @@
 use crate::chain::ContinuousGeoLog;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::Html,
     routing::{get, post},
@@ -21,6 +21,11 @@ struct VerifyHeaderRequest {
     header_value: String,
 }
 
+#[derive(Deserialize)]
+struct SilenceQuery {
+    max_silence_seconds: Option<u64>,
+}
+
 /// Build lightweight DNS / Certificate Transparency style public HTTP API + Interactive Web Playground.
 pub fn build_router(state: SharedLog) -> Router {
     Router::new()
@@ -32,6 +37,8 @@ pub fn build_router(state: SharedLog) -> Router {
         .route("/v1/attestations", post(post_attestation))
         .route("/v1/provers/:prover_id/latest", get(get_prover_latest))
         .route("/v1/provers/:prover_id/history", get(get_prover_history))
+        .route("/v1/anomalies/silent", get(get_silent_provers))
+        .route("/v1/clusters", get(get_clusters))
         .with_state(state)
 }
 
@@ -101,4 +108,27 @@ async fn get_prover_history(
 ) -> Json<serde_json::Value> {
     let guard = log.read().unwrap();
     Json(serde_json::to_value(guard.prover_history(&prover_id)).unwrap_or_default())
+}
+
+async fn get_silent_provers(
+    State(log): State<SharedLog>,
+    Query(q): Query<SilenceQuery>,
+) -> Json<serde_json::Value> {
+    let now = Utc::now().timestamp().max(0) as u64;
+    let guard = log.read().unwrap();
+    let max_s = q
+        .max_silence_seconds
+        .unwrap_or(guard.max_heartbeat_cadence_seconds);
+    let alerts = guard.detect_silent_provers(now, max_s);
+    Json(json!({
+        "checked_at_unix_s": now,
+        "max_silence_seconds": max_s,
+        "silent_provers": alerts,
+    }))
+}
+
+async fn get_clusters(State(log): State<SharedLog>) -> Json<serde_json::Value> {
+    let guard = log.read().unwrap();
+    let report = guard.analyze_prover_clusters(1.5, 4, 5.0);
+    Json(serde_json::to_value(report).unwrap_or_default())
 }

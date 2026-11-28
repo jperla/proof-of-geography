@@ -1148,6 +1148,7 @@ mod tests {
                 cloud_provider: "gcp".into(),
                 region: "europe-west9".into(),
                 city: "Paris".into(),
+                country_code: Some("FR".into()),
                 tee_vendor: TeeVendor::IntelTdx,
                 instance_type: "c3-standard-4".into(),
                 location: LatLon::new(48.8566, 2.3522),

@@ -1,6 +1,6 @@
 use crate::bounds::{
     effective_radius_km_with_uncertainty, BoundTier, BoundUncertainty,
-    C_CALIBRATED_DEFAULT_KM_PER_S, C_VACUUM_KM_PER_S,
+    C_CALIBRATED_DEFAULT_KM_PER_S, C_FIBER_KM_PER_S, C_VACUUM_KM_PER_S,
 };
 use crate::byzantine::{regions_intersect, verify_byzantine_core, DiskConstraint};
 use crate::sphere::{LatLon, Vec3, EARTH_RADIUS_KM};
@@ -32,6 +32,15 @@ pub enum CalibrationAnomaly {
     SevereStretchAnomaly {
         from_anchor: String,
         to_anchor: String,
+        implied_velocity_km_per_s: f64,
+    },
+    /// Measured RTT beats standard silica optical fiber (`204,000 km/s`) while remaining below vacuum c0:
+    /// indicates hollow-core fiber, microwave/LEO vacuum laser ISL, coordinate mismatch, or clock drift.
+    ExceedsSilicaFiberSpeed {
+        from_anchor: String,
+        to_anchor: String,
+        geodesic_km: f64,
+        rtt_min_us: u64,
         implied_velocity_km_per_s: f64,
     },
 }
@@ -91,6 +100,15 @@ impl CalibrationMatrix {
 
             let rtt_s = (m.rtt_min_us as f64) * 1e-6;
             let implied_v = (2.0 * dist_km) / rtt_s;
+            if dist_km >= 150.0 && implied_v > C_FIBER_KM_PER_S * 1.02 {
+                anomalies.push(CalibrationAnomaly::ExceedsSilicaFiberSpeed {
+                    from_anchor: m.from_anchor.clone(),
+                    to_anchor: m.to_anchor.clone(),
+                    geodesic_km: dist_km,
+                    rtt_min_us: m.rtt_min_us,
+                    implied_velocity_km_per_s: implied_v,
+                });
+            }
             if implied_v < 25_000.0 {
                 anomalies.push(CalibrationAnomaly::SevereStretchAnomaly {
                     from_anchor: m.from_anchor.clone(),
@@ -165,6 +183,32 @@ pub enum MovementAnomaly {
         previous_radius_km: f64,
         current_radius_km: f64,
     },
+    /// Missing heartbeat / reporting silence exceeding expected cadence (Brass & Aarne p. 8/11 blocking attack).
+    ContinuityGapDetected {
+        from_seq: u64,
+        to_seq: u64,
+        gap_seconds: u64,
+        max_expected_cadence_seconds: u64,
+    },
+    /// Sudden per-Anchor RTT baseline shift even while Vacuum c0 outer caps still overlap
+    /// (catches short-range 100-300 km moves such as Kaliningrad <-> Gdansk; Lennart Heim / Brass & Aarne p. 8).
+    BaselineLatencyShiftDetected {
+        seq: u64,
+        shifted_anchor_count: usize,
+        total_common_anchors: usize,
+        median_abs_shift_ms: f64,
+        max_shift_anchor_id: String,
+        max_shift_ms: f64,
+    },
+    /// Simultaneous RTT inflation across almost all Anchors (Gill et al. 2010 / Brass & Aarne p. 22-23
+    /// universal delay-inflation attempt to widen feasible circles over an adjacent allowed city).
+    UniversalDelayInflationSuspected {
+        seq: u64,
+        inflated_anchor_count: usize,
+        total_common_anchors: usize,
+        min_inflation_ms: f64,
+        median_inflation_ms: f64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,14 +225,26 @@ pub struct MovementReport {
     pub anomalies: Vec<MovementAnomaly>,
 }
 
-/// Analyze a Prover's continuous hourly chain to:
-/// 1. Detect physical hardware relocation (mobile datacenter on a boat, aircraft, or truck).
-/// 2. When stationary, fuse the minimum-RTT envelope across hours from 3-4 orthogonal directions
-///    to produce an increasingly tight, high-confidence proven geography bound!
+/// Analyze a Prover's continuous hourly chain (default expected max cadence: 2 hours = 7,200 s).
 pub fn analyze_continuous_chain(
     snapshots: &[TimedGeoSnapshot],
     max_byzantine: usize,
     tier: BoundTier,
+) -> MovementReport {
+    analyze_continuous_chain_with_cadence(snapshots, max_byzantine, tier, 7_200)
+}
+
+/// Analyze a Prover's continuous chain with explicit maximum expected heartbeat cadence (`max_cadence_seconds`):
+/// 1. Detect physical hardware relocation (disjoint feasible regions).
+/// 2. Detect reporting silence / continuity gaps (`ContinuityGapDetected`).
+/// 3. Detect subtle per-Anchor RTT baseline shifts (`BaselineLatencyShiftDetected`) and
+///    universal delay-inflation attacks (`UniversalDelayInflationSuspected`) even before regions become disjoint.
+/// 4. When stationary, fuse the minimum-RTT envelope across hours from orthogonal directions.
+pub fn analyze_continuous_chain_with_cadence(
+    snapshots: &[TimedGeoSnapshot],
+    max_byzantine: usize,
+    tier: BoundTier,
+    max_cadence_seconds: u64,
 ) -> MovementReport {
     if snapshots.is_empty() {
         return MovementReport {
@@ -203,12 +259,18 @@ pub fn analyze_continuous_chain(
 
     let mut anomalies = Vec::new();
     let baseline = &snapshots[0];
+    let baseline_rtts: HashMap<&str, u64> = baseline
+        .disks
+        .iter()
+        .map(|d| (d.anchor_id.as_str(), d.rtt_min_us))
+        .collect();
 
     for pair in snapshots.windows(2) {
         let prev = &pair[0];
         let curr = &pair[1];
 
-        // Check both consecutive disjointness AND drift from the baseline anchor point.
+        // 1. Check both consecutive disjointness AND drift from the baseline anchor point FIRST
+        //    (highest-severity anomaly always leads `anomalies`).
         let disjoint_prev = !regions_intersect(&prev.disks, &curr.disks);
         let disjoint_base = !regions_intersect(&baseline.disks, &curr.disks);
 
@@ -224,13 +286,89 @@ pub fn analyze_continuous_chain(
                 centroid_displacement_km: disp_km,
                 implied_speed_km_per_h: speed_kmh,
             });
-        } else if curr.proven_radius_km > prev.proven_radius_km * 2.5
-            && (curr.proven_radius_km - prev.proven_radius_km) > 300.0
-        {
-            anomalies.push(MovementAnomaly::MobileLinkJitterJump {
-                seq: curr.seq,
-                previous_radius_km: prev.proven_radius_km,
-                current_radius_km: curr.proven_radius_km,
+        } else {
+            if curr.proven_radius_km > prev.proven_radius_km * 2.5
+                && (curr.proven_radius_km - prev.proven_radius_km) > 300.0
+            {
+                anomalies.push(MovementAnomaly::MobileLinkJitterJump {
+                    seq: curr.seq,
+                    previous_radius_km: prev.proven_radius_km,
+                    current_radius_km: curr.proven_radius_km,
+                });
+            }
+
+            // 2. Compare per-Anchor min-RTTs against baseline to catch subtle short-range moves
+            //    (e.g., 100-300 km within overlapping Vacuum c0 caps) AND universal delay inflation!
+            let mut signed_deltas_ms: Vec<(String, f64)> = Vec::new();
+            for d in &curr.disks {
+                if let Some(&base_us) = baseline_rtts.get(d.anchor_id.as_str()) {
+                    let delta_ms = (d.rtt_min_us as f64 - base_us as f64) * 1e-3;
+                    signed_deltas_ms.push((d.anchor_id.clone(), delta_ms));
+                }
+            }
+            let common_n = signed_deltas_ms.len();
+            if common_n >= 3 {
+                // Universal delay inflation check: >= 80% of common anchors inflated by >= +2.0 ms simultaneously.
+                let inflated: Vec<f64> = signed_deltas_ms
+                    .iter()
+                    .filter_map(|(_, dt)| if *dt >= 2.0 { Some(*dt) } else { None })
+                    .collect();
+                if inflated.len() * 5 >= common_n * 4 && inflated.len() >= 3 {
+                    let mut inf_sorted = inflated.clone();
+                    inf_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                    let min_inf = inf_sorted[0];
+                    let med_inf = inf_sorted[inf_sorted.len() / 2];
+                    anomalies.push(MovementAnomaly::UniversalDelayInflationSuspected {
+                        seq: curr.seq,
+                        inflated_anchor_count: inflated.len(),
+                        total_common_anchors: common_n,
+                        min_inflation_ms: min_inf,
+                        median_inflation_ms: med_inf,
+                    });
+                } else {
+                    // Directional/baseline shift check: >= 50% of common anchors shifted by >= 2.0 ms
+                    // (e.g., some got closer and some got farther -> short-range physical relocation!).
+                    let shifted: Vec<(&String, f64)> = signed_deltas_ms
+                        .iter()
+                        .filter(|(_, dt)| dt.abs() >= 2.0)
+                        .map(|(id, dt)| (id, *dt))
+                        .collect();
+                    if shifted.len() * 2 >= common_n && shifted.len() >= 2 {
+                        let mut abs_vals: Vec<f64> =
+                            signed_deltas_ms.iter().map(|(_, dt)| dt.abs()).collect();
+                        abs_vals
+                            .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                        let med_abs = abs_vals[abs_vals.len() / 2];
+                        let (max_id, max_dt) = shifted
+                            .iter()
+                            .max_by(|a, b| {
+                                a.1.abs()
+                                    .partial_cmp(&b.1.abs())
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            })
+                            .map(|(id, dt)| ((*id).clone(), *dt))
+                            .unwrap_or_else(|| (String::new(), 0.0));
+                        anomalies.push(MovementAnomaly::BaselineLatencyShiftDetected {
+                            seq: curr.seq,
+                            shifted_anchor_count: shifted.len(),
+                            total_common_anchors: common_n,
+                            median_abs_shift_ms: med_abs,
+                            max_shift_anchor_id: max_id,
+                            max_shift_ms: max_dt,
+                        });
+                    }
+                }
+            }
+        }
+
+        // 3. Check reporting cadence silence / blocking gaps (Brass & Aarne p. 8 / p. 11).
+        let gap_s = curr.timestamp_unix_s.saturating_sub(prev.timestamp_unix_s);
+        if max_cadence_seconds > 0 && gap_s > max_cadence_seconds {
+            anomalies.push(MovementAnomaly::ContinuityGapDetected {
+                from_seq: prev.seq,
+                to_seq: curr.seq,
+                gap_seconds: gap_s,
+                max_expected_cadence_seconds: max_cadence_seconds,
             });
         }
     }
@@ -1243,5 +1381,100 @@ mod tests {
         assert!(s_slow.vacuum_outer_area_km2 >= s_tight.vacuum_outer_area_km2);
         assert!(s_tail.vacuum_outer_area_km2 >= s_tight.vacuum_outer_area_km2 * 0.99);
         assert!(s_multi.vacuum_outer_area_km2 >= s_tight.vacuum_outer_area_km2 * 0.99);
+    }
+
+    #[test]
+    fn test_fast_path_silica_fiber_exceeded_anomaly() {
+        // Chicago <-> NYC is ~1,146 km.
+        // Ideal silica fiber min RTT = 2 * 1146 / 204,000 = 11.24 ms.
+        // Microwave / hollow-core dark fiber (e.g. 265,000 km/s) gives ~8.65 ms:
+        // slower than vacuum (7.64 ms) so physically possible, yet strictly faster than standard silica fiber!
+        let mut mat = CalibrationMatrix::new();
+        mat.record(AnchorPairMeasurement {
+            from_anchor: "chi".into(),
+            from_location: LatLon::new(41.8781, -87.6298),
+            to_anchor: "nyc".into(),
+            to_location: LatLon::new(40.7128, -74.0060),
+            rtt_min_us: 8_650,
+            measured_at_unix_s: 1_700_000_000,
+        });
+        let model = mat.analyze();
+        assert!(
+            model
+                .anomalies
+                .iter()
+                .any(|a| matches!(a, CalibrationAnomaly::ExceedsSilicaFiberSpeed { .. })),
+            "Expected ExceedsSilicaFiberSpeed anomaly, got {:?}",
+            model.anomalies
+        );
+        assert!(
+            !model
+                .anomalies
+                .iter()
+                .any(|a| matches!(a, CalibrationAnomaly::SpeedOfLightViolation { .. })),
+            "8.65 ms over 1,146 km is slower than vacuum c0, must not trip SpeedOfLightViolation"
+        );
+    }
+
+    #[test]
+    fn test_continuity_gap_baseline_shift_and_universal_delay_inflation() {
+        let target = LatLon::new(39.0438, -77.4874);
+        let mk_snap = |seq: u64, ts: u64, rtts: [u64; 4]| -> TimedGeoSnapshot {
+            let anchors = [
+                ("a1", LatLon::new(39.04, -77.48), "aws"),
+                ("a2", LatLon::new(40.71, -74.00), "gcp"),
+                ("a3", LatLon::new(32.77, -96.79), "azure"),
+                ("a4", LatLon::new(41.88, -87.63), "aws"),
+            ];
+            let disks = anchors
+                .iter()
+                .zip(rtts.iter())
+                .map(|((id, loc, cloud), &rtt)| {
+                    DiskConstraint::from_rtt(*id, *loc, rtt, BoundTier::Vacuum, *cloud)
+                })
+                .collect();
+            TimedGeoSnapshot {
+                seq,
+                timestamp_unix_s: ts,
+                target,
+                centroid: target,
+                proven_radius_km: 500.0,
+                disks,
+            }
+        };
+
+        // 1. Universal delay inflation (+4.5 ms on ALL 4 anchors) + cadence gap (10,800s > 3,600s).
+        let s0 = mk_snap(0, 1_700_000_000, [1_500, 7_000, 25_000, 18_000]);
+        let s1 = mk_snap(1, 1_700_010_800, [6_000, 11_500, 29_500, 22_500]);
+        let rep_inf = analyze_continuous_chain_with_cadence(&[s0.clone(), s1], 1, BoundTier::Vacuum, 3_600);
+        assert!(
+            rep_inf
+                .anomalies
+                .iter()
+                .any(|a| matches!(a, MovementAnomaly::UniversalDelayInflationSuspected { inflated_anchor_count: 4, .. })),
+            "Expected UniversalDelayInflationSuspected, got {:?}",
+            rep_inf.anomalies
+        );
+        assert!(
+            rep_inf
+                .anomalies
+                .iter()
+                .any(|a| matches!(a, MovementAnomaly::ContinuityGapDetected { gap_seconds: 10_800, .. })),
+            "Expected ContinuityGapDetected, got {:?}",
+            rep_inf.anomalies
+        );
+
+        // 2. Subtle directional baseline shift (2 anchors closer by -3ms, 2 anchors farther by +3ms):
+        // feasible cores still overlap, yet BaselineLatencyShiftDetected catches short-range relocation!
+        let s2 = mk_snap(1, 1_700_001_800, [4_500, 4_000, 28_000, 15_000]);
+        let rep_shift = analyze_continuous_chain_with_cadence(&[s0, s2], 1, BoundTier::Vacuum, 3_600);
+        assert!(
+            rep_shift
+                .anomalies
+                .iter()
+                .any(|a| matches!(a, MovementAnomaly::BaselineLatencyShiftDetected { .. })),
+            "Expected BaselineLatencyShiftDetected, got {:?}",
+            rep_shift.anomalies
+        );
     }
 }

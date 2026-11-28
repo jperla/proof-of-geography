@@ -26,6 +26,17 @@ pub enum TelemetryAlert {
         hint_city: String,
         distance_from_target_km: f64,
     },
+    /// Measured RTT implies propagation speed exceeding standard silica optical fiber (`204,000 km/s`)
+    /// or significantly beating calibrated internet corridors (Brass & Aarne pp. 23-25, 31):
+    /// flags dark fiber, hollow-core fiber, microwave, LEO vacuum laser ISL, or Anchor clock drift
+    /// for compliance investigation without causing false exclusions under Tier 1A Vacuum c0.
+    FastPathAnomalyDetected {
+        anchor_id: String,
+        geodesic_km: f64,
+        rtt_ms: f64,
+        implied_velocity_km_per_s: f64,
+        classification: String,
+    },
 }
 
 /// Combined IPinfo-style multi-layered diagnostic & Tier-2 confidence radius output.
@@ -100,6 +111,34 @@ pub fn fuse_ipinfo_telemetry(
         }
     }
 
+    // 4. Dark-fiber / hollow-core / fast-path anomaly detection (Brass & Aarne pp. 23-25, 31):
+    //    Check whether any hard disk implies propagation faster than silica fiber (204,000 km/s)
+    //    or faster than typical routed internet (>178,000 km/s over >= 250 km).
+    for d in hard_disks {
+        let dist_km = d.anchor_location.distance_km(target);
+        if dist_km >= 150.0 && d.rtt_min_us > 0 {
+            let rtt_ms = (d.rtt_min_us as f64) * 1e-3;
+            let implied_v = (2.0 * dist_km) / (rtt_ms * 1e-3);
+            if implied_v > pog_geo::C_FIBER_KM_PER_S * 1.02 {
+                alerts.push(TelemetryAlert::FastPathAnomalyDetected {
+                    anchor_id: d.anchor_id.clone(),
+                    geodesic_km: dist_km,
+                    rtt_ms,
+                    implied_velocity_km_per_s: implied_v,
+                    classification: "beats_silica_fiber_dark_or_hollow_core_or_isl".into(),
+                });
+            } else if dist_km >= 250.0 && implied_v > 178_000.0 {
+                alerts.push(TelemetryAlert::FastPathAnomalyDetected {
+                    anchor_id: d.anchor_id.clone(),
+                    geodesic_km: dist_km,
+                    rtt_ms,
+                    implied_velocity_km_per_s: implied_v,
+                    classification: "beats_routed_internet_dark_fiber_suspected".into(),
+                });
+            }
+        }
+    }
+
     let proxy_or_router_lie_suspected = alerts.iter().any(|a| {
         matches!(
             a,
@@ -159,5 +198,21 @@ mod tests {
             .alerts
             .iter()
             .any(|a| matches!(a, TelemetryAlert::LastHopProxyJump { .. })));
+    }
+
+    #[test]
+    fn test_flags_dark_fiber_or_hollow_core_fast_path_anomaly() {
+        // Ashburn <-> Frankfurt (~6,550 km): silica fiber min RTT = 64.2 ms; vacuum min = 43.7 ms.
+        // A 50.0 ms RTT implies ~262,000 km/s (> 204k km/s silica fiber -> hollow-core / ISL / dark-fiber alert!).
+        let ashburn = LatLon::new(39.0438, -77.4874);
+        let frankfurt = LatLon::new(50.1109, 8.6821);
+        let d_fra = DiskConstraint::from_rtt("gcp-fra", frankfurt, 50_000, BoundTier::Vacuum, "gcp");
+        let core = verify_byzantine_core(std::slice::from_ref(&d_fra), 0, ashburn, 9000.0, Some(ashburn)).unwrap();
+        let assessment = fuse_ipinfo_telemetry(ashburn, &core, &core, &[d_fra], None, &[], 50.0);
+        assert!(assessment.alerts.iter().any(|a| matches!(
+            a,
+            TelemetryAlert::FastPathAnomalyDetected { classification, .. }
+            if classification == "beats_silica_fiber_dark_or_hollow_core_or_isl"
+        )));
     }
 }

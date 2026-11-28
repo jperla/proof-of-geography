@@ -80,6 +80,10 @@ pub struct AnchorDescriptor {
     /// rosters but MUST NEVER enter the production hardware proof quorum.
     #[serde(default, skip_serializing_if = "is_false")]
     pub diagnostic_only: bool,
+    /// Optional ISO 3166-1 alpha-2 country code (e.g., "US", "DE", "JP", "HK", "AE") for
+    /// verifier-side "striking distance" jurisdiction filtering and multi-country quorum policies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub country_code: Option<String>,
     /// Separate audited physical location provenance (never conflated with TEE attestation).
     #[serde(default)]
     pub coordinate_basis: Option<CoordinateBasis>,
@@ -103,6 +107,87 @@ impl AnchorDescriptor {
     pub fn is_production_hardware_tee(&self) -> bool {
         !self.diagnostic_only && self.tee_vendor.is_production_hardware_tee()
     }
+
+    /// Return the normalized uppercase ISO 3166-1 alpha-2 country code for this Anchor,
+    /// using explicit `country_code` when set or inferring conservatively from `city` / `region`.
+    pub fn effective_country_code(&self) -> Option<String> {
+        if let Some(ref cc) = self.country_code {
+            let norm = cc.trim().to_ascii_uppercase();
+            if !norm.is_empty() {
+                return Some(norm);
+            }
+        }
+        infer_country_code_from_city_or_region(&self.city, &self.region)
+    }
+}
+
+/// Conservative ISO-2 country inference for legacy grid descriptors lacking explicit `country_code`.
+pub fn infer_country_code_from_city_or_region(city: &str, region: &str) -> Option<String> {
+    let c = city.to_ascii_lowercase();
+    let r = region.to_ascii_lowercase();
+    let table: &[(&str, &str)] = &[
+        ("usa", "US"),
+        ("united states", "US"),
+        ("canada", "CA"),
+        ("mexico", "MX"),
+        ("brazil", "BR"),
+        ("chile", "CL"),
+        ("panama", "PA"),
+        ("puerto rico", "PR"),
+        (", uk", "GB"),
+        ("united kingdom", "GB"),
+        ("ireland", "IE"),
+        ("france", "FR"),
+        ("germany", "DE"),
+        ("netherlands", "NL"),
+        ("switzerland", "CH"),
+        ("spain", "ES"),
+        ("portugal", "PT"),
+        ("italy", "IT"),
+        ("sweden", "SE"),
+        ("norway", "NO"),
+        ("finland", "FI"),
+        ("poland", "PL"),
+        ("romania", "RO"),
+        ("greece", "GR"),
+        ("iceland", "IS"),
+        ("faroe", "FO"),
+        ("turkey", "TR"),
+        ("israel", "IL"),
+        ("uae", "AE"),
+        ("qatar", "QA"),
+        ("south africa", "ZA"),
+        ("morocco", "MA"),
+        ("egypt", "EG"),
+        ("kazakhstan", "KZ"),
+        ("russia", "RU"),
+        ("india", "IN"),
+        ("singapore", "SG"),
+        ("indonesia", "ID"),
+        ("hong kong", "HK"),
+        ("taiwan", "TW"),
+        ("south korea", "KR"),
+        ("korea", "KR"),
+        ("japan", "JP"),
+        ("australia", "AU"),
+        ("new zealand", "NZ"),
+        ("china", "CN"),
+    ];
+    for &(needle, code) in table {
+        if c.contains(needle) {
+            return Some(code.to_string());
+        }
+    }
+    if r.starts_with("us-") || r.contains("eastus") || r.contains("westus") || r.contains("centralus") {
+        return Some("US".into());
+    }
+    if r.starts_with("ca-") || r.contains("canada") {
+        return Some("CA".into());
+    }
+    if r.contains("hongkong") || r == "ap-east-1" {
+        return Some("HK".into());
+    }
+    None
 }
 
 /// Top-level JSON Anchor registry (DNS-style public grid configuration).
@@ -150,6 +235,12 @@ pub struct CommitteeConfig {
     /// Fail-closed default: exclude `SoftwareDev` anchors from committee selection unless dev mode enabled.
     #[serde(default)]
     pub allow_software_dev_anchors: bool,
+    /// Optional ISO-2 country codes to exclude ("striking distance" defense, Brass & Aarne p. 26–27).
+    #[serde(default)]
+    pub excluded_anchor_countries: Vec<String>,
+    /// Optional ISO-2 country allowlist (if Some and non-empty, ONLY anchors in these countries may join).
+    #[serde(default)]
+    pub allowed_anchor_countries: Option<Vec<String>>,
 }
 
 impl Default for CommitteeConfig {
@@ -161,6 +252,8 @@ impl Default for CommitteeConfig {
             metro_radius_km: 150.0,
             max_regional_km: 5_500.0,
             allow_software_dev_anchors: false,
+            excluded_anchor_countries: Vec::new(),
+            allowed_anchor_countries: None,
         }
     }
 }
@@ -201,6 +294,27 @@ pub fn select_committee(
         .anchors
         .iter()
         .filter(|a| cfg.allow_software_dev_anchors || a.is_production_hardware_tee())
+        .filter(|a| {
+            let cc = a.effective_country_code();
+            if let Some(ref code) = cc {
+                if cfg
+                    .excluded_anchor_countries
+                    .iter()
+                    .any(|ex| ex.eq_ignore_ascii_case(code))
+                {
+                    return false;
+                }
+            }
+            if let Some(ref allow) = cfg.allowed_anchor_countries {
+                if !allow.is_empty() {
+                    return cc
+                        .as_deref()
+                        .map(|code| allow.iter().any(|al| al.eq_ignore_ascii_case(code)))
+                        .unwrap_or(false);
+                }
+            }
+            true
+        })
         .map(|a| {
             let d = claimed_location.distance_km(a.location);
             let q = claimed_location.quadrant_of(a.location);
@@ -362,6 +476,7 @@ mod tests {
                 failure_domain: None,
                 asn: None,
                 diagnostic_only: false,
+                country_code: Some("US".into()),
                 coordinate_basis: None,
             }],
         };
@@ -397,6 +512,7 @@ mod tests {
                     failure_domain: Some("aws-us-west-2-hnl-1a/AS16509".into()),
                     asn: Some(16509),
                     diagnostic_only: true,
+                    country_code: Some("US".into()),
                     coordinate_basis: None,
                 },
                 AnchorDescriptor {
@@ -414,6 +530,7 @@ mod tests {
                     failure_domain: Some("vultr-hnl-drfortress/AS20473".into()),
                     asn: Some(20473),
                     diagnostic_only: true,
+                    country_code: Some("US".into()),
                     coordinate_basis: None,
                 },
             ],

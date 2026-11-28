@@ -129,6 +129,12 @@ flowchart LR
 * **Exact $O(K^3)$ Byzantine $(K-f)$-Core Geometry on $\mathbb{S}^2$:** Upper-bound disks (never thin rings, so artificial delay only *weakens* a proof) are intersected as 3D spherical half-spaces. Even if up to $f$ Anchors collude and fabricate `0.3 ms` RTTs, verifying all at most $K^2 + 1 = 37$ boundary extrema mathematically proves 100% of the feasible region lies inside the geofence.
 * **Continuous Hourly Chains + Handshake Proofs (Anti-Boat / Anti-Plane / Mobile DC):** Never attest once—hardware can be attested in port and moved onto a ship, truck, or aircraft. Provers attach fresh `X-PoG-Proof` bundles to connection handshakes **and** append continuous hourly hash-chained proofs to a DNS / Certificate Transparency–style signed Merkle log (`pog-log`). Stationary datacenters tighten their proven radius by **>50%** over 24h via orthogonal minimum-RTT convergence, while any physical relocation triggers an immediate `PhysicalRelocationDetected` alert.
 * **Runs Free Like DNS (Blockchain Tabled):** No tokens, wallets, or per-proof gas fees are required. A global hardware Constellation runs as an ultra-cheap public utility, with optional Merkle-root anchoring documented in [docs/BLOCKCHAIN_EXTENSION.md](docs/BLOCKCHAIN_EXTENSION.md).
+* **Export-Control, Anti-Smuggling & Privacy Extensions (Brass & Aarne 2024; Tee & Happel 2026):**
+  * **Verifier-Enforced Target/Radius & `ChipRegistry`:** Overrides untrusted Prover self-claimed coordinates/radii and binds `prover_pk` / `gpu_uuid` to authorized facilities.
+  * **Negative Geofencing & "Striking Distance" Jurisdiction Filters:** Proves 0% overlap with restricted polygons (`CN`, `RU`, `KALININGRAD`, custom GeoJSON) and 100% containment inside allowed jurisdictions (`US-CONUS`, `EU-CORE`, `JP`), while excluding Anchors in sensitive jurisdictions (`--exclude-anchor-country HK`) across our 25-country live Constellation.
+  * **Silence, Delay-Inflation, Fast-Path & Rack-Divergence Telemetry:** Flags silent/blocked Provers (`/v1/anomalies/silent`), subtle baseline RTT shifts (`BaselineLatencyShiftDetected`), universal delay inflation (`UniversalDelayInflationSuspected`), hollow-core/dark-fiber shortcuts (`ExceedsSilicaFiberSpeed`), and smuggled rack members (`/v1/clusters`).
+  * **GPU Silicon PUF Extension with Relay-Headroom Physics Guard:** Supports seeded GPU PUF re-identification (`pog-tee::verify_gpu_physical_fingerprint`) while explicitly surfacing why a `2.9 s` SM `atomicAdd` PUF kernel with 1% jitter (`29 ms`) allows `~4,347 km` of vacuum relay headroom and therefore complements—never replaces—sub-ms UDP distance bounding.
+  * **Privacy-Preserving Coarse Jurisdiction Leases (`X-PoG-Lease`):** Issue and verify compact signed operating licenses (`pog-cli lease issue|verify`) proving jurisdiction compliance and enforcing on-chip monotonic countdown timers (`max_monotonic_lease_seconds`) with **zero** raw RTTs, IPs, or exact city coordinates revealed.
 
 ---
 
@@ -176,6 +182,8 @@ Run locally via `cargo run --release --bin pog-cli -- simulate`:
 | **4. Byzantine Colluding Anchor** *(1 of 6 fabricates `0.3 ms` RTT)* | **BLOCKED** | 5-of-6 Byzantine core rejects Singapore spoof (max distance **6,713 km**) |
 | **5. Mobile Datacenter / Relocation** *(Ashburn -> Frankfurt in 8h)* | **CAUGHT** | Disjoint feasible regions trigger `PhysicalRelocationDetected` (**6,544 km**, implied speed **818 km/h**) |
 | **6. 24-Hour Stationary Convergence** *(Chicago — no local anchor!)* | **CONVERGED** | 4-direction orthogonal hourly chain cuts Tier 1B radius from `1,785 km` -> **835 km (53.2% tighter)** |
+| **7. Anti-Smuggling Geofence, Country Filter & Coarse Lease** *(Tokyo vs Shanghai, `HK`/`CN`/`RU` Anchors excluded)* | **ENFORCED** | Honest Tokyo passes `CN` exclusion + mints privacy-preserving `X-PoG-Lease` (on-chip monotonic timer locks on expiry); smuggled Shanghai chip claiming self-target + `5,000 km` is **CAUGHT** by `ChipRegistry` + `CN` polygon |
+| **8. GPU Silicon PUF Relay-Headroom Audit + Cluster Rack-Divergence & Silence** | **AUDITED** | Paired PUF re-identifies H100 silicon (`L1=22.0`), flags `29 ms = 4,347 km` vacuum relay headroom (`bounds_physical_relay_alone=false`); `ContinuousGeoLog` catches smuggled rack member & silent provers |
 
 ---
 
@@ -259,9 +267,17 @@ cargo run --release --bin pog-cli -- demo-client https://llm.proofofgeography.co
   --expected-image-digest sha256:40f18f8f8cc6358c749203838991252f8eb2b01a7a1518514ed93eb7977e8442 \
   --require-geo-quorum
 
-# 3. Run the 6-scenario red-team simulation & 72-node border-city GDOP audit
+# 3. Run the 8-scenario red-team simulation & border-city / anti-smuggling GDOP audits
 cargo run --release --bin pog-cli -- simulate
 cargo run --release --bin pog-cli -- audit-coverage --grid config/global_grid_72.json --baseline-grid config/global_grid_24.json
+cargo run --release --bin pog-cli -- audit-coverage --grid config/public_anchors.json --restricted-polygon CN --exclude-anchor-country HK
+
+# 3b. Enforce negative geofencing, striking-distance Anchor exclusion & issue/verify privacy-preserving X-PoG-Lease
+cargo run --release --bin pog-cli -- verify --grid config/public_anchors.json --bundle-json bundle.json \
+  --restricted-polygon CN --exclude-anchor-country HK --min-distinct-countries 2 --max-radius-km 600
+cargo run --release --bin pog-cli -- lease verify --lease-json lease.json \
+  --pinned-issuer-pk fdff6d6d0b8364e459ffbb921430e39411bd812ec3ce766c2904b39bfa996ee1 \
+  --require-excluded CN --elapsed-monotonic-seconds 120
 
 # 4. Run the drop-in Prover TEE reverse-proxy sidecar (auto-injects X-PoG-Proof on every API response)
 cargo run --release --bin pog-prover -- --grid-path config/public_anchors.json \
