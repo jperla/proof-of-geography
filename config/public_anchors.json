@@ -16,7 +16,7 @@
       },
       "endpoint_tcp": "13.245.77.91:7443",
       "endpoint_udp": "13.245.77.91:7444",
-      "public_key_hex": "88ed0682f5a80cc1451afbe51dd7e316c1538fbe12645bc23d7a00849a27f4da"
+      "public_key_hex": "222748ef8b32b79d9ece365f4f45f8d98b850989f4f93d9023cca253535c550d"
     },
     {
       "anchor_id": "aws-ap-east-1-hongkong",
@@ -31,7 +31,7 @@
       },
       "endpoint_tcp": "95.40.73.70:7443",
       "endpoint_udp": "95.40.73.70:7444",
-      "public_key_hex": "21060256b7a7da3ef7c2cca79aac43f5e84c589b960f12141527ff50c43f1750"
+      "public_key_hex": "0062e17b36cd5156a58e821d5deadab80b0151d28e0dbda90d04b1506778e852"
     },
     {
       "anchor_id": "aws-ap-northeast-1-tokyo",
@@ -46,7 +46,7 @@
       },
       "endpoint_tcp": "3.112.66.164:7443",
       "endpoint_udp": "3.112.66.164:7444",
-      "public_key_hex": "d7e716f97dfb5cbbbc1d088b8679fb965690b4abfa80b0741df5294c931ebf6b"
+      "public_key_hex": "64cdb99abc5476bcfa1186e4766dac5c347fc5582d8d9983f0ad7e8339d19f12"
     },
     {
       "anchor_id": "aws-ap-northeast-2-seoul",
@@ -61,7 +61,7 @@
       },
       "endpoint_tcp": "3.36.64.107:7443",
       "endpoint_udp": "3.36.64.107:7444",
-      "public_key_hex": "5be3743df92aa976a8086e0305a45fe8daaa25c9ef889eadd35e0999d48c56b3"
+      "public_key_hex": "75661a65a4a22f789ecb0ec5b2934d10f84fce2e5a407aa7bd6919ac0792f86a"
     },
     {
       "anchor_id": "aws-ap-northeast-3-osaka",
@@ -76,7 +76,7 @@
       },
       "endpoint_tcp": "15.168.131.118:7443",
       "endpoint_udp": "15.168.131.118:7444",
-      "public_key_hex": "f43b1c72b35a0a038af4fa49c34da078025c800c821c0a0ec9c25cf9b6a0d67e"
+      "public_key_hex": "f47275b4bcc11e025afe4185355db4a75d2c8f9c620eca52e1c1a23cf7b8df64"
     },
     {
       "anchor_id": "aws-ap-south-1-mumbai",
@@ -91,7 +91,7 @@
       },
       "endpoint_tcp": "13.200.224.172:7443",
       "endpoint_udp": "13.200.224.172:7444",
-      "public_key_hex": "ae3bd7cf2f682f6453d866cfd7337f066f7111f3da8140173e69dd3e3274cd9c"
+      "public_key_hex": "470c9be61cf2a2f94e5039e2305667d4ead9ccfbe05f6af6ca5f93a5869ffe9f"
     },
     {
       "anchor_id": "aws-ap-southeast-1-singapore",
@@ -106,7 +106,7 @@
       },
       "endpoint_tcp": "13.212.123.78:7443",
       "endpoint_udp": "13.212.123.78:7444",
-      "public_key_hex": "700b09a09b4dd5e60f9b5deb8add4506685b49a2536cbe4acf197170af0ae298"
+      "public_key_hex": "0595a8a4ff8de97784ba9c3370cb5b987507b70ddd37b5aae09ef1cca7fb80c6"
     },
     {
       "anchor_id": "aws-ap-southeast-2-sydney",
@@ -121,7 +121,7 @@
       },
       "endpoint_tcp": "54.253.235.190:7443",
       "endpoint_udp": "54.253.235.190:7444",
-      "public_key_hex": "169be7922aea17093ab803302471f5d2992f868e5c184259f1e40746a136a096"
+      "public_key_hex": "0b7b279045651df934ffb03975cd16036db8fca06fd5da091341549ad27b40a7"
     },
     {
       "anchor_id": "aws-ap-southeast-3-jakarta",
@@ -136,7 +136,7 @@
       },
       "endpoint_tcp": "15.232.26.141:7443",
       "endpoint_udp": "15.232.26.141:7444",
-      "public_key_hex": "43813989ffe1c78fb1ac413f64da3e60d0e399cae42e6e2325aa092c31318e2d"
+      "public_key_hex": "40d314263909450452e91b2d71ef0315e926eb6f9e5a655fc6ab78eda4bfa339"
     },
     {
       "anchor_id": "aws-ap-southeast-6-auckland",
@@ -151,7 +151,7 @@
       },
       "endpoint_tcp": "3.102.191.64:7443",
       "endpoint_udp": "3.102.191.64:7444",
-      "public_key_hex": "b43cbdf0ce86f80b45c48712daea4d9cc5be1fb0b1bcfb58991383f17bf3dac5"
+      "public_key_hex": "bac33322596770178488376b52990c7e07c07b584e5245e04444a25314867180"
     },
     {
       "anchor_id": "aws-ca-central-1-montreal",
@@ -166,7 +166,7 @@
       },
       "endpoint_tcp": "3.98.138.213:7443",
       "endpoint_udp": "3.98.138.213:7444",
-      "public_key_hex": "1c45945b24303a2c0fed21eda62f68d4f12c22b5188ed826124c8f571977cd08"
+      "public_key_hex": "9d85eee5adbbf1b47e957d8d966489276ae0ed5e1a4c4882e3ea4b17ccd35c73"
     },
     {
       "anchor_id": "aws-ca-west-1-calgary",
@@ -181,7 +181,7 @@
       },
       "endpoint_tcp": "16.174.161.16:7443",
       "endpoint_udp": "16.174.161.16:7444",
-      "public_key_hex": "bc5224430d3b5582ca5a39028e89d0a6ce9d409efb6710a2a3595892e9832106"
+      "public_key_hex": "73323fba34eb663b1456527e489b594500831734cbe1c1d273cd21ad889ffa73"
     },
     {
       "anchor_id": "aws-eu-central-1-frankfurt",
@@ -196,7 +196,7 @@
       },
       "endpoint_tcp": "3.69.238.172:7443",
       "endpoint_udp": "3.69.238.172:7444",
-      "public_key_hex": "59cba527a84b8aed946010c3b54e38afde9dd4a1195dad7763a2f9abd17a3a74"
+      "public_key_hex": "3fa990ac57116e84d912de2cecccdc451cdd39822364e584b7705f742f54b2df"
     },
     {
       "anchor_id": "aws-eu-central-2-zurich",
@@ -211,7 +211,7 @@
       },
       "endpoint_tcp": "16.18.184.186:7443",
       "endpoint_udp": "16.18.184.186:7444",
-      "public_key_hex": "73b9df3e2de36e7fa3742c4adc232aceaa57c347ccf956372aace8b48e27a264"
+      "public_key_hex": "7d0c3e23bd79262326581212bcabe128031167e3afd9873918b2ea1adb06f56b"
     },
     {
       "anchor_id": "aws-eu-north-1-stockholm",
@@ -226,7 +226,7 @@
       },
       "endpoint_tcp": "13.49.78.42:7443",
       "endpoint_udp": "13.49.78.42:7444",
-      "public_key_hex": "f3edd65cb0274e3b2d2eb817f65c2666f08af045ccae72fb1d421adc5a0b4cc9"
+      "public_key_hex": "893d68ea78e7cad244c502a5a772806db13fdc193ed04d5653c073dd1f23b3f6"
     },
     {
       "anchor_id": "aws-eu-south-1-milan",
@@ -241,7 +241,7 @@
       },
       "endpoint_tcp": "16.22.167.203:7443",
       "endpoint_udp": "16.22.167.203:7444",
-      "public_key_hex": "4e6846a4bce5db527cd94e61c0794f003333270fe84b794975226f6710c21451"
+      "public_key_hex": "8a223e3f7ad19070093854f64a5c687962b3d0efd5079c1f4bd61de067278c7a"
     },
     {
       "anchor_id": "aws-eu-south-2-spain",
@@ -256,7 +256,7 @@
       },
       "endpoint_tcp": "89.60.251.8:7443",
       "endpoint_udp": "89.60.251.8:7444",
-      "public_key_hex": "f2725b4c07e3cc4257fbbb41ab1080a70e5c491743ce8f44ec653e71b4e78a87"
+      "public_key_hex": "39cacfe85660a92e28d78d374aae1d2b1609c30f2bcbbbe1c64a670fd74f4adb"
     },
     {
       "anchor_id": "aws-eu-west-1-dublin",
@@ -271,7 +271,7 @@
       },
       "endpoint_tcp": "108.131.154.66:7443",
       "endpoint_udp": "108.131.154.66:7444",
-      "public_key_hex": "713d088afe86abed9722ccf149af0bf3f9cc91f1986251e8cd5ecf5f0d69b113"
+      "public_key_hex": "4934a38b3fcf681babbe2e8ee3aea97a7749df57ac0facef7a2fbe85da19d4d6"
     },
     {
       "anchor_id": "aws-eu-west-2-london",
@@ -286,7 +286,7 @@
       },
       "endpoint_tcp": "18.171.222.160:7443",
       "endpoint_udp": "18.171.222.160:7444",
-      "public_key_hex": "b7cd5eb19d81a7ac5c7d19e784dbd87251d320974011cce04dfbecb20d8ea6bb"
+      "public_key_hex": "1dda6dfed76bad8fb73985fbac8731a5d19ae92ac627667ceb0b85054c6a59e8"
     },
     {
       "anchor_id": "aws-eu-west-3-paris",
@@ -301,7 +301,7 @@
       },
       "endpoint_tcp": "51.44.182.9:7443",
       "endpoint_udp": "51.44.182.9:7444",
-      "public_key_hex": "11e7192a243ac22d7bb15c67d26d24a3526e69534d91b4203eecdc29b74dba6c"
+      "public_key_hex": "6294bf599c69f3eac620caf6bac54a1244352dcd063d90d8ff91a49760e2a51f"
     },
     {
       "anchor_id": "aws-il-central-1-telaviv",
@@ -316,7 +316,7 @@
       },
       "endpoint_tcp": "51.17.8.242:7443",
       "endpoint_udp": "51.17.8.242:7444",
-      "public_key_hex": "b757b478b07c18a83eef14801e7772be4a848aa683d592d0e12ab30ff495133c"
+      "public_key_hex": "e9061db4658946875aef4ebeff191ef24e7a22eedca4e1e745178dca5b1179c7"
     },
     {
       "anchor_id": "aws-mx-central-1-queretaro",
@@ -331,7 +331,7 @@
       },
       "endpoint_tcp": "78.12.243.190:7443",
       "endpoint_udp": "78.12.243.190:7444",
-      "public_key_hex": "9476715a39a4a031e73e9604881064c46a0273a22626ee2d5610629c12f7708a"
+      "public_key_hex": "feb40c0cc86c7d0591d606aff5f0633b4fad652b376503197e88d39cd77feb5e"
     },
     {
       "anchor_id": "aws-sa-east-1-saopaulo",
@@ -346,7 +346,7 @@
       },
       "endpoint_tcp": "56.125.8.168:7443",
       "endpoint_udp": "56.125.8.168:7444",
-      "public_key_hex": "907d6088d4dd471770c41db6ff45509e6d3e3f2b38d90b2a717615671333edb4"
+      "public_key_hex": "6b789ea4257e0b3f869050cbcb1512b5c6ac10d72d4795cee99be5ffaa259f73"
     },
     {
       "anchor_id": "aws-us-east-1-nvirginia",
@@ -361,7 +361,7 @@
       },
       "endpoint_tcp": "44.221.61.118:7443",
       "endpoint_udp": "44.221.61.118:7444",
-      "public_key_hex": "27ecfd8d8d41a97a04a5b54aef484404bf7c92d772fd0fe23be5496b46323d37"
+      "public_key_hex": "23523dddca2c9ec80947a551785abe99c6fd7b4f9e1ccea2e883d20a8c280817"
     },
     {
       "anchor_id": "aws-us-east-2-ohio",
@@ -376,7 +376,7 @@
       },
       "endpoint_tcp": "3.129.21.173:7443",
       "endpoint_udp": "3.129.21.173:7444",
-      "public_key_hex": "12426c03a7ab085b298cdf0cbfa1651af2e094a35b45a9a40a6db2344a4e934a"
+      "public_key_hex": "37bef0068edad3500279aec4aa34d70b39b579d5a55a23a4836b3ede0cc2be27"
     },
     {
       "anchor_id": "aws-us-west-1-sanjose",
@@ -391,7 +391,7 @@
       },
       "endpoint_tcp": "3.101.39.221:7443",
       "endpoint_udp": "3.101.39.221:7444",
-      "public_key_hex": "9ad14553ddb5d0aec2d3f9fea5deb8ab3da9290ee22942c7d8d60a6e858c895b"
+      "public_key_hex": "6c9ba0a9b3fe4576bfe689f6ec1910c7ad2f8b8cb7bb02853f77238735ac3151"
     },
     {
       "anchor_id": "aws-us-west-2-oregon",
@@ -406,7 +406,7 @@
       },
       "endpoint_tcp": "35.90.228.173:7443",
       "endpoint_udp": "35.90.228.173:7444",
-      "public_key_hex": "9bed33eb7ae1f3f88f62eb8ab9035484c5b11579a9ded4d9009264cce6c65da6"
+      "public_key_hex": "21cc31d638c71d1deaf7516a82db93630b6afad8c877fb55445a75081ec1b966"
     },
     {
       "anchor_id": "azure-canadacentral-toronto",
@@ -796,7 +796,7 @@
       },
       "endpoint_tcp": "34.2.145.119:7443",
       "endpoint_udp": "34.2.145.119:7444",
-      "public_key_hex": "bcd76893365b4188515aabf49eee7a9ca15f91eb52f70102e77bb2ab53a8b39d"
+      "public_key_hex": "ff9ee2e9394d2eac56be059a0575e2011920f1aa3e223f90b372ff0678e04559"
     },
     {
       "anchor_id": "gcp-europe-central2-warsaw",
@@ -856,7 +856,7 @@
       },
       "endpoint_tcp": "35.214.10.90:7443",
       "endpoint_udp": "35.214.10.90:7444",
-      "public_key_hex": "de6807be8adbd501941e68ec603959724f9b55d46c0d93b6ba31f4d9d58eea27"
+      "public_key_hex": "b28e361aa97eaaddf6a5414b69458255f199beb82732151bba7a37700b893434"
     },
     {
       "anchor_id": "gcp-europe-west3-frankfurt",
@@ -871,7 +871,7 @@
       },
       "endpoint_tcp": "35.207.136.128:7443",
       "endpoint_udp": "35.207.136.128:7444",
-      "public_key_hex": "a57733ff38786797432ebc8e4a47cda45e049031427d7b933d807ea61e7e2918"
+      "public_key_hex": "cbdebd17ad38a69ab7c164895faed113181acbe547fbdabaead23cd44c84efdd"
     },
     {
       "anchor_id": "gcp-europe-west4-netherlands",
@@ -886,7 +886,7 @@
       },
       "endpoint_tcp": "35.214.132.111:7443",
       "endpoint_udp": "35.214.132.111:7444",
-      "public_key_hex": "0ca4809b6bbdb2f4b661aa4e4c7b4db25876d3558c894c1deebb02e17047eecf"
+      "public_key_hex": "c143eca186e773c78ed3e5b93a50cb8aaf90b0313a77e379e959cd57f4648ba2"
     },
     {
       "anchor_id": "gcp-europe-west6-zurich",
@@ -976,7 +976,7 @@
       },
       "endpoint_tcp": "35.209.22.219:7443",
       "endpoint_udp": "35.209.22.219:7444",
-      "public_key_hex": "b97bd3fb0f9d46da6e81f0bfe6cfd659278432fb33b986d55d32d2fc05be667c"
+      "public_key_hex": "02fdd623b4e4d5de67e58550352b524510be8b917ee2d026f63a2af3936de001"
     },
     {
       "anchor_id": "gcp-us-east1-sc",
@@ -1006,7 +1006,7 @@
       },
       "endpoint_tcp": "34.4.37.46:7443",
       "endpoint_udp": "34.4.37.46:7444",
-      "public_key_hex": "33bf96e5aa6f1ecc59c2194a6f878698d46f6e37caae9f612358657342d249e5"
+      "public_key_hex": "2751c234ebc5be4e5d49d837faeb9e8c3515a16c9da2caa23550d83a5623863e"
     },
     {
       "anchor_id": "gcp-us-south1-dallas",
@@ -1036,7 +1036,7 @@
       },
       "endpoint_tcp": "34.3.99.152:7443",
       "endpoint_udp": "34.3.99.152:7444",
-      "public_key_hex": "54f20c9461726f608009d72fd3a67074379c85fdc389b67d78a4c01ead78589a"
+      "public_key_hex": "2c625bbbed1f458a26c89f8814b75c01f533cf3e561bd9b8a9b65df8f29e941f"
     },
     {
       "anchor_id": "gcp-us-west2-losangeles",
