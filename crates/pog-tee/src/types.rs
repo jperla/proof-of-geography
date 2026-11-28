@@ -418,9 +418,10 @@ pub fn verify_quote(
                 now_unix_s,
             )?
         }
-        (TeeVendor::AmdSevSnp, Some(WorkloadAttestation::AzureCvmHclVtpm { .. })) => {
-            crate::azure_cvm::verify_azure_cvm_quote(quote, expected_nonce, policy, now_unix_s)?
-        }
+        (
+            TeeVendor::AmdSevSnp | TeeVendor::IntelTdx,
+            Some(WorkloadAttestation::AzureCvmHclVtpm { .. }),
+        ) => crate::azure_cvm::verify_azure_cvm_quote(quote, expected_nonce, policy, now_unix_s)?,
         (TeeVendor::AmdSevSnp, _) => {
             crate::sev_snp::verify_raw_sev_snp_report(quote, policy, now_unix_s)?
         }

@@ -359,6 +359,32 @@ async fn read_bounded_line<R: tokio::io::AsyncBufRead + Unpin>(
     Ok(buf)
 }
 
+fn fetch_azure_imds_vm_name() -> Option<String> {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    let addr: SocketAddr = "169.254.169.254:80".parse().ok()?;
+    let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(2)).ok()?;
+    let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
+    let _ = s.set_write_timeout(Some(Duration::from_secs(2)));
+    s.write_all(
+        b"GET /metadata/instance/compute/name?api-version=2021-02-01&format=text HTTP/1.1\r\nHost: 169.254.169.254\r\nMetadata: true\r\nConnection: close\r\n\r\n",
+    )
+    .ok()?;
+    let mut raw = Vec::new();
+    s.read_to_end(&mut raw).ok()?;
+    let sep = raw.windows(4).position(|w| w == b"\r\n\r\n")?;
+    let head = std::str::from_utf8(&raw[..sep]).ok()?;
+    if !head.lines().next()?.contains(" 200 ") {
+        return None;
+    }
+    let body = std::str::from_utf8(&raw[sep + 4..]).ok()?.trim();
+    if !body.is_empty() && body.len() <= 128 && body.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.') {
+        Some(body.to_string())
+    } else {
+        None
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -368,12 +394,22 @@ async fn main() -> Result<()> {
         .init();
 
     let mut args = Args::parse();
-    // Allow GCP Confidential Space / immutable container images to pass `POG_ANCHOR_ID` via
-    // narrow allowlisted env_override while keeping `cmd_override` strictly empty `[]`.
-    if args.anchor_id == "local-anchor-01" {
+    // Allow GCP Confidential Space / immutable zero-SSH CVM images to resolve `anchor_id` via
+    // `POG_ANCHOR_ID` env var or `--anchor-id auto` (Azure IMDS compute/name, else `/etc/hostname`).
+    if args.anchor_id == "local-anchor-01" || args.anchor_id == "auto" {
         if let Ok(env_id) = std::env::var("POG_ANCHOR_ID") {
             let trimmed = env_id.trim();
             if !trimmed.is_empty() {
+                args.anchor_id = trimmed.to_string();
+            }
+        }
+    }
+    if args.anchor_id == "auto" {
+        if let Some(imds_name) = fetch_azure_imds_vm_name() {
+            args.anchor_id = imds_name;
+        } else if let Ok(hn) = std::fs::read_to_string("/etc/hostname") {
+            let trimmed = hn.trim();
+            if !trimmed.is_empty() && trimmed != "localhost" {
                 args.anchor_id = trimmed.to_string();
             }
         }

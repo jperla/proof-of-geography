@@ -340,29 +340,42 @@ def verify_azure_cvm_hcl_vtpm(
     hcl = base64.b64decode(wa.get("hcl_report_b64", ""))
     if len(hcl) < 1236:
         return {"verified": False, "error": "Azure HCL report missing or too short (Trusted Launch rejected)"}
-    sig_magic, _ver, _rsize, rtype = struct.unpack_from("<IIII", hcl, 0)
-    if sig_magic != 0x414C4348 or rtype != 2:
-        return {"verified": False, "error": f"Invalid Azure HCL magic={sig_magic:#x} report_type={rtype} (must be SEV-SNP=2; Trusted Launch rejected)"}
+    sig_magic, _ver, _rsize, req_type = struct.unpack_from("<IIII", hcl, 0)
+    rdat_rtype = struct.unpack_from("<I", hcl, 1216 + 8)[0]
+    if sig_magic != 0x414C4348 or req_type == 0 or rdat_rtype not in (2, 4):
+        return {
+            "verified": False,
+            "error": f"Invalid Azure HCL magic={sig_magic:#x} req_type={req_type} report_type={rdat_rtype} (must be SEV-SNP=2 or TDX=4; Trusted Launch rejected)",
+        }
 
-    snp_bytes = hcl[32 : 32 + 1184]
     claim_size = struct.unpack_from("<I", hcl, 1216 + 16)[0]
     rdat_bytes = hcl[1236 : 1236 + claim_size]
     rdat_hash = hashlib.sha256(rdat_bytes).digest()
-    rdat_json = json.loads(rdat_bytes.decode("utf-8"))
+    rdat_json = json.loads(rdat_bytes.split(b"\x00", 1)[0].decode("utf-8"))
     keys = rdat_json.get("keys") or []
     ak = next((k for k in keys if k.get("kid") == "HCLAkPub"), keys[0] if keys else None)
     if not ak or ak.get("kty") != "RSA":
         return {"verified": False, "error": "Azure HCL runtime_data missing RSA akPub"}
 
-    snp_view = dict(quote)
-    snp_view["raw_quote_b64"] = base64.b64encode(snp_bytes).decode("ascii")
-    snp_res = verify_sev_snp_quote(
-        snp_view,
-        expected_nonce_bytes,
-        amd_product=amd_product,
-        pinned_ark_overrides=pinned_ark_overrides,
-        override_expected_rd=rdat_hash,
-    )
+    if rdat_rtype == 2:
+        snp_bytes = hcl[32 : 32 + 1184]
+        snp_view = dict(quote)
+        snp_view["raw_quote_b64"] = base64.b64encode(snp_bytes).decode("ascii")
+        hw_res = verify_sev_snp_quote(
+            snp_view,
+            expected_nonce_bytes,
+            amd_product=amd_product,
+            pinned_ark_overrides=pinned_ark_overrides,
+            override_expected_rd=rdat_hash,
+        )
+    else:
+        hcl_td_mrtd = hcl[32 + 528 : 32 + 576].hex()
+        hw_res = verify_tdx_quote(
+            quote,
+            expected_nonce_bytes,
+            override_expected_rd_prefix32=rdat_hash,
+            expected_mrtd_override=hcl_td_mrtd,
+        )
 
     attest_bytes = base64.b64decode(wa.get("vtpm_quote_b64", ""))
     vtpm_sig = base64.b64decode(wa.get("vtpm_quote_sig_b64", ""))
@@ -395,7 +408,7 @@ def verify_azure_cvm_hcl_vtpm(
         meas_h.update(f"pcr{idx}:{pcrs_raw[idx]}\n".encode("ascii"))
 
     checks = {
-        "hcl_embedded_sev_snp_verified": bool(snp_res.get("verified")),
+        "hcl_embedded_hardware_tee_verified": bool(hw_res.get("verified")),
         "tpms_attest_magic_and_quote_tag": (magic == 0xFF544347 and st_type == 0x8018),
         "vtpm_akpub_rsa2048_sig_verified": vtpm_sig_ok,
         "vtpm_extra_data_binds_pk_and_nonce": (extra_data == expected_extra),
@@ -407,10 +420,20 @@ def verify_azure_cvm_hcl_vtpm(
         "vtpm_pcr_digest_matches_pcrs": (pcr_digest == pcr_h.digest()),
         "computed_workload_measurement_matches_quote": (meas_h.hexdigest() == (quote.get("workload_measurement_hex") or "").lower()),
     }
-    return {"verified": all(checks.values()), "checks": checks, "sev_snp": snp_res.get("checks")}
+    return {
+        "verified": all(checks.values()),
+        "hcl_report_type": "TDX" if rdat_rtype == 4 else "SEV_SNP",
+        "checks": checks,
+        "hardware": hw_res.get("checks"),
+    }
 
 
-def verify_tdx_quote(quote: dict, expected_nonce_bytes: bytes) -> dict:
+def verify_tdx_quote(
+    quote: dict,
+    expected_nonce_bytes: bytes,
+    override_expected_rd_prefix32: bytes | None = None,
+    expected_mrtd_override: str | None = None,
+) -> dict:
     raw = base64.b64decode(quote["raw_quote_b64"])
     if len(raw) < 632:
         return {"verified": False, "error": f"TDX quote length {len(raw)} < 632"}
@@ -423,11 +446,16 @@ def verify_tdx_quote(quote: dict, expected_nonce_bytes: bytes) -> dict:
     rtmrs = [body[328 + i * 48 : 376 + i * 48].hex() for i in range(4)]
     reportdata = body[520:584]
 
-    expected_rd = compute_report_data(bytes.fromhex(quote["public_key_hex"]), expected_nonce_bytes)
+    if override_expected_rd_prefix32 is not None:
+        rd_ok = (reportdata[:32] == override_expected_rd_prefix32)
+    else:
+        expected_rd = compute_report_data(bytes.fromhex(quote["public_key_hex"]), expected_nonce_bytes)
+        rd_ok = (reportdata == expected_rd)
+    exp_mrtd = (expected_mrtd_override or quote.get("workload_measurement_hex", "")).lower()
     checks = {
         "tdx_v4_header": (version == 4 and att_key_type == 2 and tee_type == 0x81),
-        "report_data_binds_pk_and_nonce": (reportdata == expected_rd),
-        "mrtd_matches_quote": (mrtd.hex() == quote.get("workload_measurement_hex", "").lower()),
+        "report_data_binds_pk_and_nonce": rd_ok,
+        "mrtd_matches_quote": (mrtd.hex() == exp_mrtd),
         "debug_disabled": (tdattributes & (1 << 0)) == 0,
         "migration_disabled": (tdattributes & (1 << 29)) == 0,
         "qe_report_binds_att_key": False,

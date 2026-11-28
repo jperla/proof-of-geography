@@ -1,4 +1,9 @@
 use crate::gcp_confidential_space::RsaJwk;
+use crate::intel_tdx::{
+    verify_raw_tdx_quote_with_pinned_roots, PINNED_INTEL_ROOT_SHA256_HEX, TDX_ATTR_DEBUG_BIT,
+    TDX_ATTR_MIGRATABLE_BIT, TDX_QUOTE_MIN_LEN, TDX_QUOTE_MRTD_OFFSET,
+    TDX_QUOTE_REPORTDATA_OFFSET, TDX_QUOTE_TDATTRIBUTES_OFFSET,
+};
 use crate::sev_snp::{
     verify_raw_sev_snp_report_with_pinned_roots, PINNED_AMD_ARK_SHA256_HEX,
     SEV_SNP_MEASUREMENT_OFFSET, SEV_SNP_POLICY_DEBUG_BIT, SEV_SNP_POLICY_MIGRATE_MA_BIT,
@@ -7,12 +12,16 @@ use crate::sev_snp::{
 use crate::types::{
     AttestationPolicy, TeeAttestationQuote, TeeError, TeeVendor, WorkloadAttestation,
 };
+#[cfg(target_os = "linux")]
+use base64::engine::general_purpose::URL_SAFE as B64_URL_PAD;
 use base64::engine::general_purpose::{STANDARD as B64_STD, URL_SAFE_NO_PAD as B64_URL};
 use base64::Engine;
 use ring::signature::{RsaPublicKeyComponents, RSA_PKCS1_2048_8192_SHA256};
 use serde_json::Value;
 use sha2::{Digest, Sha256, Sha384};
 use std::collections::BTreeMap;
+#[cfg(target_os = "linux")]
+use std::sync::OnceLock;
 
 /// Azure Confidential VM vTPM NV Index containing the HCL Report (embedded AMD SEV-SNP / TDX
 /// hardware report + runtime claims JSON binding the vTPM Attestation Key `akPub`).
@@ -96,23 +105,35 @@ pub fn parse_azure_hcl_report(hcl: &[u8]) -> Result<ParsedAzureHclReport, TeeErr
             "Azure HCL header magic mismatch: got {sig:#x}, expected {HCL_HEADER_SIGNATURE:#x}"
         )));
     }
-    let report_type = u32::from_le_bytes(hcl[12..16].try_into().unwrap());
-    if report_type != HCL_REPORT_TYPE_SNP && report_type != HCL_REPORT_TYPE_TDX {
-        return Err(TeeError::PolicyRejected(format!(
-            "Azure HCL report_type={report_type} is NOT Confidential VM SEV-SNP (2) or TDX (4) — Trusted Launch rejected"
-        )));
+    let header_req_type = u32::from_le_bytes(hcl[12..16].try_into().unwrap());
+    if header_req_type == 0 {
+        return Err(TeeError::PolicyRejected(
+            "Azure HCL header request_type=0 is NOT a Confidential VM report — Trusted Launch rejected".into(),
+        ));
     }
-
-    let hw_report = hcl[HCL_HW_REPORT_OFFSET..HCL_HW_REPORT_OFFSET + SEV_SNP_REPORT_LEN].to_vec();
 
     // Parse HCL_RUNTIME_DATA_HEADER at offset 1216:
     //   0..4:   size (u32 LE)
     //   4..8:   version (u32 LE)
-    //   8..12:  report_type (u32 LE)
-    //   12..16: hash_type (u32 LE)
+    //   8..12:  report_type (u32 LE: 2 = AMD SEV-SNP, 4 = Intel TDX)
+    //   12..16: hash_type (u32 LE: 1 = SHA-256)
     //   16..20: claim_size (u32 LE)
     //   20..20+claim_size: UTF-8 JSON runtime claims (hashed by HCL into hw_report.report_data[0..32])
     let rdat = &hcl[HCL_RUNTIME_DATA_OFFSET..];
+    let report_type = u32::from_le_bytes(rdat[8..12].try_into().unwrap());
+    if report_type != HCL_REPORT_TYPE_SNP && report_type != HCL_REPORT_TYPE_TDX {
+        return Err(TeeError::PolicyRejected(format!(
+            "Azure HCL runtime_data report_type={report_type} is NOT Confidential VM SEV-SNP (2) or TDX (4) — Trusted Launch rejected"
+        )));
+    }
+
+    let hw_len = if report_type == HCL_REPORT_TYPE_TDX {
+        1024
+    } else {
+        SEV_SNP_REPORT_LEN
+    };
+    let hw_report = hcl[HCL_HW_REPORT_OFFSET..HCL_HW_REPORT_OFFSET + hw_len].to_vec();
+
     let claim_size = u32::from_le_bytes(rdat[16..20].try_into().unwrap()) as usize;
     if claim_size == 0 || 20 + claim_size > rdat.len() {
         return Err(TeeError::VerificationFailed(format!(
@@ -120,7 +141,11 @@ pub fn parse_azure_hcl_report(hcl: &[u8]) -> Result<ParsedAzureHclReport, TeeErr
         )));
     }
     let runtime_data_json_bytes = rdat[20..20 + claim_size].to_vec();
-    let claims: Value = serde_json::from_slice(&runtime_data_json_bytes).map_err(|e| {
+    let json_slice = match runtime_data_json_bytes.iter().position(|&b| b == 0) {
+        Some(pos) => &runtime_data_json_bytes[..pos],
+        None => &runtime_data_json_bytes[..],
+    };
+    let claims: Value = serde_json::from_slice(json_slice).map_err(|e| {
         TeeError::VerificationFailed(format!("invalid Azure HCL runtime_data JSON: {e}"))
     })?;
 
@@ -270,51 +295,107 @@ pub fn verify_azure_cvm_quote_with_pinned_roots(
         .map_err(|e| TeeError::VerificationFailed(format!("invalid Azure HCL base64: {e}")))?;
     let parsed_hcl = parse_azure_hcl_report(&hcl_bytes)?;
 
-    if parsed_hcl.report_type != HCL_REPORT_TYPE_SNP {
+    let expected_rdat_hash = Sha256::digest(&parsed_hcl.runtime_data_json_bytes);
+    if parsed_hcl.report_type == HCL_REPORT_TYPE_SNP {
+        // Link 1 (AMD SEV-SNP): Verify embedded 1184B report against pinned AMD ARK roots!
+        let snp = &parsed_hcl.hw_report;
+        let snp_policy = u64::from_le_bytes(snp[SEV_SNP_POLICY_OFFSET..SEV_SNP_POLICY_OFFSET + 8].try_into().unwrap());
+        let snp_rd = &snp[SEV_SNP_REPORT_DATA_OFFSET..SEV_SNP_REPORT_DATA_OFFSET + 64];
+        let snp_meas = &snp[SEV_SNP_MEASUREMENT_OFFSET..SEV_SNP_MEASUREMENT_OFFSET + 48];
+        let hw_quote_view = TeeAttestationQuote {
+            vendor: TeeVendor::AmdSevSnp,
+            public_key_hex: quote.public_key_hex.clone(),
+            workload_measurement_hex: hex::encode(snp_meas),
+            report_data_hex: hex::encode(snp_rd),
+            nonce_hex: quote.nonce_hex.clone(),
+            migration_disabled: (snp_policy & SEV_SNP_POLICY_MIGRATE_MA_BIT) == 0,
+            debug_disabled: (snp_policy & SEV_SNP_POLICY_DEBUG_BIT) == 0,
+            secure_tsc_enabled: quote.secure_tsc_enabled,
+            gpu_binding: None,
+            raw_quote_b64: B64_STD.encode(snp),
+            vendor_cert_chain_pem: quote.vendor_cert_chain_pem.clone(),
+            workload_attestation: None,
+            generated_at_unix_s: quote.generated_at_unix_s,
+        };
+        let snp_ok = verify_raw_sev_snp_report_with_pinned_roots(
+            &hw_quote_view,
+            policy,
+            now_unix_s,
+            pinned_ark_sha256_hex,
+        )?;
+        if !snp_ok {
+            return Err(TeeError::VerificationFailed(
+                "Azure CVM embedded AMD SEV-SNP report did not pass vendor chain verification".into(),
+            ));
+        }
+        // Link 2: Hardware SEV-SNP REPORT_DATA[0..32] MUST equal SHA-256(hcl_runtime_data_json_bytes).
+        if snp_rd[0..32] != expected_rdat_hash[..] {
+            return Err(TeeError::VerificationFailed(
+                "Azure CVM SEV-SNP REPORT_DATA[0..32] does not match SHA-256(HCL runtime_data)".into(),
+            ));
+        }
+    } else if parsed_hcl.report_type == HCL_REPORT_TYPE_TDX {
+        // Link 1 (Intel TDX): Verify Intel DCAP v4 Quote in `quote.raw_quote_b64` against pinned Intel SGX Root CA!
+        let tdx_raw = B64_STD
+            .decode(&quote.raw_quote_b64)
+            .map_err(|e| TeeError::VerificationFailed(format!("invalid Azure TDX DCAP quote base64: {e}")))?;
+        if tdx_raw.len() < TDX_QUOTE_MIN_LEN {
+            return Err(TeeError::VerificationFailed(format!(
+                "Azure CVM TDX DCAP quote too short: {} < {}",
+                tdx_raw.len(),
+                TDX_QUOTE_MIN_LEN
+            )));
+        }
+        let tdx_attrs = u64::from_le_bytes(
+            tdx_raw[TDX_QUOTE_TDATTRIBUTES_OFFSET..TDX_QUOTE_TDATTRIBUTES_OFFSET + 8]
+                .try_into()
+                .unwrap(),
+        );
+        let tdx_mrtd = &tdx_raw[TDX_QUOTE_MRTD_OFFSET..TDX_QUOTE_MRTD_OFFSET + 48];
+        let tdx_rd = &tdx_raw[TDX_QUOTE_REPORTDATA_OFFSET..TDX_QUOTE_REPORTDATA_OFFSET + 64];
+        let hw_quote_view = TeeAttestationQuote {
+            vendor: TeeVendor::IntelTdx,
+            public_key_hex: quote.public_key_hex.clone(),
+            workload_measurement_hex: hex::encode(tdx_mrtd),
+            report_data_hex: hex::encode(tdx_rd),
+            nonce_hex: quote.nonce_hex.clone(),
+            migration_disabled: (tdx_attrs & TDX_ATTR_MIGRATABLE_BIT) == 0,
+            debug_disabled: (tdx_attrs & TDX_ATTR_DEBUG_BIT) == 0,
+            secure_tsc_enabled: true,
+            gpu_binding: None,
+            raw_quote_b64: quote.raw_quote_b64.clone(),
+            vendor_cert_chain_pem: Vec::new(),
+            workload_attestation: None,
+            generated_at_unix_s: quote.generated_at_unix_s,
+        };
+        let tdx_ok = verify_raw_tdx_quote_with_pinned_roots(
+            &hw_quote_view,
+            policy,
+            now_unix_s,
+            PINNED_INTEL_ROOT_SHA256_HEX,
+        )?;
+        if !tdx_ok {
+            return Err(TeeError::VerificationFailed(
+                "Azure CVM Intel TDX DCAP v4 quote did not pass Intel Root CA verification".into(),
+            ));
+        }
+        // Link 2: Hardware TDX REPORTDATA[0..32] MUST equal SHA-256(hcl_runtime_data_json_bytes)
+        // AND match the HCL embedded TD_REPORT MRTD (offset 528..576 inside 1024B TD_REPORT).
+        if tdx_rd[0..32] != expected_rdat_hash[..] {
+            return Err(TeeError::VerificationFailed(
+                "Azure CVM Intel TDX REPORTDATA[0..32] does not match SHA-256(HCL runtime_data)".into(),
+            ));
+        }
+        if parsed_hcl.hw_report.len() >= 576 && &parsed_hcl.hw_report[528..576] != tdx_mrtd {
+            return Err(TeeError::VerificationFailed(
+                "Azure CVM Intel TDX DCAP quote MRTD does not match HCL TD_REPORT MRTD".into(),
+            ));
+        }
+    } else {
         return Err(TeeError::VerificationFailed(format!(
-            "Azure CVM HCL report_type {} verifier requires AMD SEV-SNP (2)",
+            "Unsupported Azure CVM HCL report_type {}",
             parsed_hcl.report_type
         )));
-    }
-
-    // Link 1: Verify embedded AMD SEV-SNP hardware report against pinned AMD ARK roots!
-    let snp = &parsed_hcl.hw_report;
-    let snp_policy = u64::from_le_bytes(snp[SEV_SNP_POLICY_OFFSET..SEV_SNP_POLICY_OFFSET + 8].try_into().unwrap());
-    let snp_rd = &snp[SEV_SNP_REPORT_DATA_OFFSET..SEV_SNP_REPORT_DATA_OFFSET + 64];
-    let snp_meas = &snp[SEV_SNP_MEASUREMENT_OFFSET..SEV_SNP_MEASUREMENT_OFFSET + 48];
-    let hw_quote_view = TeeAttestationQuote {
-        vendor: TeeVendor::AmdSevSnp,
-        public_key_hex: quote.public_key_hex.clone(),
-        workload_measurement_hex: hex::encode(snp_meas),
-        report_data_hex: hex::encode(snp_rd),
-        nonce_hex: quote.nonce_hex.clone(),
-        migration_disabled: (snp_policy & SEV_SNP_POLICY_MIGRATE_MA_BIT) == 0,
-        debug_disabled: (snp_policy & SEV_SNP_POLICY_DEBUG_BIT) == 0,
-        secure_tsc_enabled: quote.secure_tsc_enabled,
-        gpu_binding: None,
-        raw_quote_b64: B64_STD.encode(snp),
-        vendor_cert_chain_pem: quote.vendor_cert_chain_pem.clone(),
-        workload_attestation: None,
-        generated_at_unix_s: quote.generated_at_unix_s,
-    };
-    let snp_ok = verify_raw_sev_snp_report_with_pinned_roots(
-        &hw_quote_view,
-        policy,
-        now_unix_s,
-        pinned_ark_sha256_hex,
-    )?;
-    if !snp_ok {
-        return Err(TeeError::VerificationFailed(
-            "Azure CVM embedded AMD SEV-SNP report did not pass vendor chain verification".into(),
-        ));
-    }
-
-    // Link 2: Hardware SEV-SNP REPORT_DATA[0..32] MUST equal SHA-256(hcl_runtime_data_json_bytes).
-    let expected_rdat_hash = Sha256::digest(&parsed_hcl.runtime_data_json_bytes);
-    if snp_rd[0..32] != expected_rdat_hash[..] {
-        return Err(TeeError::VerificationFailed(
-            "Azure CVM SEV-SNP REPORT_DATA[0..32] does not match SHA-256(HCL runtime_data)".into(),
-        ));
     }
 
     // Link 3: Verify vTPM TPMS_ATTEST Quote RSA-2048 SHA-256 signature under hardware-bound akPub!
@@ -432,6 +513,11 @@ pub fn verify_azure_cvm_quote(
 /// on `TrustedLaunch` VMs (which have no `"HCLA"` SEV-SNP/TDX hardware report at `0x01400001`).
 pub struct AzureCvmProvider {
     pub tpm_device: String,
+    detected_vendor: TeeVendor,
+    #[cfg(target_os = "linux")]
+    cached_vendor_chain: OnceLock<Vec<String>>,
+    #[cfg(target_os = "linux")]
+    cached_tdx_quote: OnceLock<Vec<u8>>,
 }
 
 impl Default for AzureCvmProvider {
@@ -440,11 +526,165 @@ impl Default for AzureCvmProvider {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn http_imds_request(method: &str, path: &str, body: Option<&[u8]>) -> Result<Vec<u8>, TeeError> {
+    use std::io::{Read, Write};
+    use std::net::{SocketAddr, TcpStream};
+    use std::time::Duration;
+
+    let addr: SocketAddr = "169.254.169.254:80".parse().unwrap();
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(4))
+        .map_err(|e| TeeError::GenerationFailed(format!("Azure IMDS connect failed ({path}): {e}")))?;
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(6)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(4)));
+
+    let mut req = format!(
+        "{method} {path} HTTP/1.1\r\nHost: 169.254.169.254\r\nMetadata: true\r\nConnection: close\r\n"
+    );
+    if let Some(b) = body {
+        req.push_str("Content-Type: application/json\r\n");
+        req.push_str(&format!("Content-Length: {}\r\n", b.len()));
+    }
+    req.push_str("\r\n");
+    stream
+        .write_all(req.as_bytes())
+        .map_err(|e| TeeError::GenerationFailed(format!("Azure IMDS write failed: {e}")))?;
+    if let Some(b) = body {
+        stream
+            .write_all(b)
+            .map_err(|e| TeeError::GenerationFailed(format!("Azure IMDS body write failed: {e}")))?;
+    }
+    let mut raw = Vec::new();
+    stream
+        .read_to_end(&mut raw)
+        .map_err(|e| TeeError::GenerationFailed(format!("Azure IMDS read failed: {e}")))?;
+    let sep = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or_else(|| TeeError::GenerationFailed("Malformed Azure IMDS HTTP response".into()))?;
+    let header_str = std::str::from_utf8(&raw[..sep]).unwrap_or("");
+    let status_ok = header_str
+        .lines()
+        .next()
+        .map(|l| l.contains(" 200 "))
+        .unwrap_or(false);
+    if !status_ok {
+        return Err(TeeError::GenerationFailed(format!(
+            "Azure IMDS {path} non-200 response: {}",
+            header_str.lines().next().unwrap_or("unknown")
+        )));
+    }
+    let body_raw = &raw[sep + 4..];
+    if header_str.to_ascii_lowercase().contains("transfer-encoding: chunked") {
+        let mut out = Vec::new();
+        let mut slice = body_raw;
+        while let Some(pos) = slice.windows(2).position(|w| w == b"\r\n") {
+            let sz_str = std::str::from_utf8(&slice[..pos]).unwrap_or("").trim();
+            let sz = usize::from_str_radix(sz_str.split(';').next().unwrap_or(""), 16).unwrap_or(0);
+            slice = &slice[pos + 2..];
+            if sz == 0 || sz > slice.len() {
+                break;
+            }
+            out.extend_from_slice(&slice[..sz]);
+            slice = if slice.len() >= sz + 2 { &slice[sz + 2..] } else { &[] };
+        }
+        Ok(out)
+    } else {
+        Ok(body_raw.to_vec())
+    }
+}
+
 impl AzureCvmProvider {
     pub fn new() -> Self {
-        Self {
+        #[allow(unused_mut)]
+        let mut prov = Self {
             tpm_device: "/dev/tpmrm0".to_string(),
+            detected_vendor: TeeVendor::AmdSevSnp,
+            #[cfg(target_os = "linux")]
+            cached_vendor_chain: OnceLock::new(),
+            #[cfg(target_os = "linux")]
+            cached_tdx_quote: OnceLock::new(),
+        };
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(hcl) = prov.read_hcl_report() {
+                if let Ok(parsed) = parse_azure_hcl_report(&hcl) {
+                    if parsed.report_type == HCL_REPORT_TYPE_TDX {
+                        prov.detected_vendor = TeeVendor::IntelTdx;
+                    }
+                }
+            }
         }
+        prov
+    }
+
+    #[cfg(target_os = "linux")]
+    fn load_or_fetch_amd_vcek_chain(&self) -> Vec<String> {
+        self.cached_vendor_chain
+            .get_or_init(|| {
+                let path = std::env::var("POG_AMD_CERT_CHAIN_PATH")
+                    .unwrap_or_else(|_| "/etc/pog/amd_vcek_chain.pem".to_string());
+                if let Ok(raw) = std::fs::read_to_string(&path) {
+                    let parsed: Vec<String> = ::pem::parse_many(raw)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|p| ::pem::encode(&p))
+                        .collect();
+                    if parsed.len() >= 3 {
+                        return parsed;
+                    }
+                }
+                // Fallback: Azure THIM IMDS AMD certification endpoint (untrusted transport;
+                // external verifier cryptographically pins AMD ARK root SHA-256).
+                if let Ok(resp) = http_imds_request("GET", "/metadata/THIM/amd/certification", None) {
+                    if let Ok(v) = serde_json::from_slice::<Value>(&resp) {
+                        let vcek = v.get("vcekCert").and_then(|x| x.as_str()).unwrap_or("");
+                        let chain = v.get("certificateChain").and_then(|x| x.as_str()).unwrap_or("");
+                        let combined = format!("{vcek}\n{chain}\n");
+                        let parsed: Vec<String> = ::pem::parse_many(combined)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|p| ::pem::encode(&p))
+                            .collect();
+                        if parsed.len() >= 3 {
+                            return parsed;
+                        }
+                    }
+                }
+                Vec::new()
+            })
+            .clone()
+    }
+
+    #[cfg(target_os = "linux")]
+    fn load_or_fetch_tdx_quote(&self, td_report_1024: &[u8]) -> Result<Vec<u8>, TeeError> {
+        if let Some(q) = self.cached_tdx_quote.get() {
+            return Ok(q.clone());
+        }
+        let path = std::env::var("POG_AZURE_TDX_QUOTE_PATH")
+            .unwrap_or_else(|_| "/etc/pog/azure_tdx_quote.bin".to_string());
+        if let Ok(raw) = std::fs::read(&path) {
+            if raw.len() >= TDX_QUOTE_MIN_LEN {
+                let _ = self.cached_tdx_quote.set(raw.clone());
+                return Ok(raw);
+            }
+        }
+        let payload = serde_json::json!({ "report": B64_URL.encode(td_report_1024) }).to_string();
+        let resp = http_imds_request("POST", "/acc/tdquote", Some(payload.as_bytes()))?;
+        let val: Value = serde_json::from_slice(&resp).map_err(|e| {
+            TeeError::GenerationFailed(format!("Invalid Azure /acc/tdquote JSON: {e}"))
+        })?;
+        let q_str = val
+            .get("quote")
+            .and_then(|x| x.as_str())
+            .ok_or_else(|| TeeError::GenerationFailed("Azure /acc/tdquote missing quote field".into()))?;
+        let raw = B64_URL
+            .decode(q_str)
+            .or_else(|_| B64_URL_PAD.decode(q_str))
+            .or_else(|_| B64_STD.decode(q_str))
+            .map_err(|e| TeeError::GenerationFailed(format!("Invalid Azure /acc/tdquote base64: {e}")))?;
+        let _ = self.cached_tdx_quote.set(raw.clone());
+        Ok(raw)
     }
 
     #[cfg(target_os = "linux")]
@@ -631,7 +871,7 @@ impl AzureCvmProvider {
 
 impl crate::types::TeeProvider for AzureCvmProvider {
     fn vendor(&self) -> TeeVendor {
-        TeeVendor::AmdSevSnp
+        self.detected_vendor
     }
 
     fn attest(
@@ -650,27 +890,55 @@ impl crate::types::TeeProvider for AzureCvmProvider {
             let (quoted, sig) = self.tpm2_quote(&qdata, &pcr_indices)?;
             let workload_meas = compute_azure_pcr_workload_measurement(&pcr_values)?;
             let report_data = crate::types::compute_report_data(public_key, nonce, gpu_binding.as_ref());
-            let snp = &parsed.hw_report;
-            let snp_policy = u64::from_le_bytes(
-                snp[SEV_SNP_POLICY_OFFSET..SEV_SNP_POLICY_OFFSET + 8].try_into().unwrap(),
-            );
-            let vendor = if parsed.report_type == HCL_REPORT_TYPE_TDX {
-                TeeVendor::IntelTdx
-            } else {
-                TeeVendor::AmdSevSnp
-            };
+
+            let (vendor, migration_disabled, debug_disabled, raw_quote_b64, vendor_cert_chain_pem) =
+                if parsed.report_type == HCL_REPORT_TYPE_TDX {
+                    let tdx_quote = self.load_or_fetch_tdx_quote(&parsed.hw_report)?;
+                    if tdx_quote.len() < TDX_QUOTE_MIN_LEN {
+                        return Err(TeeError::GenerationFailed(
+                            "Azure /acc/tdquote returned quote shorter than TDX v4 minimum".into(),
+                        ));
+                    }
+                    let attrs = u64::from_le_bytes(
+                        tdx_quote[TDX_QUOTE_TDATTRIBUTES_OFFSET..TDX_QUOTE_TDATTRIBUTES_OFFSET + 8]
+                            .try_into()
+                            .unwrap(),
+                    );
+                    (
+                        TeeVendor::IntelTdx,
+                        (attrs & TDX_ATTR_MIGRATABLE_BIT) == 0,
+                        (attrs & TDX_ATTR_DEBUG_BIT) == 0,
+                        B64_STD.encode(&tdx_quote),
+                        Vec::new(),
+                    )
+                } else {
+                    let snp = &parsed.hw_report;
+                    let snp_policy = u64::from_le_bytes(
+                        snp[SEV_SNP_POLICY_OFFSET..SEV_SNP_POLICY_OFFSET + 8]
+                            .try_into()
+                            .unwrap(),
+                    );
+                    (
+                        TeeVendor::AmdSevSnp,
+                        (snp_policy & SEV_SNP_POLICY_MIGRATE_MA_BIT) == 0,
+                        (snp_policy & SEV_SNP_POLICY_DEBUG_BIT) == 0,
+                        B64_STD.encode(snp),
+                        self.load_or_fetch_amd_vcek_chain(),
+                    )
+                };
+
             Ok(TeeAttestationQuote {
                 vendor,
                 public_key_hex: hex::encode(public_key),
                 workload_measurement_hex: workload_meas,
                 report_data_hex: hex::encode(report_data),
                 nonce_hex: hex::encode(nonce),
-                migration_disabled: (snp_policy & SEV_SNP_POLICY_MIGRATE_MA_BIT) == 0,
-                debug_disabled: (snp_policy & SEV_SNP_POLICY_DEBUG_BIT) == 0,
+                migration_disabled,
+                debug_disabled,
                 secure_tsc_enabled: true,
                 gpu_binding,
-                raw_quote_b64: B64_STD.encode(snp),
-                vendor_cert_chain_pem: Vec::new(),
+                raw_quote_b64,
+                vendor_cert_chain_pem,
                 workload_attestation: Some(WorkloadAttestation::AzureCvmHclVtpm {
                     hcl_report_b64: B64_STD.encode(&hcl),
                     vtpm_quote_b64: B64_STD.encode(&quoted),
