@@ -1,8 +1,158 @@
 {
   "version": "2.0.0",
-  "grid_name": "pog-live-hw-tee-grid-15",
-  "description": "Live locked-down 15-node tri-cloud Hardware TEE Anchor grid (1 AWS Nitro Enclave + 7 GCP Intel TDX/AMD SEV-SNP + 7 Zero-SSH Azure Confidential VMs AMD SEV-SNP Genoa/Milan)",
+  "grid_name": "pog-live-hw-tee-grid-28",
+  "description": "Live locked-down 28-node tri-cloud Hardware TEE Anchor grid (14 AWS Nitro Enclaves + 2 GCP Intel TDX + 5 GCP AMD SEV-SNP + 7 Azure CVM AMD SEV-SNP)",
   "anchors": [
+    {
+      "anchor_id": "aws-ap-northeast-1-tokyo",
+      "cloud_provider": "aws",
+      "region": "ap-northeast-1",
+      "city": "Tokyo, Japan",
+      "tee_vendor": "AwsNitro",
+      "instance_type": "c6g.large",
+      "location": {
+        "lat": 35.6895,
+        "lon": 139.6917
+      },
+      "endpoint_tcp": "3.112.66.164:7443",
+      "endpoint_udp": "3.112.66.164:7444",
+      "public_key_hex": "d7e716f97dfb5cbbbc1d088b8679fb965690b4abfa80b0741df5294c931ebf6b"
+    },
+    {
+      "anchor_id": "aws-ap-south-1-mumbai",
+      "cloud_provider": "aws",
+      "region": "ap-south-1",
+      "city": "Mumbai, India",
+      "tee_vendor": "AwsNitro",
+      "instance_type": "c6g.large",
+      "location": {
+        "lat": 19.076,
+        "lon": 72.8777
+      },
+      "endpoint_tcp": "13.200.224.172:7443",
+      "endpoint_udp": "13.200.224.172:7444",
+      "public_key_hex": "ae3bd7cf2f682f6453d866cfd7337f066f7111f3da8140173e69dd3e3274cd9c"
+    },
+    {
+      "anchor_id": "aws-ap-southeast-2-sydney",
+      "cloud_provider": "aws",
+      "region": "ap-southeast-2",
+      "city": "Sydney, Australia",
+      "tee_vendor": "AwsNitro",
+      "instance_type": "c6g.large",
+      "location": {
+        "lat": -33.8688,
+        "lon": 151.2093
+      },
+      "endpoint_tcp": "54.253.235.190:7443",
+      "endpoint_udp": "54.253.235.190:7444",
+      "public_key_hex": "169be7922aea17093ab803302471f5d2992f868e5c184259f1e40746a136a096"
+    },
+    {
+      "anchor_id": "aws-ca-central-1-montreal",
+      "cloud_provider": "aws",
+      "region": "ca-central-1",
+      "city": "Montreal, QC, Canada",
+      "tee_vendor": "AwsNitro",
+      "instance_type": "c6g.large",
+      "location": {
+        "lat": 45.5017,
+        "lon": -73.5673
+      },
+      "endpoint_tcp": "3.98.138.213:7443",
+      "endpoint_udp": "3.98.138.213:7444",
+      "public_key_hex": "1c45945b24303a2c0fed21eda62f68d4f12c22b5188ed826124c8f571977cd08"
+    },
+    {
+      "anchor_id": "aws-eu-central-1-frankfurt",
+      "cloud_provider": "aws",
+      "region": "eu-central-1",
+      "city": "Frankfurt, Germany",
+      "tee_vendor": "AwsNitro",
+      "instance_type": "c6g.large",
+      "location": {
+        "lat": 50.1167,
+        "lon": 8.6833
+      },
+      "endpoint_tcp": "3.69.238.172:7443",
+      "endpoint_udp": "3.69.238.172:7444",
+      "public_key_hex": "59cba527a84b8aed946010c3b54e38afde9dd4a1195dad7763a2f9abd17a3a74"
+    },
+    {
+      "anchor_id": "aws-eu-north-1-stockholm",
+      "cloud_provider": "aws",
+      "region": "eu-north-1",
+      "city": "Stockholm, Sweden",
+      "tee_vendor": "AwsNitro",
+      "instance_type": "c6g.large",
+      "location": {
+        "lat": 59.3293,
+        "lon": 18.0686
+      },
+      "endpoint_tcp": "13.49.78.42:7443",
+      "endpoint_udp": "13.49.78.42:7444",
+      "public_key_hex": "f3edd65cb0274e3b2d2eb817f65c2666f08af045ccae72fb1d421adc5a0b4cc9"
+    },
+    {
+      "anchor_id": "aws-eu-south-1-milan",
+      "cloud_provider": "aws",
+      "region": "eu-south-1",
+      "city": "Milan, Italy",
+      "tee_vendor": "AwsNitro",
+      "instance_type": "c6g.large",
+      "location": {
+        "lat": 45.4642,
+        "lon": 9.19
+      },
+      "endpoint_tcp": "16.22.167.203:7443",
+      "endpoint_udp": "16.22.167.203:7444",
+      "public_key_hex": "4e6846a4bce5db527cd94e61c0794f003333270fe84b794975226f6710c21451"
+    },
+    {
+      "anchor_id": "aws-eu-west-1-dublin",
+      "cloud_provider": "aws",
+      "region": "eu-west-1",
+      "city": "Dublin, Ireland",
+      "tee_vendor": "AwsNitro",
+      "instance_type": "c6g.large",
+      "location": {
+        "lat": 53.3498,
+        "lon": -6.2603
+      },
+      "endpoint_tcp": "108.131.154.66:7443",
+      "endpoint_udp": "108.131.154.66:7444",
+      "public_key_hex": "713d088afe86abed9722ccf149af0bf3f9cc91f1986251e8cd5ecf5f0d69b113"
+    },
+    {
+      "anchor_id": "aws-eu-west-2-london",
+      "cloud_provider": "aws",
+      "region": "eu-west-2",
+      "city": "London, UK",
+      "tee_vendor": "AwsNitro",
+      "instance_type": "c6g.large",
+      "location": {
+        "lat": 51.5074,
+        "lon": -0.1278
+      },
+      "endpoint_tcp": "18.171.222.160:7443",
+      "endpoint_udp": "18.171.222.160:7444",
+      "public_key_hex": "b7cd5eb19d81a7ac5c7d19e784dbd87251d320974011cce04dfbecb20d8ea6bb"
+    },
+    {
+      "anchor_id": "aws-sa-east-1-saopaulo",
+      "cloud_provider": "aws",
+      "region": "sa-east-1",
+      "city": "S\u00e3o Paulo, Brazil",
+      "tee_vendor": "AwsNitro",
+      "instance_type": "c6g.large",
+      "location": {
+        "lat": -23.5505,
+        "lon": -46.6333
+      },
+      "endpoint_tcp": "56.125.8.168:7443",
+      "endpoint_udp": "56.125.8.168:7444",
+      "public_key_hex": "907d6088d4dd471770c41db6ff45509e6d3e3f2b38d90b2a717615671333edb4"
+    },
     {
       "anchor_id": "aws-us-east-1-nvirginia",
       "cloud_provider": "aws",
@@ -17,6 +167,51 @@
       "endpoint_tcp": "44.221.61.118:7443",
       "endpoint_udp": "44.221.61.118:7444",
       "public_key_hex": "27ecfd8d8d41a97a04a5b54aef484404bf7c92d772fd0fe23be5496b46323d37"
+    },
+    {
+      "anchor_id": "aws-us-east-2-ohio",
+      "cloud_provider": "aws",
+      "region": "us-east-2",
+      "city": "Columbus, OH, USA",
+      "tee_vendor": "AwsNitro",
+      "instance_type": "c6g.large",
+      "location": {
+        "lat": 39.9612,
+        "lon": -82.9988
+      },
+      "endpoint_tcp": "3.129.21.173:7443",
+      "endpoint_udp": "3.129.21.173:7444",
+      "public_key_hex": "12426c03a7ab085b298cdf0cbfa1651af2e094a35b45a9a40a6db2344a4e934a"
+    },
+    {
+      "anchor_id": "aws-us-west-1-sanjose",
+      "cloud_provider": "aws",
+      "region": "us-west-1",
+      "city": "San Jose, CA, USA",
+      "tee_vendor": "AwsNitro",
+      "instance_type": "c6g.large",
+      "location": {
+        "lat": 37.3382,
+        "lon": -121.8863
+      },
+      "endpoint_tcp": "3.101.39.221:7443",
+      "endpoint_udp": "3.101.39.221:7444",
+      "public_key_hex": "9ad14553ddb5d0aec2d3f9fea5deb8ab3da9290ee22942c7d8d60a6e858c895b"
+    },
+    {
+      "anchor_id": "aws-us-west-2-oregon",
+      "cloud_provider": "aws",
+      "region": "us-west-2",
+      "city": "Boardman, OR, USA",
+      "tee_vendor": "AwsNitro",
+      "instance_type": "c6g.large",
+      "location": {
+        "lat": 45.8399,
+        "lon": -119.7006
+      },
+      "endpoint_tcp": "35.90.228.173:7443",
+      "endpoint_udp": "35.90.228.173:7444",
+      "public_key_hex": "9bed33eb7ae1f3f88f62eb8ab9035484c5b11579a9ded4d9009264cce6c65da6"
     },
     {
       "anchor_id": "azure-eastus-ashburn-cvm",

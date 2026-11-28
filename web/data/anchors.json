@@ -3,11 +3,11 @@
   "operator_name": "Proof of Geography",
   "official": true,
   "count": 49,
-  "hw_tee_count": 7,
+  "hw_tee_count": 21,
   "gcp_count": 21,
   "aws_count": 14,
   "azure_count": 14,
-  "os_standard": "Rocky Linux 9 (SELinux Enforcing, Latest Kernel)",
+  "os_standard": "Rocky Linux 9 + Amazon Linux 2023 (Kernel 6.12, Zero Ubuntu)",
   "anchors": [
     {
       "id": "aws-ap-northeast-1-tokyo",
@@ -15,12 +15,12 @@
       "city": "Tokyo, Japan",
       "cloud": "aws",
       "region": "ap-northeast-1",
-      "defaultTee": "SoftwareDev",
+      "defaultTee": "AwsNitro",
       "lat": 35.6895,
       "lon": 139.6917,
       "color": "#f59e0b",
-      "os": "Rocky Linux release 9.9 (Blue Onyx)",
-      "kernel": "5.14.0-741.27.1.el9_9.x86_64"
+      "os": "Amazon Linux 2023.12.20261127",
+      "kernel": "6.12.115-140.213.amzn2023.aarch64"
     },
     {
       "id": "aws-ap-south-1-mumbai",
@@ -28,12 +28,12 @@
       "city": "Mumbai, India",
       "cloud": "aws",
       "region": "ap-south-1",
-      "defaultTee": "SoftwareDev",
+      "defaultTee": "AwsNitro",
       "lat": 19.076,
       "lon": 72.8777,
       "color": "#f59e0b",
-      "os": "Rocky Linux release 9.9 (Blue Onyx)",
-      "kernel": "5.14.0-741.27.1.el9_9.x86_64"
+      "os": "Amazon Linux 2023.12.20261127",
+      "kernel": "6.12.115-140.213.amzn2023.aarch64"
     },
     {
       "id": "aws-ap-southeast-2-sydney",
@@ -41,12 +41,12 @@
       "city": "Sydney, Australia",
       "cloud": "aws",
       "region": "ap-southeast-2",
-      "defaultTee": "SoftwareDev",
+      "defaultTee": "AwsNitro",
       "lat": -33.8688,
       "lon": 151.2093,
       "color": "#f59e0b",
-      "os": "Rocky Linux release 9.9 (Blue Onyx)",
-      "kernel": "5.14.0-741.27.1.el9_9.x86_64"
+      "os": "Amazon Linux 2023.12.20261127",
+      "kernel": "6.12.115-140.213.amzn2023.aarch64"
     },
     {
       "id": "aws-ca-central-1-montreal",
@@ -54,12 +54,12 @@
       "city": "Montreal, QC, Canada",
       "cloud": "aws",
       "region": "ca-central-1",
-      "defaultTee": "SoftwareDev",
+      "defaultTee": "AwsNitro",
       "lat": 45.5017,
       "lon": -73.5673,
       "color": "#f59e0b",
-      "os": "Rocky Linux release 9.9 (Blue Onyx)",
-      "kernel": "5.14.0-741.27.1.el9_9.x86_64"
+      "os": "Amazon Linux 2023.12.20261127",
+      "kernel": "6.12.115-140.213.amzn2023.aarch64"
     },
     {
       "id": "aws-eu-central-1-frankfurt",
@@ -67,12 +67,12 @@
       "city": "Frankfurt, Germany",
       "cloud": "aws",
       "region": "eu-central-1",
-      "defaultTee": "SoftwareDev",
+      "defaultTee": "AwsNitro",
       "lat": 50.1167,
       "lon": 8.6833,
       "color": "#f59e0b",
-      "os": "Rocky Linux release 9.9 (Blue Onyx)",
-      "kernel": "5.14.0-741.27.1.el9_9.x86_64"
+      "os": "Amazon Linux 2023.12.20261127",
+      "kernel": "6.12.115-140.213.amzn2023.aarch64"
     },
     {
       "id": "aws-eu-north-1-stockholm",
@@ -80,12 +80,12 @@
       "city": "Stockholm, Sweden",
       "cloud": "aws",
       "region": "eu-north-1",
-      "defaultTee": "SoftwareDev",
+      "defaultTee": "AwsNitro",
       "lat": 59.3293,
       "lon": 18.0686,
       "color": "#f59e0b",
-      "os": "Rocky Linux release 9.9 (Blue Onyx)",
-      "kernel": "5.14.0-741.27.1.el9_9.x86_64"
+      "os": "Amazon Linux 2023.12.20261127",
+      "kernel": "6.12.115-140.213.amzn2023.aarch64"
     },
     {
       "id": "aws-eu-south-1-milan",
@@ -93,12 +93,12 @@
       "city": "Milan, Italy",
       "cloud": "aws",
       "region": "eu-south-1",
-      "defaultTee": "SoftwareDev",
+      "defaultTee": "AwsNitro",
       "lat": 45.4642,
       "lon": 9.19,
       "color": "#f59e0b",
-      "os": "Rocky Linux release 9.9 (Blue Onyx)",
-      "kernel": "5.14.0-741.27.1.el9_9.x86_64"
+      "os": "Amazon Linux 2023.12.20261127",
+      "kernel": "6.12.115-140.213.amzn2023.aarch64"
     },
     {
       "id": "aws-eu-west-1-dublin",
@@ -106,12 +106,12 @@
       "city": "Dublin, Ireland",
       "cloud": "aws",
       "region": "eu-west-1",
-      "defaultTee": "SoftwareDev",
+      "defaultTee": "AwsNitro",
       "lat": 53.3498,
       "lon": -6.2603,
       "color": "#f59e0b",
-      "os": "Rocky Linux release 9.9 (Blue Onyx)",
-      "kernel": "5.14.0-741.27.1.el9_9.x86_64"
+      "os": "Amazon Linux 2023.12.20261127",
+      "kernel": "6.12.115-140.213.amzn2023.aarch64"
     },
     {
       "id": "aws-eu-west-2-london",
@@ -119,12 +119,12 @@
       "city": "London, UK",
       "cloud": "aws",
       "region": "eu-west-2",
-      "defaultTee": "SoftwareDev",
+      "defaultTee": "AwsNitro",
       "lat": 51.5074,
       "lon": -0.1278,
       "color": "#f59e0b",
-      "os": "Rocky Linux release 9.9 (Blue Onyx)",
-      "kernel": "5.14.0-741.27.1.el9_9.x86_64"
+      "os": "Amazon Linux 2023.12.20261127",
+      "kernel": "6.12.115-140.213.amzn2023.aarch64"
     },
     {
       "id": "aws-sa-east-1-saopaulo",
@@ -132,12 +132,12 @@
       "city": "S\u00e3o Paulo, Brazil",
       "cloud": "aws",
       "region": "sa-east-1",
-      "defaultTee": "SoftwareDev",
+      "defaultTee": "AwsNitro",
       "lat": -23.5505,
       "lon": -46.6333,
       "color": "#f59e0b",
-      "os": "Rocky Linux release 9.9 (Blue Onyx)",
-      "kernel": "5.14.0-741.27.1.el9_9.x86_64"
+      "os": "Amazon Linux 2023.12.20261127",
+      "kernel": "6.12.115-140.213.amzn2023.aarch64"
     },
     {
       "id": "aws-us-east-1-nvirginia",
@@ -145,12 +145,12 @@
       "city": "Ashburn, VA, USA",
       "cloud": "aws",
       "region": "us-east-1",
-      "defaultTee": "SoftwareDev",
+      "defaultTee": "AwsNitro",
       "lat": 39.018,
       "lon": -77.459,
       "color": "#f59e0b",
-      "os": "Rocky Linux release 9.9 (Blue Onyx)",
-      "kernel": "5.14.0-741.27.1.el9_9.x86_64"
+      "os": "Amazon Linux 2023.12.20261127",
+      "kernel": "6.12.115-140.213.amzn2023.aarch64"
     },
     {
       "id": "aws-us-east-2-ohio",
@@ -158,12 +158,12 @@
       "city": "Columbus, OH, USA",
       "cloud": "aws",
       "region": "us-east-2",
-      "defaultTee": "SoftwareDev",
+      "defaultTee": "AwsNitro",
       "lat": 39.9612,
       "lon": -82.9988,
       "color": "#f59e0b",
-      "os": "Rocky Linux release 9.9 (Blue Onyx)",
-      "kernel": "5.14.0-741.27.1.el9_9.x86_64"
+      "os": "Amazon Linux 2023.12.20261127",
+      "kernel": "6.12.115-140.213.amzn2023.aarch64"
     },
     {
       "id": "aws-us-west-1-sanjose",
@@ -171,12 +171,12 @@
       "city": "San Jose, CA, USA",
       "cloud": "aws",
       "region": "us-west-1",
-      "defaultTee": "SoftwareDev",
+      "defaultTee": "AwsNitro",
       "lat": 37.3382,
       "lon": -121.8863,
       "color": "#f59e0b",
-      "os": "Rocky Linux release 9.9 (Blue Onyx)",
-      "kernel": "5.14.0-741.27.1.el9_9.x86_64"
+      "os": "Amazon Linux 2023.12.20261127",
+      "kernel": "6.12.115-140.213.amzn2023.aarch64"
     },
     {
       "id": "aws-us-west-2-oregon",
@@ -184,12 +184,12 @@
       "city": "Boardman, OR, USA",
       "cloud": "aws",
       "region": "us-west-2",
-      "defaultTee": "SoftwareDev",
+      "defaultTee": "AwsNitro",
       "lat": 45.8399,
       "lon": -119.7006,
       "color": "#f59e0b",
-      "os": "Rocky Linux release 9.9 (Blue Onyx)",
-      "kernel": "5.14.0-741.27.1.el9_9.x86_64"
+      "os": "Amazon Linux 2023.12.20261127",
+      "kernel": "6.12.115-140.213.amzn2023.aarch64"
     },
     {
       "id": "azure-canadacentral-toronto",

@@ -61,145 +61,157 @@ provider "aws" {
 }
 
 module "aws_isolated_us_west_1" {
-  source              = "./aws_isolated_region"
-  providers           = { aws = aws.us_west_1 }
-  anchor_id           = "aws-us-west-1-sanjose"
-  ssh_public_key      = var.ssh_public_key
-  release_tarball_url = var.release_tarball_url
-  allow_ssh           = var.allow_ssh
-  lockdown_egress     = var.lockdown_egress
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.us_west_1 }
+  anchor_id            = "aws-us-west-1-sanjose"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
 }
 
 module "aws_isolated_us_west_2" {
-  source              = "./aws_isolated_region"
-  providers           = { aws = aws.us_west_2 }
-  anchor_id           = "aws-us-west-2-oregon"
-  ssh_public_key      = var.ssh_public_key
-  release_tarball_url = var.release_tarball_url
-  allow_ssh           = var.allow_ssh
-  lockdown_egress     = var.lockdown_egress
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.us_west_2 }
+  anchor_id            = "aws-us-west-2-oregon"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
 }
 
 module "aws_isolated_us_east_1" {
-  source              = "./aws_isolated_region"
-  providers           = { aws = aws.us_east_1 }
-  anchor_id           = "aws-us-east-1-nvirginia"
-  ssh_public_key      = var.ssh_public_key
-  release_tarball_url = var.release_tarball_url
-  allow_ssh           = var.allow_ssh
-  lockdown_egress     = var.lockdown_egress
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.us_east_1 }
+  anchor_id            = "aws-us-east-1-nvirginia"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
 }
 
 module "aws_isolated_us_east_2" {
-  source              = "./aws_isolated_region"
-  providers           = { aws = aws.us_east_2 }
-  anchor_id           = "aws-us-east-2-ohio"
-  ssh_public_key      = var.ssh_public_key
-  release_tarball_url = var.release_tarball_url
-  allow_ssh           = var.allow_ssh
-  lockdown_egress     = var.lockdown_egress
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.us_east_2 }
+  anchor_id            = "aws-us-east-2-ohio"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
 }
 
 module "aws_isolated_ca_central_1" {
-  source              = "./aws_isolated_region"
-  providers           = { aws = aws.ca_central_1 }
-  anchor_id           = "aws-ca-central-1-montreal"
-  ssh_public_key      = var.ssh_public_key
-  release_tarball_url = var.release_tarball_url
-  allow_ssh           = var.allow_ssh
-  lockdown_egress     = var.lockdown_egress
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.ca_central_1 }
+  anchor_id            = "aws-ca-central-1-montreal"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
 }
 
 module "aws_isolated_eu_west_1" {
-  source              = "./aws_isolated_region"
-  providers           = { aws = aws.eu_west_1 }
-  anchor_id           = "aws-eu-west-1-dublin"
-  ssh_public_key      = var.ssh_public_key
-  release_tarball_url = var.release_tarball_url
-  allow_ssh           = var.allow_ssh
-  lockdown_egress     = var.lockdown_egress
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.eu_west_1 }
+  anchor_id            = "aws-eu-west-1-dublin"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
 }
 
 module "aws_isolated_eu_west_2" {
-  source              = "./aws_isolated_region"
-  providers           = { aws = aws.eu_west_2 }
-  anchor_id           = "aws-eu-west-2-london"
-  ssh_public_key      = var.ssh_public_key
-  release_tarball_url = var.release_tarball_url
-  allow_ssh           = var.allow_ssh
-  lockdown_egress     = var.lockdown_egress
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.eu_west_2 }
+  anchor_id            = "aws-eu-west-2-london"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
 }
 
 module "aws_isolated_eu_central_1" {
-  source              = "./aws_isolated_region"
-  providers           = { aws = aws.eu_central_1 }
-  anchor_id           = "aws-eu-central-1-frankfurt"
-  ssh_public_key      = var.ssh_public_key
-  release_tarball_url = var.release_tarball_url
-  allow_ssh           = var.allow_ssh
-  lockdown_egress     = var.lockdown_egress
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.eu_central_1 }
+  anchor_id            = "aws-eu-central-1-frankfurt"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
 }
 
 module "aws_isolated_eu_north_1" {
-  source              = "./aws_isolated_region"
-  providers           = { aws = aws.eu_north_1 }
-  anchor_id           = "aws-eu-north-1-stockholm"
-  instance_type       = "c6i.large"
-  ssh_public_key      = var.ssh_public_key
-  release_tarball_url = var.release_tarball_url
-  allow_ssh           = var.allow_ssh
-  lockdown_egress     = var.lockdown_egress
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.eu_north_1 }
+  anchor_id            = "aws-eu-north-1-stockholm"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
 }
 
 module "aws_isolated_eu_south_1" {
-  source              = "./aws_isolated_region"
-  providers           = { aws = aws.eu_south_1 }
-  anchor_id           = "aws-eu-south-1-milan"
-  instance_type       = "c6i.large"
-  ssh_public_key      = var.ssh_public_key
-  release_tarball_url = var.release_tarball_url
-  allow_ssh           = var.allow_ssh
-  lockdown_egress     = var.lockdown_egress
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.eu_south_1 }
+  anchor_id            = "aws-eu-south-1-milan"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
 }
 
 module "aws_isolated_ap_south_1" {
-  source              = "./aws_isolated_region"
-  providers           = { aws = aws.ap_south_1 }
-  anchor_id           = "aws-ap-south-1-mumbai"
-  ssh_public_key      = var.ssh_public_key
-  release_tarball_url = var.release_tarball_url
-  allow_ssh           = var.allow_ssh
-  lockdown_egress     = var.lockdown_egress
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.ap_south_1 }
+  anchor_id            = "aws-ap-south-1-mumbai"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
 }
 
 module "aws_isolated_ap_northeast_1" {
-  source              = "./aws_isolated_region"
-  providers           = { aws = aws.ap_northeast_1 }
-  anchor_id           = "aws-ap-northeast-1-tokyo"
-  ssh_public_key      = var.ssh_public_key
-  release_tarball_url = var.release_tarball_url
-  allow_ssh           = var.allow_ssh
-  lockdown_egress     = var.lockdown_egress
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.ap_northeast_1 }
+  anchor_id            = "aws-ap-northeast-1-tokyo"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
 }
 
 module "aws_isolated_ap_southeast_2" {
-  source              = "./aws_isolated_region"
-  providers           = { aws = aws.ap_southeast_2 }
-  anchor_id           = "aws-ap-southeast-2-sydney"
-  ssh_public_key      = var.ssh_public_key
-  release_tarball_url = var.release_tarball_url
-  allow_ssh           = var.allow_ssh
-  lockdown_egress     = var.lockdown_egress
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.ap_southeast_2 }
+  anchor_id            = "aws-ap-southeast-2-sydney"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
 }
 
 module "aws_isolated_sa_east_1" {
-  source              = "./aws_isolated_region"
-  providers           = { aws = aws.sa_east_1 }
-  anchor_id           = "aws-sa-east-1-saopaulo"
-  ssh_public_key      = var.ssh_public_key
-  release_tarball_url = var.release_tarball_url
-  allow_ssh           = var.allow_ssh
-  lockdown_egress     = var.lockdown_egress
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.sa_east_1 }
+  anchor_id            = "aws-sa-east-1-saopaulo"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
 }
 
 locals {
