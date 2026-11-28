@@ -226,8 +226,11 @@ html, body {
 }
 @media (max-width: 1180px) {
   .tab { font-size: 10.5px; padding: 4.5px 6.5px; }
-  .gh-btn { display: none; }
+  .gh-btn:not(.llm-btn) { display: none; }
   .status-pill { font-size: 10px; padding: 4px 7px; }
+}
+@media (max-width: 1020px) {
+  .gh-btn.llm-btn { display: none; }
 }
 
 /* Left Floating Panel */

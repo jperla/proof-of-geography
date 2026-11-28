@@ -46,7 +46,7 @@ variable "ssh_public_key" {
 
 variable "enable_azure" {
   type    = bool
-  default = true
+  default = false
 }
 
 variable "azure_subscription_id" {
@@ -70,40 +70,27 @@ provider "azurerm" {
 }
 
 # =============================================================================
-# 1. ISOLATED GCP NETWORK & 22 HARDWARE TEE CONFIDENTIAL VMs (ROCKY LINUX 9)
+# 1. ISOLATED GCP NETWORK & 7 HARDWARE TEE CONFIDENTIAL VMs + PARIS LLM SUBNET/IP
+#    (14 legacy SoftwareDev pilot VMs retired -> 100% Hardware TEE Constellation!)
 #    Lives in its own dedicated GCP project + custom isolated VPC (zero shared VPC)
 #    Zero IAM service accounts, Shielded VM Secure Boot + vTPM, SELinux Enforcing
 # =============================================================================
 
 locals {
   gcp_pilot_nodes = {
-    # --- North America (10 GCP Hardware Confidential VMs) ---
+    # --- North America (3 GCP Hardware TEEs: 2 Intel TDX + 1 AMD SEV-SNP) ---
     "gcp-us-west1-oregon"                  = { region = "us-west1", zone = "us-west1-a", cidr = "10.210.1.0/24", machine = "c3-standard-4", tee = "TDX", min_cpu = null, lat = 45.5946, lon = -121.1787, city = "The Dalles, OR, USA", slug = "pdx-gcp" }
-    "gcp-us-west2-losangeles"              = { region = "us-west2", zone = "us-west2-b", cidr = "10.210.11.0/24", machine = "n2d-standard-2", tee = "SEV", min_cpu = null, lat = 34.0522, lon = -118.2437, city = "Los Angeles, CA, USA", slug = "lax-gcp" }
-    "gcp-us-west3-saltlakecity"            = { region = "us-west3", zone = "us-west3-a", cidr = "10.210.12.0/24", machine = "n2d-standard-2", tee = "SEV", min_cpu = null, lat = 40.7608, lon = -111.8910, city = "Salt Lake City, UT, USA", slug = "slc-gcp" }
-    "gcp-us-west4-lasvegas"                = { region = "us-west4", zone = "us-west4-a", cidr = "10.210.13.0/24", machine = "n2d-standard-2", tee = "SEV", min_cpu = null, lat = 36.1699, lon = -115.1398, city = "Las Vegas, NV, USA", slug = "las-gcp" }
     "gcp-us-central1-iowa"                 = { region = "us-central1", zone = "us-central1-a", cidr = "10.210.5.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 41.2619, lon = -95.8608, city = "Council Bluffs, IA, USA", slug = "dsm-gcp" }
-    "gcp-us-south1-dallas"                 = { region = "us-south1", zone = "us-south1-a", cidr = "10.210.14.0/24", machine = "n2d-standard-2", tee = "SEV", min_cpu = null, lat = 32.7767, lon = -96.7970, city = "Dallas, TX, USA", slug = "dfw-gcp" }
-    "gcp-us-east1-sc"                      = { region = "us-east1", zone = "us-east1-b", cidr = "10.210.15.0/24", machine = "n2d-standard-2", tee = "SEV", min_cpu = null, lat = 33.1960, lon = -80.0131, city = "Moncks Corner, SC, USA", slug = "chs-gcp" }
     "gcp-us-east4-ashburn"                 = { region = "us-east4", zone = "us-east4-a", cidr = "10.210.2.0/24", machine = "c3-standard-4", tee = "TDX", min_cpu = null, lat = 39.0438, lon = -77.4874, city = "Ashburn, VA, USA", slug = "iad-gcp" }
-    "gcp-northamerica-northeast1-montreal" = { region = "northamerica-northeast1", zone = "northamerica-northeast1-a", cidr = "10.210.16.0/24", machine = "n2d-standard-2", tee = "SEV", min_cpu = null, lat = 45.5017, lon = -73.5673, city = "Montreal, QC, Canada", slug = "yul-gcp" }
-    "gcp-northamerica-south1-queretaro"    = { region = "northamerica-south1", zone = "northamerica-south1-a", cidr = "10.210.17.0/24", machine = "e2-standard-2", tee = "NONE", min_cpu = null, lat = 20.5888, lon = -100.3899, city = "Querétaro, Mexico", slug = "qro-gcp" }
 
-    # --- Europe & Perimeter Rim (8 GCP Hardware Confidential VMs) ---
+    # --- Europe (3 GCP AMD SEV-SNP Anchors + externally managed Paris Verified LLM subnet/IP) ---
     "gcp-europe-west2-london"              = { region = "europe-west2", zone = "europe-west2-c", cidr = "10.210.18.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 51.5074, lon = -0.1278, city = "London, UK", slug = "lhr-gcp" }
     "gcp-europe-west4-netherlands"         = { region = "europe-west4", zone = "europe-west4-a", cidr = "10.210.19.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 52.3676, lon = 4.9041, city = "Amsterdam, Netherlands", slug = "ams-gcp" }
     "gcp-europe-west3-frankfurt"           = { region = "europe-west3", zone = "europe-west3-a", cidr = "10.210.3.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 50.1109, lon = 8.6821, city = "Frankfurt, Germany", slug = "fra-gcp" }
-    "gcp-europe-west6-zurich"              = { region = "europe-west6", zone = "europe-west6-b", cidr = "10.210.20.0/24", machine = "n2d-standard-2", tee = "SEV", min_cpu = null, lat = 47.3769, lon = 8.5417, city = "Zurich, Switzerland", slug = "zrh-gcp" }
     "gcp-europe-west9-paris"               = { region = "europe-west9", zone = "europe-west9-b", cidr = "10.210.21.0/24", machine = "c3-standard-4", tee = "TDX", min_cpu = null, lat = 48.8566, lon = 2.3522, city = "Paris, France", slug = "cdg-gcp" }
-    "gcp-europe-southwest1-madrid"         = { region = "europe-southwest1", zone = "europe-southwest1-b", cidr = "10.210.22.0/24", machine = "n2d-standard-2", tee = "SEV", min_cpu = null, lat = 40.4168, lon = -3.7038, city = "Madrid, Spain", slug = "mad-gcp" }
-    "gcp-europe-north1-finland"            = { region = "europe-north1", zone = "europe-north1-b", cidr = "10.210.23.0/24", machine = "n2d-standard-2", tee = "SEV", min_cpu = null, lat = 60.5693, lon = 27.1979, city = "Hamina, Finland", slug = "hel-gcp" }
-    "gcp-europe-central2-warsaw"           = { region = "europe-central2", zone = "europe-central2-b", cidr = "10.210.24.0/24", machine = "n2d-standard-2", tee = "SEV", min_cpu = null, lat = 52.2297, lon = 21.0122, city = "Warsaw, Poland", slug = "waw-gcp" }
 
-    # --- Middle East & APAC (4 GCP Hardware Confidential VMs) ---
-    "gcp-me-west1-telaviv"                 = { region = "me-west1", zone = "me-west1-a", cidr = "10.210.25.0/24", machine = "n2d-standard-2", tee = "SEV", min_cpu = null, lat = 32.0853, lon = 34.7818, city = "Tel Aviv, Israel", slug = "tlv-gcp" }
-    "gcp-me-central1-doha"                 = { region = "me-central1", zone = "me-central1-a", cidr = "10.210.26.0/24", machine = "n2d-standard-2", tee = "SEV", min_cpu = null, lat = 25.2854, lon = 51.5310, city = "Doha, Qatar", slug = "doh-gcp" }
+    # --- APAC (1 GCP AMD SEV-SNP Anchor) ---
     "gcp-asia-southeast1-singapore"        = { region = "asia-southeast1", zone = "asia-southeast1-a", cidr = "10.210.6.0/24", machine = "n2d-standard-2", tee = "SEV_SNP", min_cpu = "AMD Milan", lat = 1.3521, lon = 103.8198, city = "Jurong West, Singapore", slug = "sin-gcp" }
-    "gcp-asia-east1-taiwan"                = { region = "asia-east1", zone = "asia-east1-a", cidr = "10.210.27.0/24", machine = "n2d-standard-2", tee = "SEV", min_cpu = null, lat = 24.0518, lon = 120.5161, city = "Changhua, Taiwan", slug = "tpe-gcp" }
   }
 }
 

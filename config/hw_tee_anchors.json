@@ -1,6 +1,6 @@
 {
   "version": "2.0.0",
-  "grid_name": "pog-live-hw-tee-grid-44",
+  "grid_name": "proofofgeography-hw-tee-constellation-44",
   "description": "Live locked-down 44-node tri-cloud Hardware TEE Anchor grid (27 AWS Nitro Enclaves + 2 GCP Intel TDX + 5 GCP AMD SEV-SNP + 10 Azure CVM AMD SEV-SNP)",
   "anchors": [
     {

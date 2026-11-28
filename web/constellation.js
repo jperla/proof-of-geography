@@ -466,7 +466,7 @@
     addLine("TEE", [{ tag: "span", className: `tee-tag ${safeBadgeClass(badge?.cls)}`, text: String(badge?.label ?? "") }]);
     addLine("HTTPS Endpoint", [{ tag: "code", style: { fontSize: "10px" }, text: String(baseUrl || "none configured") }]);
     addLine("Reachable", [online ? "✅ Live HTTPS" : "⏳ Pending / Offline"]);
-    addLine("Key vs Registry", [!online ? "—" : pkMatchesPub ? "✅ Matches constellation key" : "⚠️ Mismatch / Unenrolled"]);
+    addLine("Key vs Constellation", [!online ? "—" : pkMatchesPub ? "✅ Matches signed constellation" : "⚠️ Mismatch / Unenrolled"]);
     if (active?.isExternal) {
       addLine("Official Membership", [
         `🚫 No (Independently operated by ${String(active.operatorName ?? "")}; HW TEE ≠ official membership)`,
@@ -483,7 +483,7 @@
     const frag = doc.createDocumentFragment();
     if (errorMessage) {
       const strong = doc.createElement("strong");
-      strong.textContent = "⚠️ External Registry Not Loaded (Showing Official Constellation)";
+      strong.textContent = "⚠️ External Constellation Not Loaded (Showing Official Constellation)";
       const body = doc.createElement("div");
       body.appendChild(doc.createTextNode(`${String(errorMessage)} — `));
       const link = doc.createElement("a");
@@ -505,7 +505,7 @@
         { tag: "code", text: String(active.networkId ?? "") },
         ")",
         { tag: "br" },
-        "Registry: ",
+        "Constellation URL: ",
         { tag: "code", style: { wordBreak: "break-all" }, text: String(active.registryUrl ?? "") },
         { tag: "br" },
         "Selected separately (",

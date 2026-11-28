@@ -466,11 +466,11 @@
     if (heroCount) {
       heroCount.textContent = active.isExternal
         ? `${ANCHORS.length} independently operated Anchors (${active.operatorName})`
-        : `${ANCHORS.length} live official tri-cloud Anchors`;
+        : `${ANCHORS.length} live HTTPS Hardware TEE Anchors`;
     }
     const badge = document.getElementById("anchor-count-badge");
     if (badge) {
-      badge.textContent = active.isExternal ? `${ANCHORS.length} External Anchors` : `${ANCHORS.length} Official Anchors`;
+      badge.textContent = active.isExternal ? `${ANCHORS.length} External Anchors` : `${ANCHORS.length} HTTPS HW TEEs`;
     }
     renderExternalConstellationBanner();
   }
@@ -484,7 +484,7 @@
       anchors: LEGACY_MESH_ANCHORS,
     };
     try {
-      const resp = await fetch("/data/anchors.json?v=10");
+      const resp = await fetch("/data/anchors.json?v=13");
       if (resp.ok) {
         const data = await resp.json();
         if (Array.isArray(data.anchors) && data.anchors.length > 0) {
@@ -1618,10 +1618,16 @@
   function renderVerifyScene(fitCamera) {
     const b = state.verifyBundleData;
     if (!b || !b.receipts) return;
+    const pubById = {};
+    for (const pa of state.publishedRegistry?.grid?.anchors || []) {
+      const norm = PogConstellation.normalizeAnchor(pa, { isOfficial: true, pageOrigin: window.location.origin });
+      if (norm) pubById[norm.id] = norm;
+    }
+    const resolveReceiptAnchor = (aid) => ANCHOR_BY_ID[aid] || pubById[aid] || LEGACY_BY_ID[aid] || null;
     const measurements = b.receipts
-      .filter((r) => LEGACY_BY_ID[r.anchor_id] || ANCHOR_BY_ID[r.anchor_id])
+      .filter((r) => !!resolveReceiptAnchor(r.anchor_id))
       .map((r) => ({
-        anchor: LEGACY_BY_ID[r.anchor_id] || ANCHOR_BY_ID[r.anchor_id],
+        anchor: resolveReceiptAnchor(r.anchor_id),
         rttMs: r.rtt_min_us / 1000.0,
         minMs: r.rtt_min_us / 1000.0,
         medianMs: (r.rtt_p50_us || r.rtt_min_us) / 1000.0,

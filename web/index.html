@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Proof of Geography — Speed-of-Light Outer Bounds &amp; Likelihood Map</title>
-  <meta name="description" content="Conservative speed-of-light geographic outer bounds (Vacuum c₀ &amp; Optical Fiber) paired with a correlated spatial likelihood map, spoof simulator, and cryptographic X-PoG-Proof verifier." />
+  <title>Proof of Geography — Speed-of-Light Constellation &amp; Location Proofs</title>
+  <meta name="description" content="A ground-based GPS constellation of hardware-attested TEE Anchors across AWS, GCP, and Azure proving physical server location with speed-of-light Vacuum c₀ outer bounds and cryptographic X-PoG-Proof bundles." />
   <meta name="theme-color" content="#050914" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta property="og:site_name" content="Proof of Geography" />
-  <meta property="og:title" content="Proof of Geography — Speed-of-Light Location Proofs" />
-  <meta property="og:description" content="Conservative Vacuum c₀ speed-of-light outer regions, correlated spatial likelihood heatmaps, spoof simulation, and fail-closed hardware TEE verification." />
+  <meta property="og:title" content="Proof of Geography — Speed-of-Light Hardware TEE Constellation" />
+  <meta property="og:description" content="44-node tri-cloud Hardware TEE Constellation (AWS Nitro, Azure CVM, GCP Intel TDX &amp; AMD SEV-SNP) delivering conservative Vacuum c₀ speed-of-light location proofs." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://proofofgeography.com/" />
   <meta property="og:image" content="https://proofofgeography.com/og-image.png?v=2" />
@@ -22,7 +22,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=12" />
+  <link rel="stylesheet" href="/styles.css?v=13" />
 </head>
 <body>
   <div id="map"></div>
@@ -33,7 +33,7 @@
       <div class="brand-dot"></div>
       <div class="brand-text">
         <div class="brand-title">Proof of Geography</div>
-        <div class="brand-sub">Conservative c₀ Outer Bounds · Spatial Likelihood Diagnostics</div>
+        <div class="brand-sub">Hardware TEE Constellation · Vacuum c₀ Outer Bounds</div>
       </div>
     </div>
 
@@ -46,12 +46,12 @@
     </nav>
 
     <div class="top-right">
-      <div id="grid-status-pill" class="status-pill" title="Configured / Reachable / Hardware TEE Attested / Production Proof-Eligible">
+      <div id="grid-status-pill" class="status-pill" title="Live HTTPS Constellation Anchors: Reachable / Hardware TEE Attested / Production Proof-Eligible (+ 10 zero-SSH Azure CVM UDP/TCP Anchors = 44 total)">
         <span id="grid-status-dot" class="pulse-dot"></span>
-        <span id="grid-status-text">Auditing Live Grid…</span>
+        <span id="grid-status-text">Auditing Constellation…</span>
       </div>
       <button id="mobile-panel-btn" class="mobile-panel-btn" type="button" title="Toggle Drawer">Drawer</button>
-      <a class="gh-btn" href="https://llm.proofofgeography.com/" title="Separate Verified LLM Demo: attests and locates the server generating a signed completion (not your browser)">
+      <a class="gh-btn llm-btn" href="https://llm.proofofgeography.com/" title="Separate Verified LLM Demo: attests and locates the server generating a signed completion (not your browser)">
         🤖 Verified LLM ↗
       </a>
       <a class="gh-btn" href="https://github.com/jperla/proof-of-geography" target="_blank" rel="noopener">
@@ -70,10 +70,10 @@
       <div id="external-constellation-banner" class="external-banner hidden"></div>
 
       <div class="hero-box">
-        <div class="eyebrow">OPT-IN ACTIVE BROWSER DIAGNOSTIC · ZERO GPS · CONSERVATIVE c₀ BOUND</div>
+        <div class="eyebrow">GROUND-BASED GPS CONSTELLATION · OPT-IN DIAGNOSTIC · VACUUM c₀ BOUND</div>
         <h1>Where does the speed of light allow you to be?</h1>
         <p class="lead">
-          Clicking below actively pings our <strong id="hero-anchor-count">live tri-cloud Anchors</strong> over direct unicast HTTPS. The solid cyan outline is the <strong>raw Vacuum c₀ outer bound</strong> (conditional on trusted anchors &amp; audited coordinates); the optional violet→amber heatmap shows the <strong>empirical spatial likelihood</strong> inside it without narrowing the hard bound.
+          Like GPS satellites on the ground, our <strong>44-node Tri-Cloud Hardware TEE Constellation</strong> turns round-trip light time into unforgeable distance caps. Clicking below pings our <strong id="hero-anchor-count">34 live HTTPS Hardware TEE Anchors</strong> (+ 10 zero-SSH Azure CVM UDP/TCP Anchors in the signed Constellation). Solid cyan outline = <strong>raw Vacuum c₀ outer bound</strong>; violet→amber heatmap = <strong>empirical likelihood</strong>.
         </p>
         <div class="cta-row">
           <button id="btn-probe-live" class="btn-primary" type="button">
@@ -267,24 +267,24 @@
     <!-- TAB 3: VERIFY X-POG-PROOF -->
     <section class="tab-pane" id="pane-verify">
       <div class="hero-box compact">
-        <div class="eyebrow">FAIL-CLOSED VERIFIER · HARDWARE TEE &amp; KEY IDENTITY CHECKS</div>
+        <div class="eyebrow">FAIL-CLOSED VERIFIER · HARDWARE TEE &amp; CONSTELLATION KEY CHECKS</div>
         <h2>Verify an <code>X-PoG-Proof</code> Header</h2>
         <p class="lead">
-          Paste a base64url <code>X-PoG-Proof</code> bundle below to inspect its receipts, hardware TEE status, unverified/mismatched receipts, and conservative Vacuum c₀ outer bound. Historical sample fixtures below are clearly labeled diagnostic and will fail production hardware-TEE/freshness checks.
+          Paste a base64url <code>X-PoG-Proof</code> bundle below to verify its Ed25519 Anchor receipts, hardware TEE attestation, and conservative Vacuum c₀ outer bound against the live 44-node Hardware TEE Constellation. Click <strong>Ashburn (Live Intel TDX)</strong> for a verified tri-cloud production hardware bundle; older fixtures are labeled diagnostic.
         </p>
       </div>
 
       <div class="preset-chips" style="margin-bottom:10px">
-        <button class="chip verify-sample" data-sample="gcp-europe-west3-frankfurt" type="button">Sample Fixture: Frankfurt</button>
-        <button class="chip verify-sample" data-sample="gcp-us-east4-ashburn" type="button">Sample Fixture: Ashburn</button>
-        <button class="chip verify-sample" data-sample="aws-us-west-1-sanjose" type="button">Sample Fixture: San Jose (Dev)</button>
+        <button class="chip verify-sample" data-sample="gcp-us-east4-ashburn" type="button">✅ Ashburn (Live Intel TDX · 44 HW)</button>
+        <button class="chip verify-sample" data-sample="gcp-europe-west3-frankfurt" type="button">Historical Fixture: Frankfurt</button>
+        <button class="chip verify-sample" data-sample="aws-us-west-1-sanjose" type="button">Historical Fixture: San Jose (Dev)</button>
       </div>
 
       <textarea id="verify-input" class="code-input" placeholder="Paste base64url X-PoG-Proof header value here…"></textarea>
       <div class="cta-row" style="margin-top:10px">
         <button id="btn-verify-header" class="btn-primary" type="button">🔐 Verify Bundle</button>
-        <a href="/.well-known/pog-network.json" target="_blank" class="btn-secondary" title="Operator Root-Signed Network Registry">Signed Net ↗</a>
-        <a href="/.well-known/pog-registry" target="_blank" class="btn-secondary">Grid JSON ↗</a>
+        <a href="/.well-known/pog-network.json" target="_blank" class="btn-secondary" title="Operator Root-Signed 44-Node Hardware TEE Constellation">Signed Constellation ↗</a>
+        <a href="/.well-known/pog-registry" target="_blank" class="btn-secondary" title="44-Node Hardware TEE Constellation JSON">Constellation JSON ↗</a>
       </div>
 
       <div id="verify-verdict" class="verdict-card hidden" style="margin-top:12px"></div>
@@ -295,32 +295,44 @@
     <section class="tab-pane" id="pane-cli">
       <div class="hero-box compact">
         <div class="eyebrow">FAIL-CLOSED PRODUCTION VERIFICATION · OPEN APACHE-2.0 SDKS</div>
-        <h2>Run Cryptographic Audits &amp; Probes</h2>
+        <h2>Verify Live Proofs &amp; Audit the Constellation</h2>
         <p class="lead">
-          Production proofs require verified hardware TEEs (AWS Nitro Enclaves, Azure/GCP SEV-SNP or Intel TDX), live key match against a signed registry, and audited coordinate provenance. Use <code>network audit-live</code> to audit every constellation node:
+          Production proofs require verified hardware TEEs (AWS Nitro Enclaves, Azure CVM &amp; GCP AMD SEV-SNP, Intel TDX), live key match against a root-signed Constellation, and audited coordinate provenance.
         </p>
       </div>
 
       <div class="code-block-card">
         <div class="code-block-head">
-          <span>1. Audit Live Fleet Attestation &amp; Key Enrollment (Fail-Closed)</span>
-          <button class="copy-btn" data-copy="cmd-cli" type="button">Copy</button>
+          <span>1. Verify Live Paris Verified LLM Over Tri-Cloud Hardware Quorum</span>
+          <button class="copy-btn" data-copy="cmd-llm" type="button">Copy</button>
         </div>
-        <pre id="cmd-cli">git clone https://github.com/jperla/proof-of-geography
+        <pre id="cmd-llm">git clone https://github.com/jperla/proof-of-geography
 cd proof-of-geography
-cargo run --release --bin pog-cli -- network audit-live \
-  --registry config/signed_public_network.json \
-  --pinned-root-pk &lt;operator-ed25519-root-pk-hex&gt;</pre>
+cargo run --release --bin pog-cli -- demo-client https://llm.proofofgeography.com \
+  --prompt "Where are you physically located?" \
+  --grid config/public_anchors.json \
+  --expected-image-digest sha256:40f18f8f8cc6358c749203838991252f8eb2b01a7a1518514ed93eb7977e8442 \
+  --require-geo-quorum</pre>
       </div>
 
       <div class="code-block-card">
         <div class="code-block-head">
-          <span>2. Production Verifier + Spatial Likelihood SDK (TS · Go · Python)</span>
+          <span>2. Audit Live 44-Node Hardware Constellation (Fail-Closed)</span>
+          <button class="copy-btn" data-copy="cmd-cli" type="button">Copy</button>
+        </div>
+        <pre id="cmd-cli">cargo run --release --bin pog-cli -- network audit-live \
+  --registry config/signed_public_network.json \
+  --pinned-root-pk fdff6d6d0b8364e459ffbb921430e39411bd812ec3ce766c2904b39bfa996ee1</pre>
+      </div>
+
+      <div class="code-block-card">
+        <div class="code-block-head">
+          <span>3. Production Verifier + Spatial Likelihood SDK (TS · Go · Python)</span>
           <button class="copy-btn" data-copy="cmd-sdk" type="button">Copy</button>
         </div>
         <pre id="cmd-sdk">import { verifyProof, computeSpatialLikelihood } from "./sdks/typescript/src/index.ts";
 // Production default: allowSoftwareDev = false, enforceTier = "vacuum"
-const report = verifyProof(headerVal, grid);
+const report = verifyProof(headerVal, constellation);
 console.log(report.overallValid, report.proofStatus, report.hardwareAttested);
 // Optional empirical diagnostic surface strictly inside Vacuum c0 bound:
 const surf = computeSpatialLikelihood(observations);
@@ -329,14 +341,14 @@ console.log(surf.peaks, surf.moreLikelyAreaKm2);</pre>
 
       <div class="code-block-card">
         <div class="code-block-head">
-          <span>3. Self-Host Your Own Independent Constellation (<code>?registry=&lt;url&gt;</code>)</span>
+          <span>4. Self-Host Your Own Independent Constellation (<code>?registry=&lt;url&gt;</code>)</span>
           <button class="copy-btn" data-copy="cmd-selfhost" type="button">Copy</button>
         </div>
         <pre id="cmd-selfhost"># 1. Generate your own offline operator root key (separate from proofofgeography.com)
 pog-cli network init --network-id pog.example.org --operator "Example Org" \
   --key-out ~/.pog/example-root.key
 
-# 2. Sign your own Anchor grid (include optional "https_url" per anchor for /info &amp; /ping)
+# 2. Sign your own Constellation (include optional "https_url" per anchor for /info &amp; /ping)
 pog-cli network sign-registry --key ~/.pog/example-root.key \
   --network-id pog.example.org --operator "Example Org" \
   --grid examples/external_constellation_registry.json \
@@ -407,8 +419,8 @@ pog-cli network sign-registry --key ~/.pog/example-root.key \
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="/geo.js?v=10"></script>
-  <script src="/constellation.js?v=10"></script>
-  <script src="/app.js?v=10"></script>
+  <script src="/geo.js?v=13"></script>
+  <script src="/constellation.js?v=13"></script>
+  <script src="/app.js?v=13"></script>
 </body>
 </html>

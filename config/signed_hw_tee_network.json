@@ -3,11 +3,11 @@
   "network_id": "proofofgeography.com",
   "operator_name": "jperla",
   "root_public_key_hex": "fdff6d6d0b8364e459ffbb921430e39411bd812ec3ce766c2904b39bfa996ee1",
-  "issued_at_unix_s": 1795840476,
-  "expires_at_unix_s": 1827376476,
+  "issued_at_unix_s": 1795842842,
+  "expires_at_unix_s": 1827378842,
   "grid": {
     "version": "2.0.0",
-    "grid_name": "pog-live-hw-tee-grid-44",
+    "grid_name": "proofofgeography-hw-tee-constellation-44",
     "description": "Live locked-down 44-node tri-cloud Hardware TEE Anchor grid (27 AWS Nitro Enclaves + 2 GCP Intel TDX + 5 GCP AMD SEV-SNP + 10 Azure CVM AMD SEV-SNP)",
     "anchors": [
       {
@@ -716,5 +716,5 @@
       }
     ]
   },
-  "operator_signature_hex": "aaa54ff0bc659bb6bbafe7a08619189790fbbf606c797ba9ddf1bf790cf8d763e07d6bc06626c82783e8da2860f74496290143531d3e8a015a98d49d2e335b0a"
+  "operator_signature_hex": "50e73a2d02e0904ed37e4279e17271d836f7042471095b0d021fed0bb37b5253c1df01d11984e32dd4863fa3a526380325d05d7bf188d603f46ce73a4666c10d"
 }
