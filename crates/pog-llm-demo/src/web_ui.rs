@@ -226,11 +226,14 @@ print("Commitment Salt:", raw.headers.get("x-pog-commitment-salt"))</pre>
       </div>
 
       <div id="pane-sdk-verify" class="code-pane hidden">
-        <p class="muted" style="margin:0;">Optional <code>PogVerifyingTransport</code> verifies the exact TLS 1.3 EKM, hardware Intel TDX OIDC chain, blinded commitments, and separate PoG status on <strong>that very same SDK call</strong> (no second inference):</p>
-        <pre>from openai import OpenAI
+        <p class="muted" style="margin:0;">Optional <code>PogVerifyingTransport</code> verifies the exact TLS 1.3 EKM, pinned container digest, hardware Intel TDX OIDC chain, blinded commitments, and separate PoG status on <strong>that very same SDK call</strong> (no second inference):</p>
+        <pre id="snippet-sdk-verify">from openai import OpenAI
 from sdks.python.pog_openai_verifier import PogVerifiedHttpClient
 
-http_client = PogVerifiedHttpClient(strict=True)
+http_client = PogVerifiedHttpClient(
+    expected_image_digest="sha256:&lt;PINNED_CONTAINER_DIGEST&gt;",
+    strict=True,
+)
 client = OpenAI(
     base_url="https://llm.proofofgeography.com/v1",
     api_key="pog-public-demo",
@@ -367,6 +370,29 @@ print("Verification report:", http_client.last_report)</pre>
         if (info.container_image_digest && info.container_image_digest.startsWith('sha256:')) {
           document.getElementById('snippet-cli').textContent =
             `cargo run --release --bin pog-cli -- demo-client ${window.location.origin} \\\n  --expected-image-digest ${info.container_image_digest} \\\n  --prompt "What is 19 * 23? Answer in one sentence." \\\n  --out-evidence evidence.json`;
+          const sdkEl = document.getElementById('snippet-sdk-verify');
+          if (sdkEl) {
+            sdkEl.textContent =
+`from openai import OpenAI
+from sdks.python.pog_openai_verifier import PogVerifiedHttpClient
+
+http_client = PogVerifiedHttpClient(
+    expected_image_digest="${info.container_image_digest}",
+    strict=True,
+)
+client = OpenAI(
+    base_url="${window.location.origin}/v1",
+    api_key="pog-public-demo",
+    http_client=http_client,
+)
+resp = client.chat.completions.create(
+    model="qwen2.5-0.5b-instruct-q4_k_m",
+    messages=[{"role": "user", "content": "Why does speed of light bound location?"}],
+    max_tokens=64,
+)
+print("Verified answer:", resp.choices[0].message.content)
+print("Verification report:", http_client.last_report)`;
+          }
         }
       } catch (e) {
         document.getElementById('kv-tee').innerHTML = `<div class="k">Error</div><div class="v">${esc(e)}</div>`;
