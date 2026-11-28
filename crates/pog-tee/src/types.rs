@@ -357,6 +357,12 @@ pub trait TeeProvider: Send + Sync {
 }
 
 /// Verify a `TeeAttestationQuote` against `policy` and expected `nonce`.
+///
+/// SECURITY INVARIANT: A valid hardware quote proves that an attested TEE emitted `report_data`
+/// referencing `quote.public_key_hex` for `expected_nonce`, NOT that an unauthenticated network
+/// caller holds the corresponding private key. Callers authenticating live peers MUST ALSO
+/// require an explicit fresh Ed25519 proof-of-possession / handshake transcript signature under
+/// `VerifiedTeeIdentity::public_key_hex` (as enforced by Phase 1 v2 and `/attest?nonce=`).
 pub fn verify_quote(
     quote: &TeeAttestationQuote,
     expected_nonce: &[u8],

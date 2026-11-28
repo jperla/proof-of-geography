@@ -4,16 +4,16 @@ use pog_geo::{BoundTier, LatLon};
 use pog_log::merkle::{verify_inclusion_proof, verify_signed_tree_head};
 use pog_log::ContinuousGeoLog;
 use pog_proto::{
-    bind_low_latency_udp, derive_session_key, measure_udp_round, respond_once_udp,
-    select_committee, verify_proof_bundle, AnchorGrid, AnchorReceipt, CommitteeConfig,
-    GeoProofBundle, VerificationPolicy,
+    accept_phase1_anchor, bind_low_latency_udp, finish_phase1_client, measure_udp_round,
+    respond_once_udp, select_committee, start_phase1_client, verify_phase1_confirm,
+    verify_proof_bundle, AnchorGrid, AnchorReceipt, CommitteeConfig, GeoProofBundle,
+    VerificationPolicy,
 };
-use pog_tee::{AttestationPolicy, SoftwareDevProvider, TeeProvider, WorkloadKeypair};
+use pog_tee::{AttestationPolicy, SoftwareDevProvider, TeeProvider, TeeVendor, WorkloadKeypair};
 use rand::rngs::OsRng;
 use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
-use x25519_dalek::{EphemeralSecret, PublicKey as X25519PublicKey};
 
 #[test]
 fn test_full_e2e_live_udp_header_and_transparency_log() {
@@ -44,33 +44,50 @@ fn test_full_e2e_live_udp_header_and_transparency_log() {
         &CommitteeConfig::default(),
     );
 
-    // Run real local UDP distance-bounding exchanges for all K=6 committee anchors!
+    // Run real local authenticated Phase 1 v2 + Phase 2 UDP distance-bounding exchanges for all K=6 committee anchors!
     let mut receipts = Vec::new();
-    for (idx, anchor) in committee.selected.iter().enumerate() {
+    let dev_policy = AttestationPolicy::allow_dev_software();
+    let anchor_tee_dev = SoftwareDevProvider::new("99887766".repeat(8));
+    for anchor in &committee.selected {
         let anchor_sock =
             bind_low_latency_udp("127.0.0.1:0".parse().unwrap(), Duration::from_secs(2)).unwrap();
         let prover_sock =
             bind_low_latency_udp("127.0.0.1:0".parse().unwrap(), Duration::from_secs(2)).unwrap();
+        let anchor_udp_port = anchor_sock.local_addr().unwrap().port();
         let prover_addr = prover_sock.local_addr().unwrap();
 
-        // Real X25519 ephemeral ECDH session setup.
-        let p_eph = EphemeralSecret::random_from_rng(OsRng);
-        let p_pub = X25519PublicKey::from(&p_eph);
-        let a_eph = EphemeralSecret::random_from_rng(OsRng);
-        let a_pub = X25519PublicKey::from(&a_eph);
-
-        let shared_p = p_eph.diffie_hellman(&a_pub);
-        let shared_a = a_eph.diffie_hellman(&p_pub);
-        assert_eq!(shared_p.as_bytes(), shared_a.as_bytes());
-
-        let sid = 1000 + idx as u64;
-        let session_key = derive_session_key(
-            shared_p.as_bytes(),
-            sid,
+        // Full authenticated Phase 1 v2 handshake (Prover -> Anchor -> Prover -> Anchor confirm)!
+        let client_hs = start_phase1_client(
+            &prover_kp,
+            quote.clone(),
             &epoch,
-            &prover_kp.public_key_hex(),
             &anchor.anchor_id,
-        );
+            &anchor.public_key_hex,
+            TeeVendor::SoftwareDev,
+            prover_addr.port(),
+            4,
+        )
+        .unwrap();
+        let anchor_hs = accept_phase1_anchor(
+            &client_hs.init_req,
+            &anchor.anchor_id,
+            &keys[&anchor.anchor_id],
+            &anchor_tee_dev,
+            &dev_policy,
+            &[0x42u8; 32],
+            "127.0.0.1",
+            anchor_udp_port,
+            16,
+            now,
+        )
+        .unwrap();
+        let completed = finish_phase1_client(client_hs, &anchor_hs.init_resp, &dev_policy, now).unwrap();
+        verify_phase1_confirm(&anchor_hs, &completed.confirm).unwrap();
+
+        assert_eq!(completed.keys.phase2_mac_key, anchor_hs.keys.phase2_mac_key);
+        let sid = anchor_hs.session_id;
+        let session_key = anchor_hs.keys.phase2_mac_key;
+        let cookie = anchor_hs.cookie;
 
         let epoch_copy = epoch;
         let t = thread::spawn(move || {
@@ -88,7 +105,7 @@ fn test_full_e2e_live_udp_header_and_transparency_log() {
                 round,
                 &session_key,
                 &epoch,
-                [0u8; 8],
+                cookie,
             )
             .unwrap();
             // Add realistic physical geodesic propagation time to the measured live loopback RTT.

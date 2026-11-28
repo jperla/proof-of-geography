@@ -18,8 +18,8 @@
 //!    increases measured RTT, which ONLY widens the speed-of-light outer bound (fail-safe!).
 
 use crate::wire::{
-    compute_challenge_mac, ChallengePacket, Phase1InitRequest, Phase1InitResponse, ProtoError,
-    ResponsePacket, PACKET_SIZE,
+    compute_challenge_mac, ct_eq_32, ChallengePacket, Phase1Confirm, Phase1InitRequest,
+    Phase1InitResponse, ProtoError, ResponsePacket, PACKET_SIZE,
 };
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -60,9 +60,12 @@ pub enum HostToEnclaveMsg {
         #[serde(default)]
         anchor_id: Option<String>,
     },
-    /// Signal that the Prover sent TCP `READY` and verified UDP `PUNCH` to the parent relay.
+    /// Deliver the Prover's Phase 1 v2 key-confirmation message (`Phase1Confirm`) and requested
+    /// round count into the Nitro Enclave after verifying UDP `PUNCH` on the host relay.
+    /// The enclave verifies `prover_confirm_mac_hex` inside enclave RAM BEFORE starting Phase 2!
     Phase2Start {
         rounds: u16,
+        prover_confirm: Phase1Confirm,
     },
     /// Deliver raw 64-byte UDP `ResponsePacket` received from the Prover back into the enclave.
     Phase2ResponseDatagram {
@@ -198,7 +201,7 @@ pub fn enclave_measure_vsock_round<S: Read + Write>(
 
     let expected_mac =
         compute_challenge_mac(session_key, session_id, round, &nonce, epoch_challenge);
-    if resp.mac != expected_mac {
+    if !ct_eq_32(&resp.mac, &expected_mac) {
         return Err(ProtoError::InvalidMac);
     }
 

@@ -12,13 +12,14 @@ use pog_geo::{
 };
 use pog_log::{build_router, ContinuousGeoLog};
 use pog_proto::{
-    bind_low_latency_udp, compute_challenge_mac, derive_session_key, encode_udp_punch,
-    issue_coarse_jurisdiction_lease, respond_once_udp, select_committee,
-    verify_anchor_fresh_attestation, verify_anchor_info_identity, verify_inference_location_claim,
-    verify_proof_bundle, AnchorDescriptor, AnchorEndorsement, AnchorFreshAttestResponse,
-    AnchorGrid, AnchorLiveInfo, AnchorReceipt, ChipRegistry, CoarseJurisdictionLease,
-    CommitteeConfig, ConfidentialInferenceReceipt, ExpectedInferenceRequest, GeoProofBundle,
-    InferenceVerificationPolicy, Phase1InitRequest, Phase1InitResponse, RegisteredChipPolicy,
+    anchor_handshake_attestation_policy, bind_low_latency_udp, compute_challenge_mac,
+    encode_udp_punch, finish_phase1_client, issue_coarse_jurisdiction_lease, respond_once_udp,
+    select_committee, start_phase1_client, verify_anchor_fresh_attestation,
+    verify_anchor_info_identity, verify_inference_location_claim, verify_proof_bundle,
+    AnchorDescriptor, AnchorEndorsement, AnchorFreshAttestResponse, AnchorGrid, AnchorLiveInfo,
+    AnchorReceipt, ChipRegistry, CoarseJurisdictionLease, CommitteeConfig,
+    ConfidentialInferenceReceipt, ExpectedInferenceRequest, GeoProofBundle,
+    InferenceVerificationPolicy, Phase1ClientState, Phase1InitResponse, RegisteredChipPolicy,
     SignedNetworkRegistry, VerificationPolicy, HTTP_HEADER_POG_LEASE,
 };
 use pog_tee::{
@@ -31,13 +32,12 @@ use pog_telemetry::{fuse_ipinfo_telemetry, parse_rfc8805_geofeed, TracerouteHop}
 use rand::rngs::OsRng;
 use serde_json::json;
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, UdpSocket};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
-use x25519_dalek::{EphemeralSecret, PublicKey as X25519PublicKey};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -1866,12 +1866,20 @@ async fn run_probe_live(
 
     let mut handles = Vec::new();
     for anchor in targets {
-        let q = prover_quote.clone();
-        let eh = epoch_hex.clone();
-        let eb = epoch;
-        let pk = keypair.public_key_hex();
+        let udp_sock = bind_low_latency_udp("0.0.0.0:0".parse()?, Duration::from_secs(3))?;
+        let local_udp_port = udp_sock.local_addr()?.port();
+        let client_state = start_phase1_client(
+            &keypair,
+            prover_quote.clone(),
+            &epoch,
+            &anchor.anchor_id,
+            &anchor.public_key_hex,
+            anchor.tee_vendor,
+            local_udp_port,
+            rounds,
+        )?;
         handles.push(tokio::spawn(async move {
-            let res = live_probe_anchor(&anchor, q, &eh, &eb, &pk, rounds).await;
+            let res = live_probe_anchor(&anchor, udp_sock, client_state, allow_dev_tee).await;
             (anchor, res)
         }));
     }
@@ -2022,11 +2030,9 @@ async fn run_probe_live(
 
 async fn live_probe_anchor(
     anchor: &AnchorDescriptor,
-    prover_quote: pog_tee::TeeAttestationQuote,
-    epoch_hex: &str,
-    epoch_bytes: &[u8; 32],
-    prover_pk_hex: &str,
-    rounds: u16,
+    udp_sock: UdpSocket,
+    client_state: Phase1ClientState,
+    allow_dev_anchors: bool,
 ) -> Result<(AnchorReceipt, String)> {
     let stream = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&anchor.endpoint_tcp))
         .await
@@ -2035,20 +2041,7 @@ async fn live_probe_anchor(
     let (reader, mut writer) = stream.into_split();
     let mut buf_reader = BufReader::new(reader);
 
-    let udp_sock = bind_low_latency_udp("0.0.0.0:0".parse()?, Duration::from_secs(3))?;
-    let local_udp_port = udp_sock.local_addr()?.port();
-
-    let eph_sk = EphemeralSecret::random_from_rng(OsRng);
-    let eph_pk = X25519PublicKey::from(&eph_sk);
-
-    let init_req = Phase1InitRequest {
-        prover_quote,
-        epoch_challenge_hex: epoch_hex.to_string(),
-        prover_ephemeral_x25519_hex: hex::encode(eph_pk.as_bytes()),
-        prover_udp_port: local_udp_port,
-        rounds,
-    };
-    let mut req_line = serde_json::to_string(&init_req)?;
+    let mut req_line = serde_json::to_string(&client_state.init_req)?;
     req_line.push('\n');
     writer.write_all(req_line.as_bytes()).await?;
     writer.flush().await?;
@@ -2058,35 +2051,26 @@ async fn live_probe_anchor(
         .await
         .map_err(|_| anyhow::anyhow!("Phase 1 read timeout"))??;
     let init_resp: Phase1InitResponse = serde_json::from_str(resp_line.trim())?;
-    let anchor_tee_vendor = init_resp.anchor_quote.vendor.as_str().to_string();
 
-    let anchor_eph_raw = hex::decode(&init_resp.anchor_ephemeral_x25519_hex)?;
-    let anchor_eph_arr: [u8; 32] = anchor_eph_raw
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("bad anchor x25519"))?;
-    let shared = eph_sk.diffie_hellman(&X25519PublicKey::from(anchor_eph_arr));
-    let session_key = derive_session_key(
-        shared.as_bytes(),
-        init_resp.session_id,
-        epoch_bytes,
-        prover_pk_hex,
-        &anchor.anchor_id,
-    );
+    let anchor_tee_policy =
+        anchor_handshake_attestation_policy(anchor.tee_vendor, allow_dev_anchors);
+    let now = Utc::now().timestamp().max(0) as u64;
+    let epoch_copy = client_state.epoch_bytes.clone();
+    let completed = finish_phase1_client(client_state, &init_resp, &anchor_tee_policy, now)?;
+    let anchor_tee_vendor = completed.verified_anchor.vendor.as_str().to_string();
 
-    let cookie_raw = hex::decode(&init_resp.return_cookie_hex)?;
-    let cookie_arr: [u8; 8] = cookie_raw
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("bad return cookie"))?;
-    let punch = encode_udp_punch(init_resp.session_id, cookie_arr);
-    let anchor_udp_addr = SocketAddr::new(anchor_ip, init_resp.anchor_udp_port);
-    let session_id = init_resp.session_id;
-    let epoch_copy = *epoch_bytes;
+    let punch = encode_udp_punch(completed.session_id, completed.cookie);
+    let anchor_udp_addr = SocketAddr::new(anchor_ip, completed.anchor_udp_port);
+    let session_id = completed.session_id;
+    let rounds = completed.negotiated_rounds;
+    let session_key = completed.keys.phase2_mac_key;
 
-    writer.write_all(b"READY\n").await?;
+    let mut confirm_line = serde_json::to_string(&completed.confirm)?;
+    confirm_line.push('\n');
+    writer.write_all(confirm_line.as_bytes()).await?;
     writer.flush().await?;
 
     let udp_handle = tokio::task::spawn_blocking(move || -> Result<()> {
-        // Send UDP punch packet twice (spaced 5 ms) in case first packet races Anchor thread start.
         udp_sock.send_to(&punch, anchor_udp_addr)?;
         for _ in 0..rounds {
             respond_once_udp(&udp_sock, session_id, &session_key, &epoch_copy)?;
@@ -2101,6 +2085,7 @@ async fn live_probe_anchor(
         .await
         .map_err(|_| anyhow::anyhow!("Receipt read timeout"))??;
     let receipt: AnchorReceipt = serde_json::from_str(resp_line.trim())?;
+    receipt.verify(&anchor.public_key_hex)?;
     Ok((receipt, anchor_tee_vendor))
 }
 

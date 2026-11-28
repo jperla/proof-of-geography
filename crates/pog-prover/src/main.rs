@@ -11,17 +11,17 @@ use chrono::Utc;
 use clap::Parser;
 use pog_geo::LatLon;
 use pog_proto::{
-    bind_low_latency_udp, compute_gpu_execution_digest, compute_inference_output_hash,
-    compute_inference_request_hash, derive_session_key, encode_udp_punch, respond_once_udp,
-    select_committee, verify_tls_cert_binding, AnchorDescriptor, AnchorGrid, AnchorReceipt,
-    CommitteeConfig, ConfidentialInferenceReceipt, GeoProofBundle, InferenceClaimType,
-    InferenceExecutionMode, Phase1InitRequest, Phase1InitResponse, TlsSessionBinding,
-    CLAIM_MODE_PROVER_ONLY, HTTP_HEADER_POG_CLAIM_MODE, HTTP_HEADER_POG_PROOF, TLS_EXPORTER_LABEL,
+    anchor_handshake_attestation_policy, bind_low_latency_udp, compute_gpu_execution_digest,
+    compute_inference_output_hash, compute_inference_request_hash, encode_udp_punch,
+    finish_phase1_client, respond_once_udp, select_committee, start_phase1_client,
+    verify_tls_cert_binding, AnchorDescriptor, AnchorGrid, AnchorReceipt, CommitteeConfig,
+    ConfidentialInferenceReceipt, GeoProofBundle, InferenceClaimType, InferenceExecutionMode,
+    Phase1ClientState, Phase1InitResponse, TlsSessionBinding, CLAIM_MODE_PROVER_ONLY,
+    HTTP_HEADER_POG_CLAIM_MODE, HTTP_HEADER_POG_PROOF, TLS_EXPORTER_LABEL,
 };
 use pog_tee::{auto_detect_provider, GpuAttestationBinding, TeeProvider, WorkloadKeypair};
-use rand::rngs::OsRng;
 use serde::Deserialize;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, UdpSocket};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
@@ -29,7 +29,6 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tracing::{info, warn};
-use x25519_dalek::{EphemeralSecret, PublicKey as X25519PublicKey};
 
 const MAX_PROXY_BODY_BYTES: usize = 8 * 1024 * 1024; // 8 MiB max proxied HTTP payload
 
@@ -327,6 +326,7 @@ struct ProverState {
     target: LatLon,
     required_radius_km: f64,
     rounds: u16,
+    allow_dev_tee: bool,
     log_url: Option<String>,
     upstream: Option<String>,
     execution_mode: InferenceExecutionMode,
@@ -373,6 +373,7 @@ async fn main() -> Result<()> {
         target: LatLon::new(args.claimed_lat, args.claimed_lon),
         required_radius_km: args.required_radius_km,
         rounds: args.rounds,
+        allow_dev_tee: args.allow_dev_tee,
         log_url: args.log_url,
         upstream: args.upstream,
         execution_mode,
@@ -550,21 +551,27 @@ async fn run_pog_round(
 
     let mut tasks = Vec::new();
     for anchor in committee.selected {
-        let quote_clone = prover_quote.clone();
-        let epoch_hex_clone = epoch_hex.clone();
-        let epoch_bytes = epoch_challenge;
-        let pk_hex_clone = pk_hex.clone();
-        let rounds = state.rounds;
+        let Ok(udp_sock) = bind_low_latency_udp("0.0.0.0:0".parse()?, Duration::from_secs(2)) else {
+            continue;
+        };
+        let Ok(local_udp_port) = udp_sock.local_addr().map(|a| a.port()) else {
+            continue;
+        };
+        let Ok(client_state) = start_phase1_client(
+            &state.keypair,
+            prover_quote.clone(),
+            &epoch_challenge,
+            &anchor.anchor_id,
+            &anchor.public_key_hex,
+            anchor.tee_vendor,
+            local_udp_port,
+            state.rounds,
+        ) else {
+            continue;
+        };
+        let allow_dev_anchors = state.allow_dev_tee;
         tasks.push(tokio::spawn(async move {
-            probe_single_anchor(
-                &anchor,
-                quote_clone,
-                &epoch_hex_clone,
-                &epoch_bytes,
-                &pk_hex_clone,
-                rounds,
-            )
-            .await
+            probe_single_anchor(&anchor, udp_sock, client_state, allow_dev_anchors).await
         }));
     }
 
@@ -612,31 +619,16 @@ async fn run_pog_round(
 
 async fn probe_single_anchor(
     anchor: &AnchorDescriptor,
-    prover_quote: pog_tee::TeeAttestationQuote,
-    epoch_hex: &str,
-    epoch_bytes: &[u8; 32],
-    prover_pk_hex: &str,
-    rounds: u16,
+    udp_sock: UdpSocket,
+    client_state: Phase1ClientState,
+    allow_dev_anchors: bool,
 ) -> Result<AnchorReceipt> {
     let stream = TcpStream::connect(&anchor.endpoint_tcp).await?;
     let stream_peer_ip = stream.peer_addr()?.ip();
     let (reader, mut writer) = stream.into_split();
     let mut buf_reader = BufReader::new(reader);
 
-    let udp_sock = bind_low_latency_udp("0.0.0.0:0".parse()?, Duration::from_secs(2))?;
-    let local_udp_port = udp_sock.local_addr()?.port();
-
-    let eph_sk = EphemeralSecret::random_from_rng(OsRng);
-    let eph_pk = X25519PublicKey::from(&eph_sk);
-
-    let init_req = Phase1InitRequest {
-        prover_quote,
-        epoch_challenge_hex: epoch_hex.to_string(),
-        prover_ephemeral_x25519_hex: hex::encode(eph_pk.as_bytes()),
-        prover_udp_port: local_udp_port,
-        rounds,
-    };
-    let mut req_line = serde_json::to_string(&init_req)?;
+    let mut req_line = serde_json::to_string(&client_state.init_req)?;
     req_line.push('\n');
     writer.write_all(req_line.as_bytes()).await?;
     writer.flush().await?;
@@ -645,30 +637,21 @@ async fn probe_single_anchor(
     buf_reader.read_line(&mut resp_line).await?;
     let init_resp: Phase1InitResponse = serde_json::from_str(resp_line.trim())?;
 
-    let anchor_eph_raw = hex::decode(&init_resp.anchor_ephemeral_x25519_hex)?;
-    let anchor_eph_arr: [u8; 32] = anchor_eph_raw
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("bad anchor x25519"))?;
-    let shared = eph_sk.diffie_hellman(&X25519PublicKey::from(anchor_eph_arr));
-    let session_key = derive_session_key(
-        shared.as_bytes(),
-        init_resp.session_id,
-        epoch_bytes,
-        prover_pk_hex,
-        &anchor.anchor_id,
-    );
+    let anchor_tee_policy =
+        anchor_handshake_attestation_policy(anchor.tee_vendor, allow_dev_anchors);
+    let now = Utc::now().timestamp().max(0) as u64;
+    let epoch_copy = client_state.epoch_bytes.clone();
+    let completed = finish_phase1_client(client_state, &init_resp, &anchor_tee_policy, now)?;
 
-    let session_id = init_resp.session_id;
-    let anchor_ip = stream_peer_ip;
-    let anchor_udp_addr = SocketAddr::new(anchor_ip, init_resp.anchor_udp_port);
-    let cookie_raw = hex::decode(&init_resp.return_cookie_hex)?;
-    let cookie_arr: [u8; 8] = cookie_raw
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("bad return cookie"))?;
-    let punch = encode_udp_punch(session_id, cookie_arr);
-    let epoch_copy = *epoch_bytes;
+    let session_id = completed.session_id;
+    let rounds = completed.negotiated_rounds;
+    let session_key = completed.keys.phase2_mac_key;
+    let anchor_udp_addr = SocketAddr::new(stream_peer_ip, completed.anchor_udp_port);
+    let punch = encode_udp_punch(session_id, completed.cookie);
 
-    writer.write_all(b"READY\n").await?;
+    let mut confirm_line = serde_json::to_string(&completed.confirm)?;
+    confirm_line.push('\n');
+    writer.write_all(confirm_line.as_bytes()).await?;
     writer.flush().await?;
 
     let udp_handle = tokio::task::spawn_blocking(move || -> Result<()> {
@@ -685,6 +668,7 @@ async fn probe_single_anchor(
     resp_line.clear();
     buf_reader.read_line(&mut resp_line).await?;
     let receipt: AnchorReceipt = serde_json::from_str(resp_line.trim())?;
+    receipt.verify(&anchor.public_key_hex)?;
     Ok(receipt)
 }
 
@@ -906,6 +890,7 @@ mod tests {
         compute_gpu_binding_nonce, AttestationPolicy, GpuAttestationEvidence,
         GpuProtectedChannelKind, SignedGpuSpdmQuotePayload, SoftwareDevProvider, TeeVendor,
     };
+    use rand::rngs::OsRng;
     use rcgen::{BasicConstraints, CertificateParams, DnType, IsCa, KeyPair, PKCS_ECDSA_P384_SHA384};
     use sha2::{Digest, Sha256};
     use x509_parser::prelude::*;
@@ -1059,6 +1044,7 @@ mod tests {
             target: LatLon::new(39.0438, -77.4874),
             required_radius_km: 350.0,
             rounds: 4,
+            allow_dev_tee: true,
             log_url: None,
             upstream: Some("http://127.0.0.1:8000".into()),
             execution_mode: InferenceExecutionMode::ProxyForwarded,

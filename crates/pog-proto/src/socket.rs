@@ -1,5 +1,5 @@
 use crate::wire::{
-    compute_challenge_mac, ChallengePacket, ProtoError, ResponsePacket, PACKET_SIZE,
+    compute_challenge_mac, ct_eq_32, ChallengePacket, ProtoError, ResponsePacket, PACKET_SIZE,
 };
 use rand::RngCore;
 use socket2::{Domain, Protocol, Socket, Type};
@@ -205,7 +205,7 @@ pub fn measure_udp_round(
 
     let expected_mac =
         compute_challenge_mac(session_key, session_id, round, &nonce, epoch_challenge);
-    if resp.mac != expected_mac {
+    if !ct_eq_32(&resp.mac, &expected_mac) {
         return Err(ProtoError::InvalidMac);
     }
 

@@ -10,14 +10,14 @@ use chrono::Utc;
 use clap::Parser;
 use ed25519_dalek::{Signer, SigningKey};
 use pog_proto::{
-    bind_low_latency_udp, compute_return_cookie, decode_udp_punch, derive_session_key,
-    enclave_measure_vsock_round, measure_udp_round, read_vsock_frame, write_vsock_frame,
-    AnchorEndorsement, AnchorReceipt, EnclaveToHostMsg, HostToEnclaveMsg, Phase1InitRequest,
-    Phase1InitResponse, DEFAULT_NITRO_VSOCK_PORT, PUNCH_PACKET_SIZE,
+    accept_phase1_anchor, bind_low_latency_udp, decode_udp_punch, enclave_measure_vsock_round,
+    measure_udp_round, read_vsock_frame, verify_phase1_confirm, write_vsock_frame,
+    AnchorEndorsement, AnchorReceipt, EnclaveToHostMsg, HostToEnclaveMsg, Phase1Confirm,
+    Phase1InitRequest, DEFAULT_NITRO_VSOCK_PORT, PHASE1_PROTOCOL_VERSION, PUNCH_PACKET_SIZE,
 };
 #[cfg(target_os = "linux")]
 use pog_proto::PACKET_SIZE;
-use pog_tee::{auto_detect_provider, verify_quote, AttestationPolicy, TeeProvider};
+use pog_tee::{auto_detect_provider, AttestationPolicy, TeeProvider};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::collections::HashMap;
@@ -26,14 +26,14 @@ use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use tracing::{info, warn};
-use x25519_dalek::{EphemeralSecret, PublicKey as X25519PublicKey};
 
 /// Hard security caps to protect public Anchor nodes from memory exhaustion, Slowloris, and bandwidth abuse.
 const MAX_LINE_BYTES: u64 = 32 * 1024;
+const MAX_CONFIRM_LINE_BYTES: u64 = 512;
 const MAX_ROUNDS: u16 = 16;
 const PHASE1_READ_TIMEOUT: Duration = Duration::from_secs(4);
 const SESSION_TOTAL_TIMEOUT: Duration = Duration::from_secs(12);
@@ -665,75 +665,77 @@ fn handle_enclave_session_stream<S: Read + Write>(
                 .filter(|s| !s.is_empty())
                 .unwrap_or(&state.anchor_id)
                 .to_string();
-            if init_req.epoch_challenge_hex.len() > 128
-                || init_req.prover_quote.raw_quote_b64.len() > 24_000
-            {
-                let _ = write_vsock_frame(
-                    stream,
-                    &EnclaveToHostMsg::Error {
-                        message: "request fields exceed maximum allowed size".into(),
-                    },
-                );
-                anyhow::bail!("request fields exceed maximum allowed size");
-            }
             let now = Utc::now().timestamp().max(0) as u64;
-            let epoch_bytes = hex::decode(&init_req.epoch_challenge_hex)?;
-            let verified_prover =
-                verify_quote(&init_req.prover_quote, &epoch_bytes, &state.tee_policy, now)?;
-
-            let prover_eph_arr: [u8; 32] = hex::decode(&init_req.prover_ephemeral_x25519_hex)?
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("prover ephemeral x25519 must be 32 bytes"))?;
-            let anchor_eph_sk = EphemeralSecret::random_from_rng(OsRng);
-            let anchor_eph_pk = X25519PublicKey::from(&anchor_eph_sk);
-            let shared = anchor_eph_sk.diffie_hellman(&X25519PublicKey::from(prover_eph_arr));
-
-            let session_id = OsRng.next_u64();
-            let session_key = derive_session_key(
-                shared.as_bytes(),
-                session_id,
-                &epoch_bytes,
-                &verified_prover.public_key_hex,
+            let anchor_hs = match accept_phase1_anchor(
+                &init_req,
                 &effective_id,
-            );
-            let cookie = compute_return_cookie(&state.cookie_secret, session_id, &peer_ip);
-            let anchor_pk_bytes = state.signing_key.verifying_key().to_bytes();
-            let anchor_quote = state
-                .tee_provider
-                .attest(&anchor_pk_bytes, &epoch_bytes, None)?;
-
-            let init_resp = Phase1InitResponse {
-                session_id,
-                anchor_id: effective_id.clone(),
-                anchor_quote,
-                anchor_ephemeral_x25519_hex: hex::encode(anchor_eph_pk.as_bytes()),
-                return_cookie_hex: hex::encode(cookie),
-                anchor_udp_port: host_udp_port,
+                &state.signing_key,
+                state.tee_provider.as_ref(),
+                &state.tee_policy,
+                &state.cookie_secret,
+                &peer_ip,
+                host_udp_port,
+                MAX_ROUNDS,
+                now,
+            ) {
+                Ok(hs) => hs,
+                Err(e) => {
+                    let message = format!("Phase 1 v2 authentication rejected: {e}");
+                    let _ = write_vsock_frame(
+                        stream,
+                        &EnclaveToHostMsg::Error {
+                            message: message.clone(),
+                        },
+                    );
+                    anyhow::bail!(message);
+                }
             };
+
             write_vsock_frame(
                 stream,
                 &EnclaveToHostMsg::Phase1Ready {
-                    init_resp,
-                    return_cookie_hex: hex::encode(cookie),
+                    init_resp: anchor_hs.init_resp.clone(),
+                    return_cookie_hex: hex::encode(anchor_hs.cookie),
                 },
             )?;
 
-            // Wait for parent relay to confirm TCP READY + UDP PUNCH, then run timed rounds INSIDE enclave!
+            // Wait for parent relay to forward Prover's explicit Phase1Confirm + UDP PUNCH signal.
+            // Verify Prover key confirmation INSIDE enclave RAM BEFORE starting timed Phase 2 rounds!
             let start_msg: HostToEnclaveMsg = read_vsock_frame(stream)?;
-            let rounds = match start_msg {
-                HostToEnclaveMsg::Phase2Start { rounds } => rounds.clamp(1, MAX_ROUNDS),
-                _ => anyhow::bail!("expected Phase2Start from host relay"),
+            let (rounds, prover_confirm) = match start_msg {
+                HostToEnclaveMsg::Phase2Start {
+                    rounds,
+                    prover_confirm,
+                } => (rounds, prover_confirm),
+                _ => {
+                    let msg = "expected Phase2Start with Phase1Confirm from host relay".to_string();
+                    let _ = write_vsock_frame(stream, &EnclaveToHostMsg::Error { message: msg.clone() });
+                    anyhow::bail!(msg);
+                }
             };
+            if rounds != anchor_hs.negotiated_rounds {
+                let msg = format!(
+                    "Phase2Start rounds {rounds} != negotiated rounds {}",
+                    anchor_hs.negotiated_rounds
+                );
+                let _ = write_vsock_frame(stream, &EnclaveToHostMsg::Error { message: msg.clone() });
+                anyhow::bail!(msg);
+            }
+            if let Err(e) = verify_phase1_confirm(&anchor_hs, &prover_confirm) {
+                let msg = format!("Phase 1 v2 prover key confirmation failed: {e}");
+                let _ = write_vsock_frame(stream, &EnclaveToHostMsg::Error { message: msg.clone() });
+                anyhow::bail!(msg);
+            }
 
             let mut samples = Vec::with_capacity(rounds as usize);
             for round in 0..rounds {
                 let rtt_us = enclave_measure_vsock_round(
                     stream,
-                    session_id,
+                    anchor_hs.session_id,
                     round,
-                    &session_key,
-                    &epoch_bytes,
-                    cookie,
+                    &anchor_hs.keys.phase2_mac_key,
+                    &anchor_hs.epoch_bytes,
+                    anchor_hs.cookie,
                 )?;
                 samples.push(rtt_us);
             }
@@ -746,9 +748,9 @@ fn handle_enclave_session_stream<S: Read + Write>(
             let mut receipt = AnchorReceipt {
                 anchor_id: effective_id,
                 cloud_provider: state.cloud_provider.clone(),
-                prover_pk_hex: verified_prover.public_key_hex,
-                workload_measurement_hex: verified_prover.workload_measurement_hex,
-                epoch_challenge_hex: init_req.epoch_challenge_hex,
+                prover_pk_hex: anchor_hs.verified_prover.public_key_hex,
+                workload_measurement_hex: anchor_hs.verified_prover.workload_measurement_hex,
+                epoch_challenge_hex: anchor_hs.epoch_challenge_hex,
                 prover_observed_ip: peer_ip,
                 rtt_min_us,
                 rtt_p50_us,
@@ -966,7 +968,12 @@ async fn run_nitro_host_relay(args: Args, enclave_cid: u32) -> Result<()> {
                 let mut buf_reader = BufReader::new(reader);
                 let line = read_bounded_line(&mut buf_reader, MAX_LINE_BYTES).await?;
                 let init_req: Phase1InitRequest = serde_json::from_str(line.trim())?;
-                let rounds = init_req.rounds.clamp(1, MAX_ROUNDS);
+                if init_req.protocol_version != PHASE1_PROTOCOL_VERSION {
+                    anyhow::bail!("unsupported Phase 1 protocol_version {}", init_req.protocol_version);
+                }
+                if init_req.rounds == 0 || init_req.rounds > MAX_ROUNDS {
+                    anyhow::bail!("invalid requested rounds {}", init_req.rounds);
+                }
                 let udp_sock = bind_scoped_udp(udp_ip, pmin, pmax)?;
                 let host_udp_port = udp_sock.local_addr()?.port();
                 let peer_ip_str = peer_addr.ip().to_string();
@@ -994,14 +1001,20 @@ async fn run_nitro_host_relay(args: Args, enclave_cid: u32) -> Result<()> {
                 }).await??;
 
                 let session_id = init_resp.session_id;
+                let rounds = init_resp.negotiated_rounds;
                 let mut resp_json = serde_json::to_string(&init_resp)?;
                 resp_json.push('\n');
                 writer.write_all(resp_json.as_bytes()).await?;
                 writer.flush().await?;
 
-                let ready = read_bounded_line(&mut buf_reader, 64).await?;
-                if ready.trim() != "READY" {
-                    anyhow::bail!("Expected READY signal");
+                // Phase 1 v2 requires authenticated JSON Phase1Confirm (rejects legacy plaintext READY!).
+                let confirm_line = read_bounded_line(&mut buf_reader, MAX_CONFIRM_LINE_BYTES).await?;
+                let prover_confirm: Phase1Confirm = serde_json::from_str(confirm_line.trim())
+                    .map_err(|e| anyhow::anyhow!("Expected v2 Phase1Confirm JSON (legacy READY rejected): {e}"))?;
+                if prover_confirm.protocol_version != PHASE1_PROTOCOL_VERSION
+                    || prover_confirm.session_id != session_id
+                {
+                    anyhow::bail!("Phase1Confirm version or session_id mismatch");
                 }
 
                 let tcp_peer_ip = peer_addr.ip();
@@ -1015,7 +1028,10 @@ async fn run_nitro_host_relay(args: Args, enclave_cid: u32) -> Result<()> {
                     if p_sid != session_id || p_cookie != cookie_arr || src.ip() != tcp_peer_ip {
                         anyhow::bail!("Invalid UDP punch cookie/source IP");
                     }
-                    write_vsock_frame(&mut vs, &HostToEnclaveMsg::Phase2Start { rounds })?;
+                    write_vsock_frame(&mut vs, &HostToEnclaveMsg::Phase2Start {
+                        rounds,
+                        prover_confirm,
+                    })?;
                     let mut udp_buf = [0u8; PACKET_SIZE];
                     for round in 0..rounds {
                         match read_vsock_frame::<_, EnclaveToHostMsg>(&mut vs)? {
@@ -1058,113 +1074,147 @@ async fn run_nitro_host_relay(_args: Args, _enclave_cid: u32) -> Result<()> {
     anyhow::bail!("--nitro-host-relay requires Linux EC2 parent instance with AF_VSOCK")
 }
 
+/// Direct TCP Anchor session entrypoint: executes Phase 1 v2 authenticated handshake + key
+/// confirmation over `stream` and timed Phase 2 UDP challenges over a newly bound scoped UDP socket.
 async fn handle_prover_session(
     stream: tokio::net::TcpStream,
     peer_addr: SocketAddr,
     state: Arc<AnchorState>,
 ) -> Result<()> {
     let _ = stream.set_nodelay(true);
-    let (reader, mut writer) = stream.into_split();
+    let (reader, writer) = stream.into_split();
+    let bind_ip = state.udp_bind_ip;
+    let pmin = state.udp_port_min;
+    let pmax = state.udp_port_max;
+    handle_prover_session_with_io(
+        reader,
+        writer,
+        peer_addr,
+        state,
+        move || {
+            let sock = bind_scoped_udp(bind_ip, pmin, pmax)?;
+            let port = sock.local_addr()?.port();
+            Ok((sock, port))
+        },
+        |udp_sock, tcp_peer_ip, session_id, cookie, session_key, epoch_bytes, rounds| async move {
+            tokio::task::spawn_blocking(move || -> Result<Vec<u64>> {
+                let mut punch_buf = [0u8; PUNCH_PACKET_SIZE];
+                let (n, src) = udp_sock
+                    .recv_from(&mut punch_buf)
+                    .map_err(|e| anyhow::anyhow!("UDP punch required (anti-reflection): {e}"))?;
+                if n != PUNCH_PACKET_SIZE {
+                    anyhow::bail!("Invalid UDP punch size {n}");
+                }
+                let (p_sid, p_cookie) = decode_udp_punch(&punch_buf)?;
+                if p_sid != session_id || p_cookie != cookie {
+                    anyhow::bail!("Invalid UDP punch session_id or return cookie");
+                }
+                if src.ip() != tcp_peer_ip {
+                    anyhow::bail!(
+                        "UDP punch source IP {} != TCP peer IP {}",
+                        src.ip(),
+                        tcp_peer_ip
+                    );
+                }
+
+                let mut out = Vec::with_capacity(rounds as usize);
+                for round in 0..rounds {
+                    let rtt_us = measure_udp_round(
+                        &udp_sock,
+                        src,
+                        session_id,
+                        round,
+                        &session_key,
+                        &epoch_bytes,
+                        cookie,
+                    )?;
+                    out.push(rtt_us);
+                }
+                Ok(out)
+            })
+            .await?
+        },
+    )
+    .await
+}
+
+/// Core direct-Anchor session state machine parameterized over stream + Phase 2 runner so BOTH
+/// production TCP/UDP and in-memory adversarial regression tests execute the exact same
+/// Phase 1 v2 authentication, DH validation, key-confirmation, and receipt-signing code path!
+async fn handle_prover_session_with_io<R, W, U, B, F, Fut>(
+    reader: R,
+    mut writer: W,
+    peer_addr: SocketAddr,
+    state: Arc<AnchorState>,
+    bind_udp: B,
+    run_phase2: F,
+) -> Result<()>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+    B: FnOnce() -> std::io::Result<(U, u16)>,
+    F: FnOnce(U, IpAddr, u64, [u8; 8], [u8; 32], Vec<u8>, u16) -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<u64>>>,
+{
     let mut buf_reader = BufReader::new(reader);
 
     let line = read_bounded_line(&mut buf_reader, MAX_LINE_BYTES).await?;
-    let init_req: Phase1InitRequest = serde_json::from_str(line.trim())?;
+    let init_req: Phase1InitRequest = serde_json::from_str(line.trim())
+        .map_err(|e| anyhow::anyhow!("Invalid or legacy unsigned Phase1InitRequest rejected: {e}"))?;
 
-    if init_req.epoch_challenge_hex.len() > 128
-        || init_req.prover_quote.raw_quote_b64.len() > 24_000
-    {
-        anyhow::bail!("request fields exceed maximum allowed size");
+    // Fast fail-closed validation BEFORE binding an OS UDP socket (prevents unauthenticated port DoS!).
+    if init_req.protocol_version != PHASE1_PROTOCOL_VERSION {
+        anyhow::bail!(
+            "Unsupported Phase 1 protocol_version {} (expected {})",
+            init_req.protocol_version,
+            PHASE1_PROTOCOL_VERSION
+        );
     }
+    let _ = init_req.prover_init_transcript_hash()?;
 
+    let (udp_handle, bound_udp_port) = bind_udp()?;
     let now = Utc::now().timestamp().max(0) as u64;
-    let epoch_bytes = hex::decode(&init_req.epoch_challenge_hex)?;
-    let verified_prover =
-        verify_quote(&init_req.prover_quote, &epoch_bytes, &state.tee_policy, now)?;
-
-    let prover_eph_raw = hex::decode(&init_req.prover_ephemeral_x25519_hex)?;
-    let prover_eph_arr: [u8; 32] = prover_eph_raw
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("prover ephemeral x25519 must be 32 bytes"))?;
-    let prover_eph_pk = X25519PublicKey::from(prover_eph_arr);
-
-    let anchor_eph_sk = EphemeralSecret::random_from_rng(OsRng);
-    let anchor_eph_pk = X25519PublicKey::from(&anchor_eph_sk);
-    let shared = anchor_eph_sk.diffie_hellman(&prover_eph_pk);
-
-    let session_id = OsRng.next_u64();
-    let session_key = derive_session_key(
-        shared.as_bytes(),
-        session_id,
-        &epoch_bytes,
-        &verified_prover.public_key_hex,
-        &state.anchor_id,
-    );
-
     let peer_ip_str = peer_addr.ip().to_string();
-    let cookie = compute_return_cookie(&state.cookie_secret, session_id, &peer_ip_str);
 
-    let anchor_pk_bytes = state.signing_key.verifying_key().to_bytes();
-    let anchor_quote = state
-        .tee_provider
-        .attest(&anchor_pk_bytes, &epoch_bytes, None)?;
+    let anchor_hs = accept_phase1_anchor(
+        &init_req,
+        &state.anchor_id,
+        &state.signing_key,
+        state.tee_provider.as_ref(),
+        &state.tee_policy,
+        &state.cookie_secret,
+        &peer_ip_str,
+        bound_udp_port,
+        MAX_ROUNDS,
+        now,
+    )?;
 
-    let udp_sock = bind_scoped_udp(state.udp_bind_ip, state.udp_port_min, state.udp_port_max)?;
-    let bound_udp_port = udp_sock.local_addr()?.port();
-
-    let resp = Phase1InitResponse {
-        session_id,
-        anchor_id: state.anchor_id.clone(),
-        anchor_quote,
-        anchor_ephemeral_x25519_hex: hex::encode(anchor_eph_pk.as_bytes()),
-        return_cookie_hex: hex::encode(cookie),
-        anchor_udp_port: bound_udp_port,
-    };
-    let mut resp_json = serde_json::to_string(&resp)?;
+    let mut resp_json = serde_json::to_string(&anchor_hs.init_resp)?;
     resp_json.push('\n');
     writer.write_all(resp_json.as_bytes()).await?;
     writer.flush().await?;
 
-    let ready = read_bounded_line(&mut buf_reader, 64).await?;
-    if ready.trim() != "READY" {
-        anyhow::bail!("Expected READY signal before Phase 2 UDP burst");
+    // Phase 1 v2 Message 3: require explicit authenticated Phase1Confirm JSON (rejects legacy READY!).
+    let confirm_line = read_bounded_line(&mut buf_reader, MAX_CONFIRM_LINE_BYTES).await?;
+    let prover_confirm: Phase1Confirm = serde_json::from_str(confirm_line.trim()).map_err(|e| {
+        anyhow::anyhow!("Expected v2 Phase1Confirm JSON before Phase 2 (legacy READY rejected): {e}")
+    })?;
+    verify_phase1_confirm(&anchor_hs, &prover_confirm)?;
+
+    let samples = run_phase2(
+        udp_handle,
+        peer_addr.ip(),
+        anchor_hs.session_id,
+        anchor_hs.cookie,
+        anchor_hs.keys.phase2_mac_key,
+        anchor_hs.epoch_bytes.clone(),
+        anchor_hs.negotiated_rounds,
+    )
+    .await?;
+
+    if samples.is_empty() {
+        anyhow::bail!("Phase 2 produced zero RTT samples");
     }
-
-    let tcp_peer_ip = peer_addr.ip();
-    let rounds = init_req.rounds.clamp(1, MAX_ROUNDS);
-    let epoch_clone = epoch_bytes.clone();
-
-    let samples: Vec<u64> = tokio::task::spawn_blocking(move || -> Result<Vec<u64>> {
-        let mut punch_buf = [0u8; PUNCH_PACKET_SIZE];
-        let (n, src) = udp_sock
-            .recv_from(&mut punch_buf)
-            .map_err(|e| anyhow::anyhow!("UDP punch required (anti-reflection): {e}"))?;
-        if n != PUNCH_PACKET_SIZE {
-            anyhow::bail!("Invalid UDP punch size {n}");
-        }
-        let (p_sid, p_cookie) = decode_udp_punch(&punch_buf)?;
-        if p_sid != session_id || p_cookie != cookie {
-            anyhow::bail!("Invalid UDP punch session_id or return cookie");
-        }
-        if src.ip() != tcp_peer_ip {
-            anyhow::bail!("UDP punch source IP {} != TCP peer IP {}", src.ip(), tcp_peer_ip);
-        }
-
-        let mut out = Vec::with_capacity(rounds as usize);
-        for round in 0..rounds {
-            let rtt_us = measure_udp_round(
-                &udp_sock,
-                src,
-                session_id,
-                round,
-                &session_key,
-                &epoch_clone,
-                cookie,
-            )?;
-            out.push(rtt_us);
-        }
-        Ok(out)
-    })
-    .await??;
 
     let mut sorted = samples.clone();
     sorted.sort_unstable();
@@ -1174,9 +1224,9 @@ async fn handle_prover_session(
     let mut receipt = AnchorReceipt {
         anchor_id: state.anchor_id.clone(),
         cloud_provider: state.cloud_provider.clone(),
-        prover_pk_hex: verified_prover.public_key_hex,
-        workload_measurement_hex: verified_prover.workload_measurement_hex,
-        epoch_challenge_hex: init_req.epoch_challenge_hex,
+        prover_pk_hex: anchor_hs.verified_prover.public_key_hex,
+        workload_measurement_hex: anchor_hs.verified_prover.workload_measurement_hex,
+        epoch_challenge_hex: anchor_hs.epoch_challenge_hex,
         prover_observed_ip: peer_ip_str,
         rtt_min_us,
         rtt_p50_us,
@@ -1196,7 +1246,7 @@ async fn handle_prover_session(
         peer = %peer_addr.ip(),
         rtt_min_us,
         rtt_p50_us,
-        "Issued signed AnchorReceipt"
+        "Issued signed AnchorReceipt (Phase 1 v2 authenticated)"
     );
     Ok(())
 }
@@ -1414,14 +1464,24 @@ mod tests {
             handle_enclave_session_stream(&mut enclave_stream, &st_clone).unwrap();
         });
 
-        // Simulate untrusted host relay + Prover
+        // Simulate untrusted host relay + authenticated Phase 1 v2 Prover!
         let prover_kp = WorkloadKeypair::generate();
         let epoch = [0x99u8; 32];
+        let now = Utc::now().timestamp().max(0) as u64;
         let prover_quote = SoftwareDevProvider::new("dd".repeat(32))
             .attest(&prover_kp.public_key_bytes(), &epoch, None)
             .unwrap();
-        let prover_eph_sk = EphemeralSecret::random_from_rng(OsRng);
-        let prover_eph_pk = X25519PublicKey::from(&prover_eph_sk);
+        let client_hs = pog_proto::start_phase1_client(
+            &prover_kp,
+            prover_quote,
+            &epoch,
+            "aws-nitro-canary",
+            &anchor_pk_hex,
+            pog_tee::TeeVendor::SoftwareDev,
+            55000,
+            3,
+        )
+        .unwrap();
 
         write_vsock_frame(
             &mut host_stream,
@@ -1429,13 +1489,7 @@ mod tests {
                 peer_ip: "198.51.100.77".into(),
                 host_udp_port: 40123,
                 anchor_id: Some("aws-nitro-canary".into()),
-                init_req: Phase1InitRequest {
-                    prover_quote,
-                    epoch_challenge_hex: hex::encode(epoch),
-                    prover_ephemeral_x25519_hex: hex::encode(prover_eph_pk.as_bytes()),
-                    prover_udp_port: 55000,
-                    rounds: 3,
-                },
+                init_req: client_hs.init_req.clone(),
             },
         )
         .unwrap();
@@ -1448,20 +1502,23 @@ mod tests {
         assert_eq!(init_resp.anchor_id, "aws-nitro-canary");
         assert_eq!(init_resp.anchor_quote.public_key_hex, anchor_pk_hex);
 
-        let anchor_eph_arr: [u8; 32] = hex::decode(&init_resp.anchor_ephemeral_x25519_hex)
-            .unwrap()
-            .try_into()
-            .unwrap();
-        let shared = prover_eph_sk.diffie_hellman(&X25519PublicKey::from(anchor_eph_arr));
-        let session_key = derive_session_key(
-            shared.as_bytes(),
-            init_resp.session_id,
-            &epoch,
-            &prover_kp.public_key_hex(),
-            "aws-nitro-canary",
-        );
+        let completed = pog_proto::finish_phase1_client(
+            client_hs,
+            &init_resp,
+            &AttestationPolicy::allow_dev_software(),
+            now,
+        )
+        .unwrap();
+        let session_key = completed.keys.phase2_mac_key;
 
-        write_vsock_frame(&mut host_stream, &HostToEnclaveMsg::Phase2Start { rounds: 3 }).unwrap();
+        write_vsock_frame(
+            &mut host_stream,
+            &HostToEnclaveMsg::Phase2Start {
+                rounds: 3,
+                prover_confirm: completed.confirm,
+            },
+        )
+        .unwrap();
         for r in 0..3u16 {
             let EnclaveToHostMsg::Phase2ChallengeDatagram { round, packet_hex } =
                 read_vsock_frame(&mut host_stream).unwrap()
@@ -1496,6 +1553,443 @@ mod tests {
         assert_eq!(receipt.rtt_samples_us.len(), 3);
         assert!(receipt.verify(&anchor_pk_hex).is_ok());
         enclave_thread.join().unwrap();
+    }
+
+    fn make_test_anchor_state(anchor_id: &str) -> (Arc<AnchorState>, String) {
+        let anchor_sk = SigningKey::generate(&mut OsRng);
+        let anchor_pk_hex = hex::encode(anchor_sk.verifying_key().to_bytes());
+        let state = Arc::new(AnchorState {
+            anchor_id: anchor_id.into(),
+            cloud_provider: "aws".into(),
+            signing_key: anchor_sk,
+            cookie_secret: [0x55u8; 32],
+            tee_provider: Box::new(SoftwareDevProvider::new("ee".repeat(32))),
+            tee_policy: AttestationPolicy::allow_dev_software(),
+            udp_bind_ip: "127.0.0.1".parse().unwrap(),
+            udp_port_min: 40000,
+            udp_port_max: 40999,
+            concurrency_sem: Arc::new(Semaphore::new(8)),
+            rate_limiter: Mutex::new(RateLimiter::new(100, 100)),
+            info_cache: RwLock::new(None),
+            in_memory_endorsement: RwLock::new(None),
+            endorsement_path: PathBuf::from("/nonexistent/endorsement.json"),
+            operator_root_pk_hex: None,
+        });
+        (state, anchor_pk_hex)
+    }
+
+    #[test]
+    fn test_nitro_enclave_vsock_adversarial_phase1_rejections() {
+        let (state, anchor_pk_hex) = make_test_anchor_state("aws-nitro-enclave-01");
+        let victim_kp = WorkloadKeypair::generate();
+        let attacker_kp = WorkloadKeypair::generate();
+        let epoch = [0xAAu8; 32];
+        let now = Utc::now().timestamp().max(0) as u64;
+        let victim_quote = SoftwareDevProvider::new("dd".repeat(32))
+            .attest(&victim_kp.public_key_bytes(), &epoch, None)
+            .unwrap();
+        let valid_client = pog_proto::start_phase1_client(
+            &victim_kp,
+            victim_quote.clone(),
+            &epoch,
+            "aws-nitro-enclave-01",
+            &anchor_pk_hex,
+            pog_tee::TeeVendor::SoftwareDev,
+            55001,
+            3,
+        )
+        .unwrap();
+
+        let expect_enclave_reject = |req: Phase1InitRequest, host_anchor_id: &str, label: &str| {
+            let (mut enc_s, mut host_s) = UnixStream::pair().unwrap();
+            let st_c = Arc::clone(&state);
+            let t = thread::spawn(move || handle_enclave_session_stream(&mut enc_s, &st_c));
+            write_vsock_frame(
+                &mut host_s,
+                &HostToEnclaveMsg::Phase1Start {
+                    peer_ip: "198.51.100.88".into(),
+                    host_udp_port: 40124,
+                    anchor_id: Some(host_anchor_id.into()),
+                    init_req: req,
+                },
+            )
+            .unwrap();
+            let reply: EnclaveToHostMsg = read_vsock_frame(&mut host_s).unwrap();
+            assert!(
+                matches!(reply, EnclaveToHostMsg::Error { .. }),
+                "{label}: expected EnclaveToHostMsg::Error, got {reply:?}"
+            );
+            assert!(t.join().unwrap().is_err(), "{label}: enclave handler must return Err");
+        };
+
+        // 1. Stolen valid victim quote + attacker DH key + attacker sig -> REJECTED inside Nitro Enclave!
+        let mut stolen = valid_client.init_req.clone();
+        stolen.prover_ephemeral_x25519_hex = "42".repeat(32);
+        let sh = stolen.prover_init_transcript_hash().unwrap();
+        stolen.prover_init_sig_hex = hex::encode(attacker_kp.sign(&sh));
+        expect_enclave_reject(stolen, "aws-nitro-enclave-01", "stolen quote + attacker DH");
+
+        // 2. Altered prover DH key with victim's original signature -> REJECTED!
+        let mut altered_dh = valid_client.init_req.clone();
+        altered_dh.prover_ephemeral_x25519_hex = "42".repeat(32);
+        expect_enclave_reject(altered_dh, "aws-nitro-enclave-01", "altered prover DH");
+
+        // 3. Untrusted Nitro parent host spoofing a mismatched anchor_id -> REJECTED!
+        expect_enclave_reject(
+            valid_client.init_req.clone(),
+            "spoofed-host-anchor-id",
+            "host relay spoofed anchor_id",
+        );
+
+        // 4. Wrong target_anchor_pk_hex -> REJECTED!
+        let mut wrong_pk = valid_client.init_req.clone();
+        wrong_pk.target_anchor_pk_hex = "11".repeat(32);
+        let wph = wrong_pk.prover_init_transcript_hash().unwrap();
+        wrong_pk.prover_init_sig_hex = hex::encode(victim_kp.sign(&wph));
+        expect_enclave_reject(wrong_pk, "aws-nitro-enclave-01", "wrong target_anchor_pk");
+
+        // 5. All-zero / low-order DH public key even legitimately signed by victim -> REJECTED!
+        let mut zero_dh = valid_client.init_req.clone();
+        zero_dh.prover_ephemeral_x25519_hex = "00".repeat(32);
+        let zh = zero_dh.prover_init_transcript_hash().unwrap();
+        zero_dh.prover_init_sig_hex = hex::encode(victim_kp.sign(&zh));
+        expect_enclave_reject(zero_dh, "aws-nitro-enclave-01", "all-zero prover DH");
+
+        // 6. Legacy protocol_version=1 downgrade -> REJECTED!
+        let mut v1_req = valid_client.init_req.clone();
+        v1_req.protocol_version = 1;
+        expect_enclave_reject(v1_req, "aws-nitro-enclave-01", "legacy protocol_version=1");
+
+        // 7. Bad Phase1Confirm MAC sent in Phase2Start -> enclave REJECTS BEFORE any Phase 2 challenge!
+        let (mut enc_s, mut host_s) = UnixStream::pair().unwrap();
+        let st_c = Arc::clone(&state);
+        let t = thread::spawn(move || handle_enclave_session_stream(&mut enc_s, &st_c));
+        let fresh_client = pog_proto::start_phase1_client(
+            &victim_kp,
+            victim_quote,
+            &epoch,
+            "aws-nitro-enclave-01",
+            &anchor_pk_hex,
+            pog_tee::TeeVendor::SoftwareDev,
+            55002,
+            3,
+        )
+        .unwrap();
+        write_vsock_frame(
+            &mut host_s,
+            &HostToEnclaveMsg::Phase1Start {
+                peer_ip: "198.51.100.88".into(),
+                host_udp_port: 40125,
+                anchor_id: Some("aws-nitro-enclave-01".into()),
+                init_req: fresh_client.init_req.clone(),
+            },
+        )
+        .unwrap();
+        let EnclaveToHostMsg::Phase1Ready { init_resp, .. } =
+            read_vsock_frame(&mut host_s).unwrap()
+        else {
+            panic!("expected Phase1Ready");
+        };
+        let completed = pog_proto::finish_phase1_client(
+            fresh_client,
+            &init_resp,
+            &AttestationPolicy::allow_dev_software(),
+            now,
+        )
+        .unwrap();
+        let mut forged_confirm = completed.confirm;
+        forged_confirm.prover_confirm_mac_hex = "ff".repeat(32);
+        write_vsock_frame(
+            &mut host_s,
+            &HostToEnclaveMsg::Phase2Start {
+                rounds: 3,
+                prover_confirm: forged_confirm,
+            },
+        )
+        .unwrap();
+        let err_reply: EnclaveToHostMsg = read_vsock_frame(&mut host_s).unwrap();
+        assert!(
+            matches!(err_reply, EnclaveToHostMsg::Error { .. }),
+            "forged Phase1Confirm MUST be rejected before Phase 2 challenges, got {err_reply:?}"
+        );
+        assert!(t.join().unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_direct_anchor_entrypoint_valid_and_all_adversarial_rejections() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let (state, anchor_pk_hex) = make_test_anchor_state("gcp-direct-anchor-01");
+        let victim_kp = WorkloadKeypair::generate();
+        let attacker_kp = WorkloadKeypair::generate();
+        let epoch = [0xBBu8; 32];
+        let now = Utc::now().timestamp().max(0) as u64;
+        let victim_quote = SoftwareDevProvider::new("cc".repeat(32))
+            .attest(&victim_kp.public_key_bytes(), &epoch, None)
+            .unwrap();
+        let peer_addr: SocketAddr = "198.51.100.55:44321".parse().unwrap();
+
+        // 1. Valid direct-anchor v2 handshake + Phase1Confirm -> executes Phase 2 & issues signed receipt!
+        {
+            let (server_io, client_io) = tokio::io::duplex(64 * 1024);
+            let (sr, sw) = tokio::io::split(server_io);
+            let (cr, mut cw) = tokio::io::split(client_io);
+            let mut c_reader = BufReader::new(cr);
+            let phase2_ran = Arc::new(AtomicBool::new(false));
+            let phase2_ran_c = Arc::clone(&phase2_ran);
+            let st_c = Arc::clone(&state);
+
+            let srv = tokio::spawn(async move {
+                handle_prover_session_with_io(
+                    sr,
+                    sw,
+                    peer_addr,
+                    st_c,
+                    || Ok(((), 40500)),
+                    |_, _, _, _, _, _, rounds| async move {
+                        phase2_ran_c.store(true, Ordering::SeqCst);
+                        Ok(vec![1_250; rounds as usize])
+                    },
+                )
+                .await
+            });
+
+            let client_hs = pog_proto::start_phase1_client(
+                &victim_kp,
+                victim_quote.clone(),
+                &epoch,
+                "gcp-direct-anchor-01",
+                &anchor_pk_hex,
+                pog_tee::TeeVendor::SoftwareDev,
+                55100,
+                4,
+            )
+            .unwrap();
+            let mut req_line = serde_json::to_string(&client_hs.init_req).unwrap();
+            req_line.push('\n');
+            cw.write_all(req_line.as_bytes()).await.unwrap();
+            cw.flush().await.unwrap();
+
+            let mut resp_line = String::new();
+            c_reader.read_line(&mut resp_line).await.unwrap();
+            let init_resp: pog_proto::Phase1InitResponse =
+                serde_json::from_str(resp_line.trim()).unwrap();
+            let completed = pog_proto::finish_phase1_client(
+                client_hs,
+                &init_resp,
+                &AttestationPolicy::allow_dev_software(),
+                now,
+            )
+            .unwrap();
+            let mut conf_line = serde_json::to_string(&completed.confirm).unwrap();
+            conf_line.push('\n');
+            cw.write_all(conf_line.as_bytes()).await.unwrap();
+            cw.flush().await.unwrap();
+
+            resp_line.clear();
+            c_reader.read_line(&mut resp_line).await.unwrap();
+            let receipt: AnchorReceipt = serde_json::from_str(resp_line.trim()).unwrap();
+            assert!(receipt.verify(&anchor_pk_hex).is_ok());
+            assert_eq!(receipt.prover_pk_hex, victim_kp.public_key_hex());
+            assert_eq!(receipt.rtt_samples_us, vec![1_250; 4]);
+            srv.await.unwrap().unwrap();
+            assert!(phase2_ran.load(Ordering::SeqCst));
+        }
+
+        // Helper for adversarial Phase 1 init payloads against the real direct-anchor entrypoint:
+        let run_bad_init = |raw_line: String| {
+            let st_c = Arc::clone(&state);
+            async move {
+                let (server_io, mut client_io) = tokio::io::duplex(64 * 1024);
+                let (sr, sw) = tokio::io::split(server_io);
+                let phase2_ran = Arc::new(AtomicBool::new(false));
+                let phase2_ran_c = Arc::clone(&phase2_ran);
+                let srv = tokio::spawn(async move {
+                    handle_prover_session_with_io(
+                        sr,
+                        sw,
+                        peer_addr,
+                        st_c,
+                        || Ok(((), 40501)),
+                        |_, _, _, _, _, _, _| async move {
+                            phase2_ran_c.store(true, Ordering::SeqCst);
+                            Ok(vec![500])
+                        },
+                    )
+                    .await
+                });
+                client_io.write_all(raw_line.as_bytes()).await.unwrap();
+                client_io.flush().await.unwrap();
+                drop(client_io);
+                let res = srv.await.unwrap();
+                assert!(!phase2_ran.load(Ordering::SeqCst), "Phase 2 must NEVER run on rejected init!");
+                assert!(res.is_err());
+            }
+        };
+
+        // 2. Legacy unsigned v1 JSON -> REJECTED!
+        let legacy_v1 = format!(
+            "{}\n",
+            serde_json::json!({
+                "prover_quote": victim_quote,
+                "epoch_challenge_hex": hex::encode(epoch),
+                "prover_ephemeral_x25519_hex": "22".repeat(32),
+                "prover_udp_port": 55100,
+                "rounds": 4
+            })
+        );
+        run_bad_init(legacy_v1).await;
+
+        let base_c = pog_proto::start_phase1_client(
+            &victim_kp,
+            victim_quote.clone(),
+            &epoch,
+            "gcp-direct-anchor-01",
+            &anchor_pk_hex,
+            pog_tee::TeeVendor::SoftwareDev,
+            55100,
+            4,
+        )
+        .unwrap();
+
+        // 3. Stolen fresh quote + attacker local DH key + attacker signature -> REJECTED!
+        let mut stolen = base_c.init_req.clone();
+        stolen.prover_ephemeral_x25519_hex = "77".repeat(32);
+        let sh = stolen.prover_init_transcript_hash().unwrap();
+        stolen.prover_init_sig_hex = hex::encode(attacker_kp.sign(&sh));
+        run_bad_init(format!("{}\n", serde_json::to_string(&stolen).unwrap())).await;
+
+        // 4. Altered prover DH key -> REJECTED!
+        let mut alt_dh = base_c.init_req.clone();
+        alt_dh.prover_ephemeral_x25519_hex = "77".repeat(32);
+        run_bad_init(format!("{}\n", serde_json::to_string(&alt_dh).unwrap())).await;
+
+        // 5. Wrong anchor_id -> REJECTED!
+        let mut wrong_aid = base_c.init_req.clone();
+        wrong_aid.target_anchor_id = "other-anchor".into();
+        let wah = wrong_aid.prover_init_transcript_hash().unwrap();
+        wrong_aid.prover_init_sig_hex = hex::encode(victim_kp.sign(&wah));
+        run_bad_init(format!("{}\n", serde_json::to_string(&wrong_aid).unwrap())).await;
+
+        // 6. All-zero X25519 DH key (even signed by valid sk_P!) -> REJECTED!
+        let mut zero_dh = base_c.init_req.clone();
+        zero_dh.prover_ephemeral_x25519_hex = "00".repeat(32);
+        let zdh = zero_dh.prover_init_transcript_hash().unwrap();
+        zero_dh.prover_init_sig_hex = hex::encode(victim_kp.sign(&zdh));
+        run_bad_init(format!("{}\n", serde_json::to_string(&zero_dh).unwrap())).await;
+
+        // 7. Legacy plaintext "READY\n" instead of Phase1Confirm JSON -> REJECTED BEFORE Phase 2!
+        {
+            let (server_io, client_io) = tokio::io::duplex(64 * 1024);
+            let (sr, sw) = tokio::io::split(server_io);
+            let (cr, mut cw) = tokio::io::split(client_io);
+            let mut c_reader = BufReader::new(cr);
+            let phase2_ran = Arc::new(AtomicBool::new(false));
+            let phase2_ran_c = Arc::clone(&phase2_ran);
+            let st_c = Arc::clone(&state);
+
+            let srv = tokio::spawn(async move {
+                handle_prover_session_with_io(
+                    sr,
+                    sw,
+                    peer_addr,
+                    st_c,
+                    || Ok(((), 40502)),
+                    |_, _, _, _, _, _, _| async move {
+                        phase2_ran_c.store(true, Ordering::SeqCst);
+                        Ok(vec![500])
+                    },
+                )
+                .await
+            });
+            let mut req_line = serde_json::to_string(&base_c.init_req).unwrap();
+            req_line.push('\n');
+            cw.write_all(req_line.as_bytes()).await.unwrap();
+            cw.flush().await.unwrap();
+            let mut resp_line = String::new();
+            c_reader.read_line(&mut resp_line).await.unwrap();
+            cw.write_all(b"READY\n").await.unwrap();
+            cw.flush().await.unwrap();
+            assert!(srv.await.unwrap().is_err());
+            assert!(!phase2_ran.load(Ordering::SeqCst), "legacy READY MUST NOT start Phase 2!");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_direct_anchor_live_tcp_udp_handle_prover_session_end_to_end() {
+        let (state, anchor_pk_hex) = make_test_anchor_state("gcp-live-loopback-01");
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let tcp_addr = listener.local_addr().unwrap();
+
+        let st_c = Arc::clone(&state);
+        let srv = tokio::spawn(async move {
+            let (stream, peer) = listener.accept().await.unwrap();
+            handle_prover_session(stream, peer, st_c).await
+        });
+
+        let prover_kp = WorkloadKeypair::generate();
+        let epoch = [0xCCu8; 32];
+        let now = Utc::now().timestamp().max(0) as u64;
+        let prover_quote = SoftwareDevProvider::new("dd".repeat(32))
+            .attest(&prover_kp.public_key_bytes(), &epoch, None)
+            .unwrap();
+        let udp_sock = bind_low_latency_udp("127.0.0.1:0".parse().unwrap(), Duration::from_secs(2)).unwrap();
+        let local_udp_port = udp_sock.local_addr().unwrap().port();
+
+        let client_hs = pog_proto::start_phase1_client(
+            &prover_kp,
+            prover_quote,
+            &epoch,
+            "gcp-live-loopback-01",
+            &anchor_pk_hex,
+            pog_tee::TeeVendor::SoftwareDev,
+            local_udp_port,
+            3,
+        )
+        .unwrap();
+
+        let stream = tokio::net::TcpStream::connect(tcp_addr).await.unwrap();
+        let (r, mut w) = stream.into_split();
+        let mut br = BufReader::new(r);
+        let mut req_line = serde_json::to_string(&client_hs.init_req).unwrap();
+        req_line.push('\n');
+        w.write_all(req_line.as_bytes()).await.unwrap();
+        w.flush().await.unwrap();
+
+        let mut resp_line = String::new();
+        br.read_line(&mut resp_line).await.unwrap();
+        let init_resp: pog_proto::Phase1InitResponse =
+            serde_json::from_str(resp_line.trim()).unwrap();
+        let completed = pog_proto::finish_phase1_client(
+            client_hs,
+            &init_resp,
+            &AttestationPolicy::allow_dev_software(),
+            now,
+        )
+        .unwrap();
+
+        let mut conf_line = serde_json::to_string(&completed.confirm).unwrap();
+        conf_line.push('\n');
+        w.write_all(conf_line.as_bytes()).await.unwrap();
+        w.flush().await.unwrap();
+
+        let punch = pog_proto::encode_udp_punch(completed.session_id, completed.cookie);
+        let anchor_udp_addr = SocketAddr::new("127.0.0.1".parse().unwrap(), completed.anchor_udp_port);
+        let sid = completed.session_id;
+        let sk = completed.keys.phase2_mac_key;
+        let udp_task = tokio::task::spawn_blocking(move || {
+            udp_sock.send_to(&punch, anchor_udp_addr).unwrap();
+            for _ in 0..3 {
+                pog_proto::respond_once_udp(&udp_sock, sid, &sk, &epoch).unwrap();
+            }
+        });
+        udp_task.await.unwrap();
+
+        resp_line.clear();
+        br.read_line(&mut resp_line).await.unwrap();
+        let receipt: AnchorReceipt = serde_json::from_str(resp_line.trim()).unwrap();
+        assert!(receipt.verify(&anchor_pk_hex).is_ok());
+        assert_eq!(receipt.rtt_samples_us.len(), 3);
+        srv.await.unwrap().unwrap();
     }
 
     #[test]

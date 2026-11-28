@@ -56,7 +56,12 @@ pub use vsock::{
     HostToEnclaveMsg, DEFAULT_NITRO_VSOCK_PORT, MAX_VSOCK_FRAME_BYTES, NITRO_PARENT_CID,
 };
 pub use wire::{
-    compute_challenge_mac, compute_return_cookie, decode_udp_punch, derive_session_key,
-    encode_udp_punch, AnchorReceipt, ChallengePacket, Phase1InitRequest, Phase1InitResponse,
-    ProtoError, ResponsePacket, PACKET_SIZE, PROTOCOL_MAGIC, PROTOCOL_VERSION, PUNCH_PACKET_SIZE,
+    accept_phase1_anchor, anchor_handshake_attestation_policy, compute_anchor_quote_nonce,
+    compute_challenge_mac, compute_checked_x25519_shared_secret, compute_return_cookie, ct_eq_32,
+    decode_udp_punch, derive_handshake_keys_v2, encode_udp_punch, finish_phase1_client,
+    start_phase1_client, validate_x25519_public_key_bytes, verify_phase1_confirm, AnchorReceipt,
+    ChallengePacket, HandshakeSessionKeys, Phase1AnchorState, Phase1ClientCompleted,
+    Phase1ClientState, Phase1Confirm, Phase1InitRequest, Phase1InitResponse, ProtoError,
+    ResponsePacket, PACKET_SIZE, PHASE1_MAX_ROUNDS, PHASE1_MIN_ROUNDS, PHASE1_PROTOCOL_VERSION,
+    PROTOCOL_MAGIC, PROTOCOL_VERSION, PUNCH_PACKET_SIZE, ROLE_ANCHOR, ROLE_PROVER,
 };
