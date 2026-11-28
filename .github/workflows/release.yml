@@ -136,10 +136,10 @@ jobs:
         run: |
           ls -la all-assets/
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" all-assets/* --clobber
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$TAG" --repo "${{ github.repository }}" all-assets/* --clobber
           else
-            gh release create "$TAG" all-assets/* \
+            gh release create "$TAG" --repo "${{ github.repository }}" all-assets/* \
               --title "Proof of Geography $TAG" \
               --notes "Static musl Linux x86_64 & aarch64 binaries + non-debug ARM64 AWS Nitro Enclave Image File (.eif) with pinned PCR0/PCR1/PCR2 measurements, multi-region anchor_id vsock support, fresh /attest?nonce= PoP, and pinned vendor silicon roots."
           fi

@@ -52,6 +52,8 @@ ENTRYPOINT ["/usr/local/bin/pog-anchor"]
 CMD ["--cloud-provider", "gcp", "--tcp-listen", "0.0.0.0:7443", "--udp-bind", "0.0.0.0:7444", "--udp-port-min", "40000", "--udp-port-max", "40999", "--http-info-listen", "0.0.0.0:7445"]
 
 # Strictly minimal zero-shell, zero-SSH runtime image for AWS Nitro Enclaves (`FROM scratch`)
+# Note: `nitro-cli build-enclave` executes `CMD` directly as PID 1 child (does NOT prepend `ENTRYPOINT`),
+# so the full executable + flags must live in `CMD`.
 FROM scratch AS runtime
 LABEL org.opencontainers.image.source="https://github.com/jperla/proof-of-geography" \
       org.opencontainers.image.description="Reproducible zero-shell, zero-SSH static musl Proof of Geography Anchor TEE image" \
@@ -59,5 +61,4 @@ LABEL org.opencontainers.image.source="https://github.com/jperla/proof-of-geogra
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /out/pog-anchor /usr/local/bin/pog-anchor
 COPY --from=builder /out/SHA256SUMS /etc/pog/SHA256SUMS
-ENTRYPOINT ["/usr/local/bin/pog-anchor"]
-CMD ["--cloud-provider", "aws", "--vsock-port", "7443"]
+CMD ["/usr/local/bin/pog-anchor", "--cloud-provider", "aws", "--vsock-port", "7443"]

@@ -19,11 +19,11 @@ variable "enable_nitro_enclave" {
 }
 variable "arm64_tarball_url" {
   type    = string
-  default = "https://github.com/jperla/proof-of-geography/releases/download/v0.1.7/pog-linux-aarch64.tar.gz"
+  default = "https://github.com/jperla/proof-of-geography/releases/download/v0.1.8/pog-linux-aarch64.tar.gz"
 }
 variable "nitro_eif_url" {
   type    = string
-  default = "https://github.com/jperla/proof-of-geography/releases/download/v0.1.7/pog-anchor-arm64.eif"
+  default = "https://github.com/jperla/proof-of-geography/releases/download/v0.1.8/pog-anchor-arm64.eif"
 }
 variable "enclave_cpu_count" {
   type    = number
