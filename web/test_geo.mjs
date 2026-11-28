@@ -234,17 +234,17 @@ test("official constellation exclusivity: ?registry= selects separate external c
     pageOrigin: "https://proofofgeography.com",
   });
 
-  // 1. Default loads official web/data/anchors.json (49 operated nodes: 7 HW TEE + 42 pilot)
+  // 1. Default loads official web/data/anchors.json (62 operated HTTPS nodes: 34 HW TEE + 28 pilot)
   const initialOfficial = store.getOfficial();
   assert.equal(initialOfficial.isOfficial, true);
   assert.equal(initialOfficial.isExternal, false);
-  assert.equal(initialOfficial.anchors.length, 49);
+  assert.equal(initialOfficial.anchors.length, 62);
   const officialIdsBefore = initialOfficial.anchors.map((a) => a.id);
 
   // Record a SoftwareDev response on one official anchor before switching
   assert.equal(store.recordLiveInfo("aws-us-east-1-nvirginia", { tee_vendor: "SoftwareDev", public_key_hex: "aa".repeat(32) }), true);
   const officialAuditBefore = store.getOfficialAudit(null);
-  assert.equal(officialAuditBefore.configured, 49);
+  assert.equal(officialAuditBefore.configured, 62);
   assert.equal(officialAuditBefore.reachable, 1);
   assert.equal(officialAuditBefore.hwTee, 0);
   assert.equal(officialAuditBefore.officialHwTee, 0);
@@ -312,10 +312,10 @@ test("official constellation exclusivity: ?registry= selects separate external c
 
   // 5. CRITICAL INVARIANT: Official roster, IDs, count, and HW counts are 100% UNCHANGED!
   const officialAfter = store.getOfficial();
-  assert.equal(officialAfter.anchors.length, 49);
+  assert.equal(officialAfter.anchors.length, 62);
   assert.deepEqual(Array.from(officialAfter.anchors, (a) => a.id), Array.from(officialIdsBefore));
   const officialAuditAfter = store.getOfficialAudit(null);
-  assert.equal(officialAuditAfter.configured, 49);
+  assert.equal(officialAuditAfter.configured, 62);
   assert.equal(officialAuditAfter.reachable, 1);
   assert.equal(officialAuditAfter.hwTee, 0);
   assert.equal(officialAuditAfter.officialHwTee, 0);
@@ -595,7 +595,7 @@ test("staged Honolulu two-provider diagnostic anchors carry distinct failure dom
   const hnlPatch = JSON.parse(readFileSync(new URL("../config/honolulu_diagnostic_patch.json", import.meta.url), "utf8"));
   assert.equal(hnlPatch.candidate_anchors.length, 2);
 
-  // Merge strictly in-memory (live official anchors.json remains 49 nodes untouched!)
+  // Merge strictly in-memory (live official anchors.json remains 62 nodes untouched!)
   const combinedPayload = {
     ...officialJson,
     anchors: [
@@ -621,7 +621,7 @@ test("staged Honolulu two-provider diagnostic anchors carry distinct failure dom
     pageOrigin: "https://proofofgeography.com",
   });
   const active = store.getActive();
-  assert.equal(active.anchors.length, 51);
+  assert.equal(active.anchors.length, 64);
   const awsHnl = active.anchors.find((a) => a.id === "aws-us-west-2-hnl-honolulu");
   const vultrHnl = active.anchors.find((a) => a.id === "vultr-hnl-honolulu");
   assert.ok(awsHnl && vultrHnl);
@@ -635,7 +635,7 @@ test("staged Honolulu two-provider diagnostic anchors carry distinct failure dom
   store.recordLiveInfo("aws-us-west-2-hnl-honolulu", { tee_vendor: "AwsNitro", public_key_hex: "11".repeat(32) });
   store.recordLiveInfo("vultr-hnl-honolulu", { tee_vendor: "AmdSevSnp", public_key_hex: "22".repeat(32) });
   const audit = store.getActiveAudit(null);
-  assert.equal(audit.configured, 51);
+  assert.equal(audit.configured, 64);
   assert.equal(audit.reachable, 2);
   assert.equal(audit.hwTee, 0);
   assert.equal(audit.officialHwTee, 0);

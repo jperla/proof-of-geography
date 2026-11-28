@@ -17,6 +17,14 @@ variable "enable_nitro_enclave" {
   type    = bool
   default = false
 }
+variable "nitro_instance_type" {
+  type    = string
+  default = "c6g.large"
+}
+variable "availability_zone" {
+  type    = string
+  default = null
+}
 variable "arm64_tarball_url" {
   type    = string
   default = "https://github.com/jperla/proof-of-geography/releases/download/v0.1.8/pog-linux-aarch64.tar.gz"
@@ -43,6 +51,7 @@ variable "lockdown_egress" {
 }
 
 data "aws_ami" "rocky_9" {
+  count       = var.enable_nitro_enclave ? 0 : 1
   most_recent = true
   owners      = ["792107900819"] # Rocky Enterprise Software Foundation (official RESF Rocky Linux 9)
 
@@ -57,6 +66,7 @@ data "aws_ami" "rocky_9" {
 }
 
 data "aws_ami" "al2023_arm64" {
+  count       = var.enable_nitro_enclave ? 1 : 0
   most_recent = true
   owners      = ["amazon"]
 
@@ -90,6 +100,7 @@ resource "aws_internet_gateway" "igw" {
 resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.isolated.id
   cidr_block              = "10.199.1.0/24"
+  availability_zone       = var.availability_zone
   map_public_ip_on_launch = true
   tags                    = { Name = "pog-isolated-snet-${var.anchor_id}", Project = "proof-of-geography-pilot" }
 }
@@ -184,8 +195,8 @@ resource "aws_key_pair" "pilot" {
 }
 
 resource "aws_instance" "anchor" {
-  ami                         = var.enable_nitro_enclave ? data.aws_ami.al2023_arm64.id : data.aws_ami.rocky_9.id
-  instance_type               = var.enable_nitro_enclave ? "c6g.large" : var.instance_type
+  ami                         = var.enable_nitro_enclave ? data.aws_ami.al2023_arm64[0].id : data.aws_ami.rocky_9[0].id
+  instance_type               = var.enable_nitro_enclave ? var.nitro_instance_type : var.instance_type
   subnet_id                   = aws_subnet.public.id
   vpc_security_group_ids      = [aws_security_group.sg.id]
   associate_public_ip_address = true

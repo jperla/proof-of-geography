@@ -1,6 +1,9 @@
 # =============================================================================
-# ISOLATED AWS ANCHOR FLEET (14 Regions — Dedicated VPC 10.199.0.0/16 per region)
-# Uniform Rocky Linux 9.9 (official RESF AMI), IMDS disabled, ZERO touch on default VPC!
+# ISOLATED AWS NITRO ENCLAVE FLEET (27 Regions — Dedicated VPC 10.199.0.0/16 per region)
+# Non-debug ARM64 AWS Nitro Enclaves (c6g.large, AL2023 kernel 6.12 + FROM scratch EIF),
+# IMDS disabled in lockdown mode, ZERO touch on default VPC!
+# Note: AWS me-central-1 / me-south-1 omitted due to AWS RunInstances regional restriction;
+# Middle East is covered by aws-il-central-1-telaviv + gcp-me-central1-doha + azure-uaenorth-dubai.
 # =============================================================================
 
 provider "aws" {
@@ -58,6 +61,60 @@ provider "aws" {
 provider "aws" {
   alias  = "sa_east_1"
   region = "sa-east-1"
+}
+# --- 14 Additional Global Perimeter & Standard AWS Regions ---
+provider "aws" {
+  alias  = "ca_west_1"
+  region = "ca-west-1"
+}
+provider "aws" {
+  alias  = "mx_central_1"
+  region = "mx-central-1"
+}
+provider "aws" {
+  alias  = "eu_west_3"
+  region = "eu-west-3"
+}
+provider "aws" {
+  alias  = "eu_south_2"
+  region = "eu-south-2"
+}
+provider "aws" {
+  alias  = "eu_central_2"
+  region = "eu-central-2"
+}
+provider "aws" {
+  alias  = "il_central_1"
+  region = "il-central-1"
+}
+provider "aws" {
+  alias  = "af_south_1"
+  region = "af-south-1"
+}
+provider "aws" {
+  alias  = "ap_east_1"
+  region = "ap-east-1"
+}
+provider "aws" {
+  alias  = "ap_northeast_2"
+  region = "ap-northeast-2"
+}
+provider "aws" {
+  alias  = "ap_northeast_3"
+  region = "ap-northeast-3"
+}
+provider "aws" {
+  alias  = "ap_southeast_1"
+  region = "ap-southeast-1"
+}
+provider "aws" {
+  alias  = "ap_southeast_3"
+  region = "ap-southeast-3"
+}
+provider "aws" {
+  alias                  = "ap_southeast_6"
+  region                 = "ap-southeast-6"
+  skip_region_validation = true
 }
 
 module "aws_isolated_us_west_1" {
@@ -207,6 +264,151 @@ module "aws_isolated_sa_east_1" {
   source               = "./aws_isolated_region"
   providers            = { aws = aws.sa_east_1 }
   anchor_id            = "aws-sa-east-1-saopaulo"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
+}
+
+# --- 13 Additional Global Perimeter & Standard AWS Nitro Enclave Regions ---
+module "aws_isolated_ca_west_1" {
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.ca_west_1 }
+  anchor_id            = "aws-ca-west-1-calgary"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
+}
+
+module "aws_isolated_mx_central_1" {
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.mx_central_1 }
+  anchor_id            = "aws-mx-central-1-queretaro"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
+}
+
+module "aws_isolated_eu_west_3" {
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.eu_west_3 }
+  anchor_id            = "aws-eu-west-3-paris"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
+}
+
+module "aws_isolated_eu_south_2" {
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.eu_south_2 }
+  anchor_id            = "aws-eu-south-2-spain"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
+}
+
+module "aws_isolated_eu_central_2" {
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.eu_central_2 }
+  anchor_id            = "aws-eu-central-2-zurich"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
+}
+
+module "aws_isolated_il_central_1" {
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.il_central_1 }
+  anchor_id            = "aws-il-central-1-telaviv"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
+}
+
+module "aws_isolated_af_south_1" {
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.af_south_1 }
+  anchor_id            = "aws-af-south-1-capetown"
+  enable_nitro_enclave = true
+  availability_zone    = "af-south-1b"
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
+}
+
+module "aws_isolated_ap_east_1" {
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.ap_east_1 }
+  anchor_id            = "aws-ap-east-1-hongkong"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
+}
+
+module "aws_isolated_ap_northeast_2" {
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.ap_northeast_2 }
+  anchor_id            = "aws-ap-northeast-2-seoul"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
+}
+
+module "aws_isolated_ap_northeast_3" {
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.ap_northeast_3 }
+  anchor_id            = "aws-ap-northeast-3-osaka"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
+}
+
+module "aws_isolated_ap_southeast_1" {
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.ap_southeast_1 }
+  anchor_id            = "aws-ap-southeast-1-singapore"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
+}
+
+module "aws_isolated_ap_southeast_3" {
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.ap_southeast_3 }
+  anchor_id            = "aws-ap-southeast-3-jakarta"
+  enable_nitro_enclave = true
+  ssh_public_key       = var.ssh_public_key
+  release_tarball_url  = var.release_tarball_url
+  allow_ssh            = var.allow_ssh
+  lockdown_egress      = var.lockdown_egress
+}
+
+module "aws_isolated_ap_southeast_6" {
+  source               = "./aws_isolated_region"
+  providers            = { aws = aws.ap_southeast_6 }
+  anchor_id            = "aws-ap-southeast-6-auckland"
   enable_nitro_enclave = true
   ssh_public_key       = var.ssh_public_key
   release_tarball_url  = var.release_tarball_url
@@ -369,6 +571,149 @@ locals {
       lat               = -23.5505
       lon               = -46.6333
       slug              = "gru-aws"
+    }
+    "aws-ca-west-1-calgary" = {
+      ip                = module.aws_isolated_ca_west_1.public_ip
+      instance_id       = module.aws_isolated_ca_west_1.instance_id
+      security_group_id = module.aws_isolated_ca_west_1.security_group_id
+      cloud_provider    = "aws"
+      region            = "ca-west-1"
+      city              = "Calgary, AB, Canada"
+      lat               = 51.0447
+      lon               = -114.0719
+      slug              = "yyc-aws"
+    }
+    "aws-mx-central-1-queretaro" = {
+      ip                = module.aws_isolated_mx_central_1.public_ip
+      instance_id       = module.aws_isolated_mx_central_1.instance_id
+      security_group_id = module.aws_isolated_mx_central_1.security_group_id
+      cloud_provider    = "aws"
+      region            = "mx-central-1"
+      city              = "Querétaro, Mexico"
+      lat               = 20.5888
+      lon               = -100.3899
+      slug              = "qro-aws"
+    }
+    "aws-eu-west-3-paris" = {
+      ip                = module.aws_isolated_eu_west_3.public_ip
+      instance_id       = module.aws_isolated_eu_west_3.instance_id
+      security_group_id = module.aws_isolated_eu_west_3.security_group_id
+      cloud_provider    = "aws"
+      region            = "eu-west-3"
+      city              = "Paris, France"
+      lat               = 48.8566
+      lon               = 2.3522
+      slug              = "cdg-aws"
+    }
+    "aws-eu-south-2-spain" = {
+      ip                = module.aws_isolated_eu_south_2.public_ip
+      instance_id       = module.aws_isolated_eu_south_2.instance_id
+      security_group_id = module.aws_isolated_eu_south_2.security_group_id
+      cloud_provider    = "aws"
+      region            = "eu-south-2"
+      city              = "Zaragoza, Spain"
+      lat               = 41.6488
+      lon               = -0.8891
+      slug              = "zaz-aws"
+    }
+    "aws-eu-central-2-zurich" = {
+      ip                = module.aws_isolated_eu_central_2.public_ip
+      instance_id       = module.aws_isolated_eu_central_2.instance_id
+      security_group_id = module.aws_isolated_eu_central_2.security_group_id
+      cloud_provider    = "aws"
+      region            = "eu-central-2"
+      city              = "Zurich, Switzerland"
+      lat               = 47.3769
+      lon               = 8.5417
+      slug              = "zrh-aws"
+    }
+    "aws-il-central-1-telaviv" = {
+      ip                = module.aws_isolated_il_central_1.public_ip
+      instance_id       = module.aws_isolated_il_central_1.instance_id
+      security_group_id = module.aws_isolated_il_central_1.security_group_id
+      cloud_provider    = "aws"
+      region            = "il-central-1"
+      city              = "Tel Aviv, Israel"
+      lat               = 32.0853
+      lon               = 34.7818
+      slug              = "tlv-aws"
+    }
+    "aws-af-south-1-capetown" = {
+      ip                = module.aws_isolated_af_south_1.public_ip
+      instance_id       = module.aws_isolated_af_south_1.instance_id
+      security_group_id = module.aws_isolated_af_south_1.security_group_id
+      cloud_provider    = "aws"
+      region            = "af-south-1"
+      city              = "Cape Town, South Africa"
+      lat               = -33.9249
+      lon               = 18.4241
+      slug              = "cpt-aws"
+    }
+    "aws-ap-east-1-hongkong" = {
+      ip                = module.aws_isolated_ap_east_1.public_ip
+      instance_id       = module.aws_isolated_ap_east_1.instance_id
+      security_group_id = module.aws_isolated_ap_east_1.security_group_id
+      cloud_provider    = "aws"
+      region            = "ap-east-1"
+      city              = "Hong Kong"
+      lat               = 22.3193
+      lon               = 114.1694
+      slug              = "hkg-aws"
+    }
+    "aws-ap-northeast-2-seoul" = {
+      ip                = module.aws_isolated_ap_northeast_2.public_ip
+      instance_id       = module.aws_isolated_ap_northeast_2.instance_id
+      security_group_id = module.aws_isolated_ap_northeast_2.security_group_id
+      cloud_provider    = "aws"
+      region            = "ap-northeast-2"
+      city              = "Seoul, South Korea"
+      lat               = 37.5665
+      lon               = 126.9780
+      slug              = "icn-aws"
+    }
+    "aws-ap-northeast-3-osaka" = {
+      ip                = module.aws_isolated_ap_northeast_3.public_ip
+      instance_id       = module.aws_isolated_ap_northeast_3.instance_id
+      security_group_id = module.aws_isolated_ap_northeast_3.security_group_id
+      cloud_provider    = "aws"
+      region            = "ap-northeast-3"
+      city              = "Osaka, Japan"
+      lat               = 34.6937
+      lon               = 135.5023
+      slug              = "kix-aws"
+    }
+    "aws-ap-southeast-1-singapore" = {
+      ip                = module.aws_isolated_ap_southeast_1.public_ip
+      instance_id       = module.aws_isolated_ap_southeast_1.instance_id
+      security_group_id = module.aws_isolated_ap_southeast_1.security_group_id
+      cloud_provider    = "aws"
+      region            = "ap-southeast-1"
+      city              = "Singapore"
+      lat               = 1.3521
+      lon               = 103.8198
+      slug              = "sin-aws"
+    }
+    "aws-ap-southeast-3-jakarta" = {
+      ip                = module.aws_isolated_ap_southeast_3.public_ip
+      instance_id       = module.aws_isolated_ap_southeast_3.instance_id
+      security_group_id = module.aws_isolated_ap_southeast_3.security_group_id
+      cloud_provider    = "aws"
+      region            = "ap-southeast-3"
+      city              = "Jakarta, Indonesia"
+      lat               = -6.2088
+      lon               = 106.8456
+      slug              = "cgk-aws"
+    }
+    "aws-ap-southeast-6-auckland" = {
+      ip                = module.aws_isolated_ap_southeast_6.public_ip
+      instance_id       = module.aws_isolated_ap_southeast_6.instance_id
+      security_group_id = module.aws_isolated_ap_southeast_6.security_group_id
+      cloud_provider    = "aws"
+      region            = "ap-southeast-6"
+      city              = "Auckland, New Zealand"
+      lat               = -36.8485
+      lon               = 174.7633
+      slug              = "akl-aws"
     }
   }
 }
