@@ -1,8 +1,9 @@
 use anyhow::Result;
 use axum::{
+    body::Bytes,
     extract::{Query, State as AxumState},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use chrono::Utc;
@@ -163,8 +164,35 @@ struct AnchorState {
     concurrency_sem: Arc<Semaphore>,
     rate_limiter: Mutex<RateLimiter>,
     info_cache: RwLock<Option<CachedInfo>>,
+    in_memory_endorsement: RwLock<Option<AnchorEndorsement>>,
     endorsement_path: PathBuf,
     operator_root_pk_hex: Option<String>,
+}
+
+/// Strictly validate an `AnchorEndorsement` struct against live anchor identity, RAM key, time,
+/// and optional pinned operator root public key.
+fn validate_endorsement_cert(
+    cert: AnchorEndorsement,
+    expected_anchor_id: &str,
+    live_pk_hex: &str,
+    pinned_root_pk_hex: Option<&str>,
+    now_unix_s: u64,
+) -> (Option<AnchorEndorsement>, &'static str) {
+    if cert.anchor_id != expected_anchor_id {
+        return (None, "anchor_id_mismatch");
+    }
+    if !cert.anchor_public_key_hex.eq_ignore_ascii_case(live_pk_hex) {
+        return (None, "key_mismatch");
+    }
+    if now_unix_s > cert.expires_at_unix_s {
+        return (None, "expired");
+    }
+    if let Some(root_pk) = pinned_root_pk_hex {
+        if cert.verify(root_pk, now_unix_s).is_err() {
+            return (None, "invalid_signature");
+        }
+    }
+    (Some(cert), "matched")
 }
 
 /// Strictly load and validate an operator `AnchorEndorsement` against this Anchor's live ephemeral
@@ -186,21 +214,40 @@ fn load_verified_endorsement(
         Ok(c) => c,
         Err(_) => return (None, "parse_error"),
     };
-    if cert.anchor_id != expected_anchor_id {
-        return (None, "anchor_id_mismatch");
-    }
-    if !cert.anchor_public_key_hex.eq_ignore_ascii_case(live_pk_hex) {
-        return (None, "key_mismatch");
-    }
-    if now_unix_s > cert.expires_at_unix_s {
-        return (None, "expired");
-    }
-    if let Some(root_pk) = pinned_root_pk_hex {
-        if cert.verify(root_pk, now_unix_s).is_err() {
-            return (None, "invalid_signature");
+    validate_endorsement_cert(
+        cert,
+        expected_anchor_id,
+        live_pk_hex,
+        pinned_root_pk_hex,
+        now_unix_s,
+    )
+}
+
+fn resolve_verified_endorsement(
+    state: &AnchorState,
+    effective_anchor_id: &str,
+    live_pk_hex: &str,
+    now_unix_s: u64,
+) -> (Option<AnchorEndorsement>, &'static str) {
+    if let Some(ref mem_cert) = *state.in_memory_endorsement.read().unwrap() {
+        let (ok_cert, status) = validate_endorsement_cert(
+            mem_cert.clone(),
+            effective_anchor_id,
+            live_pk_hex,
+            state.operator_root_pk_hex.as_deref(),
+            now_unix_s,
+        );
+        if ok_cert.is_some() {
+            return (ok_cert, status);
         }
     }
-    (Some(cert), "matched")
+    load_verified_endorsement(
+        &state.endorsement_path,
+        effective_anchor_id,
+        live_pk_hex,
+        state.operator_root_pk_hex.as_deref(),
+        now_unix_s,
+    )
 }
 
 #[derive(serde::Deserialize)]
@@ -253,13 +300,8 @@ fn build_fresh_attest_payload_with_id(
         &quote.workload_measurement_hex,
     );
     let pop_sig_hex = hex::encode(state.signing_key.sign(&pop_msg).to_bytes());
-    let (operator_endorsement, endorsement_status) = load_verified_endorsement(
-        &state.endorsement_path,
-        effective_anchor_id,
-        &pk_hex,
-        state.operator_root_pk_hex.as_deref(),
-        now,
-    );
+    let (operator_endorsement, endorsement_status) =
+        resolve_verified_endorsement(state, effective_anchor_id, &pk_hex, now);
     let vendor = state.tee_provider.vendor();
     Ok(serde_json::json!({
         "anchor_id": effective_anchor_id,
@@ -300,13 +342,8 @@ fn build_info_payload_with_id(
         .tee_provider
         .attest(&pk_bytes, bootstrap_nonce.as_bytes(), None)
         .ok();
-    let (operator_endorsement, endorsement_status) = load_verified_endorsement(
-        &state.endorsement_path,
-        effective_anchor_id,
-        &pk_hex,
-        state.operator_root_pk_hex.as_deref(),
-        now,
-    );
+    let (operator_endorsement, endorsement_status) =
+        resolve_verified_endorsement(state, effective_anchor_id, &pk_hex, now);
     let vendor = state.tee_provider.vendor();
     serde_json::json!({
         "anchor_id": effective_anchor_id,
@@ -448,12 +485,19 @@ async fn main() -> Result<()> {
     OsRng.fill_bytes(&mut cookie_secret);
 
     let pk_hex = hex::encode(signing_key.verifying_key().to_bytes());
-    let tee_policy = if args.allow_dev_tee || args.allow_dev_prover {
+    let mut tee_policy = if args.allow_dev_tee || args.allow_dev_prover {
         warn!("NON-PRODUCTION DEV TEE POLICY ENABLED — DO NOT USE FOR PRODUCTION PROOFS");
         AttestationPolicy::allow_dev_software()
     } else {
         AttestationPolicy::production()
     };
+    // Enable offline verification of GCP Confidential Space Intel TDX provers (e.g. llm.proofofgeography.com)
+    // using either an operator-provided JWKS file or the pinned official Google Confidential Space JWKS.
+    let gcp_cs_jwks = std::env::var("POG_GCP_CS_JWKS_PATH")
+        .ok()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .unwrap_or_else(|| pog_tee::PINNED_OFFICIAL_GCP_CS_JWKS_JSON.to_string());
+    tee_policy.trusted_gcp_cs_jwks_json = Some(gcp_cs_jwks);
 
     let endorsement_path = args
         .endorsement_path
@@ -479,6 +523,7 @@ async fn main() -> Result<()> {
             args.max_global_per_min,
         )),
         info_cache: RwLock::new(None),
+        in_memory_endorsement: RwLock::new(None),
         endorsement_path,
         operator_root_pk_hex,
     });
@@ -517,6 +562,7 @@ async fn main() -> Result<()> {
             )
             .route("/info", get(anchor_info_handler))
             .route("/attest", get(anchor_attest_handler))
+            .route("/endorsement", post(anchor_post_endorsement_handler))
             .with_state(info_state);
         if let Ok(listener) = TcpListener::bind(info_listen).await {
             info!(http_info = %info_listen, "Anchor cached HTTP /info endpoint ready");
@@ -1171,6 +1217,60 @@ async fn anchor_attest_handler(
     }
 }
 
+/// Zero-SSH authenticated endorsement delivery endpoint (`POST /endorsement`).
+///
+/// Strictly requires a pinned `POG_ROOT_PUBLIC_KEY_HEX`, bounded payload (<= 8 KiB), exact match
+/// against this Anchor's live `anchor_id` and ephemeral in-RAM Ed25519 public key, unexpired TTL,
+/// and a valid Ed25519 signature under the pinned operator root key. Stores the verified
+/// endorsement in RAM only (zero disk writes, zero SSH, zero outbound TCP; automatically cleared
+/// on restart when a new ephemeral key is generated).
+async fn anchor_post_endorsement_handler(
+    AxumState(state): AxumState<Arc<AnchorState>>,
+    body: Bytes,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if body.len() > 8192 {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(serde_json::json!({ "error": "endorsement payload exceeds 8192 bytes" })),
+        ));
+    }
+    let Some(root_pk) = state.operator_root_pk_hex.as_deref() else {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "operator_root_pk_hex not pinned on anchor (fail-closed)" })),
+        ));
+    };
+    let cert: AnchorEndorsement = serde_json::from_slice(&body).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": format!("invalid AnchorEndorsement JSON: {e}") })),
+        )
+    })?;
+    let live_pk_hex = hex::encode(state.signing_key.verifying_key().to_bytes());
+    let now = Utc::now().timestamp().max(0) as u64;
+    let (verified_opt, status) = validate_endorsement_cert(
+        cert,
+        &state.anchor_id,
+        &live_pk_hex,
+        Some(root_pk),
+        now,
+    );
+    let Some(verified_cert) = verified_opt else {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": format!("endorsement rejected: {status}") })),
+        ));
+    };
+    *state.in_memory_endorsement.write().unwrap() = Some(verified_cert);
+    *state.info_cache.write().unwrap() = None;
+    info!(anchor = %state.anchor_id, "Accepted root-signed zero-SSH in-RAM AnchorEndorsement");
+    Ok(Json(serde_json::json!({
+        "status": "endorsed",
+        "anchor_id": state.anchor_id,
+        "public_key_hex": live_pk_hex,
+    })))
+}
+
 async fn anchor_info_handler(
     AxumState(state): AxumState<Arc<AnchorState>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
@@ -1271,6 +1371,7 @@ mod tests {
             concurrency_sem: Arc::new(Semaphore::new(4)),
             rate_limiter: Mutex::new(RateLimiter::new(100, 100)),
             info_cache: RwLock::new(None),
+            in_memory_endorsement: RwLock::new(None),
             endorsement_path: PathBuf::from("/nonexistent/endorsement.json"),
             operator_root_pk_hex: None,
         });
@@ -1414,6 +1515,7 @@ mod tests {
             concurrency_sem: Arc::new(Semaphore::new(4)),
             rate_limiter: Mutex::new(RateLimiter::new(10, 100)),
             info_cache: RwLock::new(None),
+            in_memory_endorsement: RwLock::new(None),
             endorsement_path: PathBuf::from("/nonexistent/endorsement.json"),
             operator_root_pk_hex: None,
         };
@@ -1448,5 +1550,124 @@ mod tests {
             &quote.workload_measurement_hex,
         );
         assert!(WorkloadKeypair::verify_with_hex(&pk_hex, &wrong_msg, &pop_sig).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_zero_ssh_post_endorsement_accepts_valid_and_rejects_forged() {
+        let root_sk = SigningKey::generate(&mut OsRng);
+        let root_pk_hex = hex::encode(root_sk.verifying_key().to_bytes());
+        let other_root_sk = SigningKey::generate(&mut OsRng);
+        let anchor_sk = SigningKey::generate(&mut OsRng);
+        let anchor_pk_hex = hex::encode(anchor_sk.verifying_key().to_bytes());
+        let now = Utc::now().timestamp().max(0) as u64;
+
+        let make_state = |pinned_root: Option<String>| {
+            Arc::new(AnchorState {
+                anchor_id: "azure-uksouth-london-cvm".into(),
+                cloud_provider: "azure".into(),
+                signing_key: SigningKey::from_bytes(&anchor_sk.to_bytes()),
+                cookie_secret: [7u8; 32],
+                tee_provider: Box::new(SoftwareDevProvider::new("cd".repeat(48))),
+                tee_policy: AttestationPolicy::allow_dev_software(),
+                udp_bind_ip: "127.0.0.1".parse().unwrap(),
+                udp_port_min: 40000,
+                udp_port_max: 40999,
+                concurrency_sem: Arc::new(Semaphore::new(4)),
+                rate_limiter: Mutex::new(RateLimiter::new(10, 100)),
+                info_cache: RwLock::new(None),
+                in_memory_endorsement: RwLock::new(None),
+                endorsement_path: PathBuf::from("/nonexistent/endorsement.json"),
+                operator_root_pk_hex: pinned_root,
+            })
+        };
+
+        let valid_cert = AnchorEndorsement::sign_new(
+            "proofofgeography.com",
+            "azure-uksouth-london-cvm",
+            &anchor_pk_hex,
+            51.5074,
+            -0.1278,
+            now.saturating_sub(10),
+            86_400,
+            &root_sk,
+        );
+        let valid_bytes = Bytes::from(serde_json::to_vec(&valid_cert).unwrap());
+
+        // 1. Fail-closed when operator_root_pk_hex is NOT pinned
+        let no_root_state = make_state(None);
+        let err = anchor_post_endorsement_handler(AxumState(no_root_state), valid_bytes.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
+
+        let state = make_state(Some(root_pk_hex.clone()));
+
+        // 2. Oversized body (> 8192 bytes) MUST be rejected with 413
+        let err_big = anchor_post_endorsement_handler(
+            AxumState(Arc::clone(&state)),
+            Bytes::from(vec![b' '; 8193]),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err_big.0, StatusCode::PAYLOAD_TOO_LARGE);
+
+        // 3. Forged signature under a different root key MUST be rejected with 403
+        let forged_cert = AnchorEndorsement::sign_new(
+            "proofofgeography.com",
+            "azure-uksouth-london-cvm",
+            &anchor_pk_hex,
+            51.5074,
+            -0.1278,
+            now.saturating_sub(10),
+            86_400,
+            &other_root_sk,
+        );
+        let err_forged = anchor_post_endorsement_handler(
+            AxumState(Arc::clone(&state)),
+            Bytes::from(serde_json::to_vec(&forged_cert).unwrap()),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err_forged.0, StatusCode::FORBIDDEN);
+
+        // 4. Wrong live anchor public key MUST be rejected with 403
+        let wrong_key_cert = AnchorEndorsement::sign_new(
+            "proofofgeography.com",
+            "azure-uksouth-london-cvm",
+            "00".repeat(32),
+            51.5074,
+            -0.1278,
+            now.saturating_sub(10),
+            86_400,
+            &root_sk,
+        );
+        let err_key = anchor_post_endorsement_handler(
+            AxumState(Arc::clone(&state)),
+            Bytes::from(serde_json::to_vec(&wrong_key_cert).unwrap()),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err_key.0, StatusCode::FORBIDDEN);
+
+        // 5. Valid root-signed endorsement MUST be accepted, stored in RAM, and exposed in /info & /attest
+        let ok = anchor_post_endorsement_handler(AxumState(Arc::clone(&state)), valid_bytes)
+            .await
+            .unwrap();
+        assert_eq!(ok.0["status"], "endorsed");
+        assert_eq!(ok.0["anchor_id"], "azure-uksouth-london-cvm");
+
+        let info = build_info_payload(&state, "bootstrap-test".into());
+        assert_eq!(info["endorsement_status"], "matched");
+        assert_eq!(
+            info["operator_endorsement"]["anchor_public_key_hex"],
+            anchor_pk_hex
+        );
+
+        let attest = build_fresh_attest_payload(&state, &"11".repeat(32)).unwrap();
+        assert_eq!(attest["endorsement_status"], "matched");
+        assert_eq!(
+            attest["operator_endorsement"]["anchor_id"],
+            "azure-uksouth-london-cvm"
+        );
     }
 }

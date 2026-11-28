@@ -18,6 +18,11 @@ pub const GCP_CS_JWKS_URI: &str =
     "https://www.googleapis.com/service_accounts/v1/metadata/jwk/signer@confidentialspace-sign.iam.gserviceaccount.com";
 /// Default OIDC audience bound into Proof of Geography Confidential Space attestation tokens.
 pub const GCP_CS_DEFAULT_AUDIENCE: &str = "https://proofofgeography.com";
+/// Secondary OIDC audience used by the public Verified LLM Confidential Space workload.
+pub const GCP_CS_LLM_DEMO_AUDIENCE: &str = "https://llm.proofofgeography.com";
+/// Pinned official Google Confidential Space OIDC RS256 JWK Set (fetched from `GCP_CS_JWKS_URI`)
+/// enabling zero-egress production anchors to verify GCP Confidential Space Intel TDX provers offline.
+pub const PINNED_OFFICIAL_GCP_CS_JWKS_JSON: &str = r#"{"keys":[{"n":"wN8cCOiG25yyEDaq-KuxykXzUqDfiFgpaRhBoHQqWn2ocr3WspS1t5ToaBWhF9brM9IQwQ3qsdbkAkn9goIoHPqepPnMvpvk5wdow_ummRQ2TvsDUcodf0TCQ9PXDpG76_pOQ7XbQo808Apomh0Tk45_xqWPH2GSAGNd-Mv3M8M5jGO36Y5oIuWAiy617PazWzsc75XYBvMpvLdO9TDdkasw-ke1xHODhybJD6v7ng-g3xZPXiPxmhu7f_Qcxe--5bVN1b9iq__0EGfoRpVgCUusl8b8UmpMJsuvZUNqTdpTXKAC_2GrIXaVTicf35tX1bDmBOFWDsiham82ub8UGw","alg":"RS256","use":"sig","kty":"RSA","kid":"1be6ff7287d640316ddc929e1a8b21fbca7e54e7","e":"AQAB"},{"alg":"RS256","use":"sig","e":"AQAB","kid":"c691621e2335a946ba9e6f0b16898f8d0f859aec","n":"0kxRMoPTJ_Fs-jMzTBJG-OBt_VM6o4dZNm0xr4JIQ_6UmM9ZCn7ILGgrL-Vyt6S2Lw0RkBJvsj3WcBvMsj5TM5wc-nT5v5Fd02B0jWsoce1CEhFIS06OGjQoqJEWF8g9_G1t0P4LxNMQzjeN-TokSq6__DacY67Dijue-V0wRUFkoLcdwtmCnwQ6RgQnXw9saM4jYhJmDVsL6SXfzfwI39wSqyEX-yY9s4v6L4G5gpNAsxyqv33w5GOmh9fFVxkGlZVIsW8Gz3P2Ngg-Lc-MFNrnPXDPy65D43tXqwC7wKMuJpGXoktFk_VorJu7vrjrcbEF0av7ArjafCL3BE5Eqw","kty":"RSA"}]}"#;
 /// Local Unix domain socket exposed by the Confidential Space production container launcher.
 pub const GCP_CS_TEE_SOCKET: &str = "/run/container_launcher/teeserver.sock";
 
@@ -664,15 +669,20 @@ pub fn verify_gcp_confidential_space_quote(
         TeeError::VerificationFailed(format!("invalid trusted_gcp_cs_jwks_json: {e}"))
     })?;
 
-    let expected_aud = policy
-        .expected_gcp_cs_audience
-        .as_deref()
-        .unwrap_or(GCP_CS_DEFAULT_AUDIENCE);
-    if audience != expected_aud {
+    let expected_aud = if let Some(explicit_aud) = policy.expected_gcp_cs_audience.as_deref() {
+        if audience != explicit_aud {
+            return Err(TeeError::VerificationFailed(format!(
+                "quote workload audience {audience:?} != expected {explicit_aud:?}"
+            )));
+        }
+        explicit_aud
+    } else if audience == GCP_CS_DEFAULT_AUDIENCE || audience == GCP_CS_LLM_DEMO_AUDIENCE {
+        audience.as_str()
+    } else {
         return Err(TeeError::VerificationFailed(format!(
-            "quote workload audience {audience:?} != expected {expected_aud:?}"
+            "quote workload audience {audience:?} not in allowed PoG audiences ({GCP_CS_DEFAULT_AUDIENCE}, {GCP_CS_LLM_DEMO_AUDIENCE})"
         )));
-    }
+    };
 
     let expected_nonce_hex = hex::encode(expected_nonce);
     let verified = verify_gcp_confidential_space_jwt(

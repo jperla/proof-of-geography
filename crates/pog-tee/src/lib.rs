@@ -21,7 +21,8 @@ pub use azure_cvm::{
 pub use gcp_confidential_space::{
     verify_gcp_confidential_space_jwt, verify_gcp_confidential_space_quote,
     GcpConfidentialSpaceProvider, JwkSet, RsaJwk, VerifiedGcpConfidentialSpaceToken,
-    GCP_CS_DEFAULT_AUDIENCE, GCP_CS_ISSUER, GCP_CS_JWKS_URI, GCP_CS_TEE_SOCKET,
+    GCP_CS_DEFAULT_AUDIENCE, GCP_CS_ISSUER, GCP_CS_JWKS_URI, GCP_CS_LLM_DEMO_AUDIENCE,
+    GCP_CS_TEE_SOCKET, PINNED_OFFICIAL_GCP_CS_JWKS_JSON,
 };
 pub use gpu::{
     compute_gpu_binding_nonce, verify_gpu_attestation_evidence, GpuAttestationEvidence,
